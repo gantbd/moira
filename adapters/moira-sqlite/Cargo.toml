@@ -1,0 +1,23 @@
+[package]
+name = "moira-sqlite"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Single-host SQLite checkpoint adapter outside Moira's deterministic core"
+
+[dependencies]
+moira-core = { path = "../.." }
+chronos-engine = { path = "../../../chronos" }
+daimon-harness = { path = "../../../daimon" }
+aegis-authority = { path = "../../../aegis" }
+agora-engine = { path = "../../../agora" }
+keystone-codec = { path = "../../../keystone/crates/keystone-codec" }
+rusqlite = { version = "=0.41.1", features = ["bundled", "limits"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

@@ -7,12 +7,18 @@ description = "A durable workflow coordinator for composing bounded domain engin
 license = "MIT OR Apache-2.0"
 publish = false
 
+[workspace]
+members = [".", "adapters/moira-sqlite"]
+default-members = [".", "adapters/moira-sqlite"]
+resolver = "3"
+
 [lib]
 path = "src/lib.rs"
 
 [dependencies]
 keystone-effects = { path = "../keystone/crates/keystone-effects" }
 keystone-observe = { path = "../keystone/crates/keystone-observe" }
+keystone-codec = { path = "../keystone/crates/keystone-codec" }
 
 [dev-dependencies]
 aegis-authority = { path = "../aegis" }

@@ -21,6 +21,6 @@ Status: proposed. Nothing in this document is an implementation claim.
 - **M9 — Effect isolation:** engine transitions perform no I/O, read no clock, and
   invoke no connector.
 
-Open: storage format, timers, compensation vocabulary, workflow migration,
+Open: peer-side durable receipt/replay mappings, timers, compensation vocabulary, workflow migration,
 multi-workflow fairness, production connectors, and operational SLOs.
 

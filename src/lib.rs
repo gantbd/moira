@@ -12,6 +12,7 @@ pub const PROJECT_STAGE: &str = "deterministic-reference-slice";
 
 pub use keystone_effects::EffectKnowledge as EffectKnowledgeV1;
 pub mod instrumentation;
+pub mod persistence;
 
 macro_rules! id {
     ($name:ident) => {
