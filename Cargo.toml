@@ -1,0 +1,29 @@
+[package]
+name = "moira-core"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+description = "A durable workflow coordinator for composing bounded domain engines"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+keystone-effects = { path = "../keystone/crates/keystone-effects" }
+keystone-observe = { path = "../keystone/crates/keystone-observe" }
+
+[dev-dependencies]
+aegis-authority = { path = "../aegis" }
+agora-engine = { path = "../agora" }
+chronos-engine = { path = "../chronos" }
+daimon-harness = { path = "../daimon" }
+hermes-ledger = { path = "../hermes" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+
