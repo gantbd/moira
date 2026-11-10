@@ -20,7 +20,12 @@ Status: proposed. Nothing in this document is an implementation claim.
   actions but does not authenticate credentials itself.
 - **M9 — Effect isolation:** engine transitions perform no I/O, read no clock, and
   invoke no connector.
+- **M10 — Passive conversation ingress:** Agora addressing is observed as bounded
+  conversation data only. It creates no workflow, task, authority, or execution
+  inference. Workflow admission and participant-reference mapping require a
+  separate explicit Moira command whose replay is exact and whose conflicting
+  mapping is refused.
 
-Open: peer-side durable receipt/replay mappings, timers, compensation vocabulary, workflow migration,
+Open: additional production peer mappings, timers, compensation vocabulary, workflow migration,
 multi-workflow fairness, production connectors, and operational SLOs.
 

@@ -58,6 +58,10 @@
 
 - [Qualified against volatile cores] Hermes append, Chronos task admission,
   Aegis-authorized Daimon results, and Agora publication.
+- [Qualified for local durable ingress] Participant-neutral addressed Agora
+  events project as passive facts; explicit Moira admission and host-owned
+  participant mapping survive restart/lost reply without duplicate workflow or
+  task-submission identity.
 - Implement production adapters only after the Phase 2 store protocol closes
   crash/reply ambiguity.
 - Add Vellum only after the message-to-reply path is recoverable.

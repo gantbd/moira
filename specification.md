@@ -22,18 +22,20 @@ an observed old transition as a fresh effect-dispatch instruction.
 
 ## First workflow contract
 
-1. Admit one bounded Agora message reference and intended participant recipient.
-2. Prepare exactly one Chronos task-submission intent with a stable idempotency key.
-3. Accept only a receipt attributable to that intent.
-4. Record one Daimon execution result associated with the leased Chronos attempt.
-5. Prepare either a terminal failure response or one Agora reply-publication intent.
-6. Accept one attributable publication receipt and complete the workflow.
+1. Observe one bounded Agora message fact without changing workflow state.
+2. Explicitly admit its message reference and one host-mapped participant recipient.
+3. Prepare exactly one Chronos task-submission intent with a stable idempotency key.
+4. Accept only a receipt attributable to that intent.
+5. Record one Daimon execution result associated with the leased Chronos attempt.
+6. Prepare either a terminal failure response or one Agora reply-publication intent.
+7. Accept one attributable publication receipt and complete the workflow.
 
 Recovery resumes from retained decisions. It does not infer completion from an
 empty queue, missing process, elapsed timeout, or connector restart.
 
-The implemented reference slice currently covers steps 1–6 in volatile memory.
-Its engine owns a bounded workflow map, one optimistic revision, stable opaque
+The qualified local composition covers steps 1–7. The deterministic engine covers
+steps 2–7 in volatile memory; step 1 belongs to the durable Agora receiver. The
+engine owns a bounded workflow map, one optimistic revision, stable opaque
 workflow/effect identities, an admitted-message replay index, exact Chronos
 admission and attempt attribution, and an exact Daimon result receipt. Matching
 replay after either engine boundary returns the retained transition without
@@ -62,6 +64,15 @@ the original attribution/current phase, not a fresh execution instruction. The
 admission-only schema upgrades atomically with its receipts intact. Together with
 the result/publication receivers below, this covers the local fake-provider path through separate durable
 receivers. Production provider and remote-service conformance remain separate.
+
+The durable Agora receiver's pending-message projection is outside the Moira
+engine transition. It accepts an `EventSequence`, resolves only a retained event
+from that receiver's own storage scope, and returns an opaque
+`AgoraMessageRefV1` plus author and canonical addressed participant IDs. It does
+not expose the body, inspect participant kind, acknowledge the event, or construct
+`AdmitMessage`. The host owns participant-reference mapping and the explicit
+admission decision. Matching admission after a lost SQLite reply replays the
+original workflow/submission identity; a changed recipient mapping conflicts.
 
 Chronos result settlement now consumes only receiver-sealed fake-Daimon facts,
 explicit host action and source-owner correspondence. Completion, terminal failure,

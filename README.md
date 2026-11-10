@@ -4,8 +4,9 @@ Moira is the planned durable workflow coordinator for composing Agora, Chronos,
 Daimon, Vellum, Hermes, and Aegis without absorbing their domain semantics.
 
 The repository now contains a deterministic in-memory workflow slice from an
-Agora message reference through Chronos admission, one exact Chronos attempt, an
-attributable Daimon result, and replay-safe Agora response publication. Each
+explicitly admitted Agora message reference through Chronos admission, one exact
+Chronos attempt, an attributable Daimon result, and replay-safe Agora response
+publication. Each
 boundary retains one stable effect identity; matching input/receipt replay is an
 identity result and conflicting replay is refused. An uncertain harness result
 fences automatic progress. A validated in-memory checkpoint transfer preserves
@@ -175,6 +176,15 @@ owns room authorization and participant-neutral addressing. Addressing is not an
 execution request; Moira admits workflow only through its own explicit command.
 No additional Aegis policy is inferred.
 
+The receiver projects one of its own pending `MessageAccepted` outbox events as
+a passive `ConversationMessageFactV1`: opaque source/room/message reference,
+author, and canonical addressed participants, but no body or participant-kind
+policy. Projection is read-only and replay-stable across receiver restart. A host
+must explicitly map one addressed Agora participant to a `ParticipantRefV1` and
+submit `AdmitMessage`; changed mapping conflicts. Acknowledging the Agora outbox
+event removes it from this pending-fact surface. This is ingestion evidence, not
+workflow admission, task creation, authority, or proof of participant execution.
+
 Real database tests cover commit rollback/reply loss, receipt replay after message
 eviction, exact outbox recovery and receiver process exit without cleanup. The full
 four-store scenario begins with a persisted human message, settles the exact Chronos
@@ -199,7 +209,8 @@ publication; Hermes owns event delivery; Aegis owns authority evidence.
 The first target is one recoverable vertical slice:
 
 ```text
-addressed Agora message -> Chronos task -> fake Daimon result -> Agora reply
+addressed Agora fact -> explicit Moira admission -> Chronos task
+    -> fake Daimon result -> Agora reply
 ```
 
 Restart at every boundary must produce neither a duplicate task nor a duplicate

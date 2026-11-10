@@ -57,6 +57,8 @@ pub enum AgoraReceiverError {
     PublicationCapacity,
     AcknowledgementRefused,
     UnretainedMessage,
+    UnknownEvent,
+    NotMessageEvent,
 }
 impl std::fmt::Display for AgoraReceiverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -103,6 +105,40 @@ pub struct Published {
 pub struct Acknowledged {
     pub removed: usize,
     pub replayed: bool,
+}
+#[derive(Clone, Eq, PartialEq)]
+pub struct ConversationMessageFactV1 {
+    event_sequence: EventSequence,
+    message: AgoraMessageRefV1,
+    author: ParticipantId,
+    addressed_to: Vec<ParticipantId>,
+}
+impl ConversationMessageFactV1 {
+    pub const fn event_sequence(&self) -> EventSequence {
+        self.event_sequence
+    }
+    pub const fn message(&self) -> AgoraMessageRefV1 {
+        self.message
+    }
+    pub fn author(&self) -> &ParticipantId {
+        &self.author
+    }
+    pub fn addressed_to(&self) -> &[ParticipantId] {
+        &self.addressed_to
+    }
+    pub fn is_addressed_to(&self, participant: &ParticipantId) -> bool {
+        self.addressed_to.binary_search(participant).is_ok()
+    }
+}
+impl std::fmt::Debug for ConversationMessageFactV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConversationMessageFactV1")
+            .field("event_sequence", &self.event_sequence)
+            .field("message", &self.message)
+            .field("author_bytes", &self.author.as_str().len())
+            .field("addressed_count", &self.addressed_to.len())
+            .finish()
+    }
 }
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RecoveryUsage {
@@ -396,6 +432,36 @@ impl AgoraReceiver {
         let result = (|| {
             self.guard()?;
             Ok(self.engine.pending_events().cloned().collect())
+        })();
+        observe_read(&mut self.read_usage, &result);
+        result
+    }
+    /// Projects one retained Agora outbox event as passive conversation data.
+    /// Observation does not acknowledge the event or admit a Moira workflow.
+    pub fn pending_message_fact(
+        &mut self,
+        sequence: EventSequence,
+    ) -> Result<ConversationMessageFactV1, AgoraReceiverError> {
+        let result = (|| {
+            self.guard()?;
+            let envelope = self
+                .engine
+                .pending_events()
+                .find(|event| event.sequence == sequence)
+                .ok_or(AgoraReceiverError::UnknownEvent)?;
+            let DomainEventV2::MessageAccepted { room_id, message } = &envelope.event else {
+                return Err(AgoraReceiverError::NotMessageEvent);
+            };
+            let ordinal = *self
+                .catalog
+                .get(room_id)
+                .ok_or(AgoraReceiverError::InvalidState)?;
+            Ok(ConversationMessageFactV1 {
+                event_sequence: sequence,
+                message: AgoraMessageRefV1::new(self.identity.source, ordinal, message.sequence()),
+                author: message.author().clone(),
+                addressed_to: message.addressed_to().to_vec(),
+            })
         })();
         observe_read(&mut self.read_usage, &result);
         result

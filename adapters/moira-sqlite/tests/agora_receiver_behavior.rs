@@ -60,10 +60,186 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        for name in ["agora.db", "agora.db-journal", "agora.db.owner.lock"] {
+        for name in [
+            "agora.db",
+            "agora.db-journal",
+            "agora.db.owner.lock",
+            "origin.db",
+            "origin.db-journal",
+            "origin.db.owner.lock",
+        ] {
             let _ = fs::remove_file(self.0.join(name));
         }
         let _ = fs::remove_dir(&self.0);
+    }
+}
+
+#[test]
+fn addressed_event_is_passive_until_explicit_moira_admission() {
+    use moira_core::{CommandV1, Engine as Moira, Limits as MoiraLimits, ParticipantRefV1};
+
+    let f = Fixture::new();
+    let mut receiver = f.configured();
+    assert!(matches!(
+        receiver.pending_message_fact(EventSequence(0)),
+        Err(AgoraReceiverError::NotMessageEvent)
+    ));
+    let accepted = receiver
+        .apply(RevisionedCommandV2 {
+            expected_revision: receiver.revision(),
+            command: CommandV2::SpeakAddressed {
+                room_id: "room".into(),
+                author: "human".into(),
+                at: LogicalTime(9),
+                body: "private question".into(),
+                addressed_to: vec!["agent".into()],
+            },
+        })
+        .unwrap();
+    let fact = receiver
+        .pending_message_fact(accepted.event_sequence)
+        .unwrap();
+    assert_eq!(fact.event_sequence(), accepted.event_sequence);
+    assert_eq!(
+        fact.message(),
+        moira_core::AgoraMessageRefV1::new([10; 16], 0, 0)
+    );
+    assert_eq!(fact.author().as_str(), "human");
+    assert_eq!(fact.addressed_to(), [ParticipantId::from("agent")]);
+    assert!(fact.is_addressed_to(&"agent".into()));
+    let debug = format!("{fact:?}");
+    assert!(!debug.contains("human"));
+    assert!(!debug.contains("agent"));
+    assert!(!debug.contains("private question"));
+
+    let mut moira = Moira::try_new(MoiraLimits::default()).unwrap();
+    assert_eq!(moira.revision(), moira_core::WorkflowRevision(0));
+    let command = CommandV1::AdmitMessage {
+        message: fact.message(),
+        recipient: ParticipantRefV1::new([3; 16]),
+    };
+    let admitted = moira.apply(moira.revision(), command).unwrap();
+    let revision = moira.revision();
+    assert_eq!(moira.apply(revision, command).unwrap(), admitted);
+    assert_eq!(moira.revision(), revision);
+    assert_eq!(
+        moira.apply(
+            revision,
+            CommandV1::AdmitMessage {
+                message: fact.message(),
+                recipient: ParticipantRefV1::new([4; 16]),
+            },
+        ),
+        Err(moira_core::RefusalV1::InputConflict)
+    );
+    assert_eq!(moira.revision(), revision);
+
+    receiver
+        .acknowledge_events(accepted.event_sequence)
+        .unwrap();
+    assert!(matches!(
+        receiver.pending_message_fact(accepted.event_sequence),
+        Err(AgoraReceiverError::UnknownEvent)
+    ));
+}
+
+#[test]
+fn addressed_fact_and_explicit_admission_survive_lost_reply_without_duplication() {
+    use moira_core::persistence::CodecLimits;
+    use moira_core::{CommandV1, ParticipantRefV1, TransitionV1, WorkflowRevision};
+    use moira_sqlite::{SqliteStore, StoreLimits};
+
+    let f = Fixture::new();
+    let mut receiver = f.configured();
+    let accepted = receiver
+        .apply(RevisionedCommandV2 {
+            expected_revision: receiver.revision(),
+            command: CommandV2::SpeakAddressed {
+                room_id: "room".into(),
+                author: "human".into(),
+                at: LogicalTime(9),
+                body: "question".into(),
+                addressed_to: vec!["agent".into()],
+            },
+        })
+        .unwrap();
+    receiver
+        .apply(RevisionedCommandV2 {
+            expected_revision: receiver.revision(),
+            command: CommandV2::Speak {
+                room_id: "room".into(),
+                author: "human".into(),
+                at: LogicalTime(10),
+                body: "newest retained message".into(),
+            },
+        })
+        .unwrap();
+    assert!(matches!(
+        receiver.message_ref(&"room".into(), 0),
+        Err(AgoraReceiverError::UnretainedMessage)
+    ));
+    let before = receiver
+        .pending_message_fact(accepted.event_sequence)
+        .unwrap();
+    drop(receiver);
+    let mut receiver = f.open();
+    assert_eq!(
+        receiver
+            .pending_message_fact(accepted.event_sequence)
+            .unwrap(),
+        before
+    );
+
+    let command = CommandV1::AdmitMessage {
+        message: before.message(),
+        recipient: ParticipantRefV1::new([3; 16]),
+    };
+    let store_limits = StoreLimits {
+        codec: CodecLimits {
+            max_bytes: 8_192,
+            max_workflows: 2,
+        },
+        max_database_pages: 64,
+        timing: Timing::Off,
+    };
+    let path = f.0.join("origin.db");
+    let mut origin = SqliteStore::open(&path, [8; 16], store_limits).unwrap();
+    let _lost = origin.apply(WorkflowRevision(0), command).unwrap();
+    drop(origin);
+
+    let mut origin = SqliteStore::open(&path, [8; 16], store_limits).unwrap();
+    let replay = origin.apply(WorkflowRevision(1), command).unwrap();
+    assert!(replay.replayed);
+    assert!(matches!(
+        replay.transition,
+        TransitionV1::ChronosSubmissionPrepared { .. }
+    ));
+    assert_eq!(origin.usage().committed, 0);
+    assert_eq!(origin.usage().replayed, 1);
+}
+
+#[test]
+fn participant_kind_does_not_change_addressed_fact_projection() {
+    for (author, recipient) in [("human", "agent"), ("agent", "human")] {
+        let f = Fixture::new();
+        let mut receiver = f.configured();
+        let accepted = receiver
+            .apply(RevisionedCommandV2 {
+                expected_revision: receiver.revision(),
+                command: CommandV2::SpeakAddressed {
+                    room_id: "room".into(),
+                    author: author.into(),
+                    at: LogicalTime(9),
+                    body: "message".into(),
+                    addressed_to: vec![recipient.into()],
+                },
+            })
+            .unwrap();
+        let fact = receiver
+            .pending_message_fact(accepted.event_sequence)
+            .unwrap();
+        assert_eq!(fact.author().as_str(), author);
+        assert_eq!(fact.addressed_to(), [ParticipantId::from(recipient)]);
     }
 }
 fn identity() -> AgoraIdentity {

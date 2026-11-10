@@ -14,4 +14,5 @@ checkpoint is not crash-recovery evidence. Open is not a pass.
 | M7 bounds | explicit workflow-count limit and checked revision/identity counters | constructor/capacity expansion still needed | Partial |
 | M8 authority | Aegis validated decision adapted into Daimon authority evidence | Moira→Aegis→Daimon qualification uses scoped execute grant and attributed decision | Partial; production credential/adapter binding open |
 | M9 isolation | deterministic core with explicit commands/receipts; Keystone effect lattice is the sole mechanism dependency | source boundary, behavior tests, strict lint | Satisfied for implemented volatile slice |
+| M10 passive conversation ingress | durable Agora pending-event projection plus explicit core `AdmitMessage` | passive-before-admit, restart-stable fact, human/agent symmetry, mapping conflict, acknowledgement removal, and lost-admission-reply replay scenarios | Satisfied for the local Agora receiver profile |
 
