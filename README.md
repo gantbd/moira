@@ -223,3 +223,8 @@ the [roadmap](docs/roadmap.md).
 make check
 ```
 
+## SDK facade
+
+`moira-sdk-embedded` reexports the workflow engine without selecting peer
+engines, persistence, effect interpreters, or runtime policy.
+

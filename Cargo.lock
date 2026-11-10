@@ -118,6 +118,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "moira-sdk-embedded"
+version = "0.1.0"
+dependencies = [
+ "moira-core",
+]
+
+[[package]]
 name = "moira-sqlite"
 version = "0.0.1"
 dependencies = [

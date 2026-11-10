@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace]
-members = [".", "adapters/moira-sqlite"]
-default-members = [".", "adapters/moira-sqlite"]
+members = [".", "adapters/moira-sqlite", "sdk/embedded"]
+default-members = [".", "adapters/moira-sqlite", "sdk/embedded"]
 resolver = "3"
 
 [lib]
