@@ -43,7 +43,6 @@ pub enum RefusalClass {
     InvalidInput,
     Duplicate,
     Exhausted,
-    Activation,
 }
 #[derive(Debug)]
 pub enum AgoraReceiverError {
@@ -96,7 +95,7 @@ impl std::fmt::Debug for ReplyMessage {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Published {
-    pub transition: TransitionV1,
+    pub transition: TransitionV2,
     pub receipt: AgoraPublicationReceiptV1,
     pub replayed: bool,
 }
@@ -287,8 +286,8 @@ impl AgoraReceiver {
     }
     pub fn apply(
         &mut self,
-        command: RevisionedCommandV1,
-    ) -> Result<TransitionV1, AgoraReceiverError> {
+        command: RevisionedCommandV2,
+    ) -> Result<TransitionV2, AgoraReceiverError> {
         let result = (|| {
             self.guard()?;
             let result = self
@@ -297,7 +296,7 @@ impl AgoraReceiver {
                 .map_err(|e| AgoraReceiverError::CommandRefused(classify(e)))?;
             self.healthy = false;
             let room = match &result.outcome {
-                OutcomeV1::RoomCreated(id) => Some(id.clone()),
+                OutcomeV2::RoomCreated(id) => Some(id.clone()),
                 _ => None,
             };
             self.persist(room, Operation::Command)?;
@@ -317,22 +316,22 @@ impl AgoraReceiver {
             let before = self.engine.revision();
             let transition = self
                 .engine
-                .publish(PublicationCommandV1::new(
+                .publish(PublicationCommandV2::new(
                     expected,
-                    PublicationKeyV1::new(effect.into_bytes()),
+                    PublicationKeyV2::new(effect.into_bytes()),
                     message.room_id,
                     message.author,
                     message.at,
                     message.body,
                 ))
                 .map_err(|e| match e {
-                    PublicationRefusalV1::IdempotencyConflict => {
+                    PublicationRefusalV2::IdempotencyConflict => {
                         AgoraReceiverError::PublicationConflict
                     }
-                    PublicationRefusalV1::PublicationReceiptLimit => {
+                    PublicationRefusalV2::PublicationReceiptLimit => {
                         AgoraReceiverError::PublicationCapacity
                     }
-                    PublicationRefusalV1::Core(e) => {
+                    PublicationRefusalV2::Core(e) => {
                         AgoraReceiverError::PublicationRefused(classify(e))
                     }
                 })?;
@@ -341,7 +340,7 @@ impl AgoraReceiver {
                 self.healthy = false;
                 self.persist(None, Operation::Publication)?;
             }
-            let OutcomeV1::MessageAccepted { room_id, sequence } = &transition.outcome else {
+            let OutcomeV2::MessageAccepted { room_id, sequence } = &transition.outcome else {
                 self.healthy = false;
                 return Err(AgoraReceiverError::InvalidState);
             };
@@ -393,7 +392,7 @@ impl AgoraReceiver {
         observe_read(&mut self.read_usage, &result);
         result
     }
-    pub fn pending_events(&mut self) -> Result<Vec<EventEnvelopeV1>, AgoraReceiverError> {
+    pub fn pending_events(&mut self) -> Result<Vec<EventEnvelopeV2>, AgoraReceiverError> {
         let result = (|| {
             self.guard()?;
             Ok(self.engine.pending_events().cloned().collect())
@@ -631,10 +630,8 @@ fn classify(e: Refusal) -> RefusalClass {
         | Refusal::MemberLimit
         | Refusal::InvitationLimit
         | Refusal::MessageRetentionDisabled
-        | Refusal::AgentActivationLimit => RefusalClass::Capacity,
-        Refusal::UnknownParticipant(_)
-        | Refusal::UnknownRoom(_)
-        | Refusal::UnknownMessageSequence(_) => RefusalClass::UnknownResource,
+        | Refusal::AddressedParticipantLimit => RefusalClass::Capacity,
+        Refusal::UnknownParticipant(_) | Refusal::UnknownRoom(_) => RefusalClass::UnknownResource,
         Refusal::InvitationRequired(_)
         | Refusal::NotAuthorized(_)
         | Refusal::OwnerCannotLeave
@@ -647,14 +644,11 @@ fn classify(e: Refusal) -> RefusalClass {
         | Refusal::InvalidDisplayName
         | Refusal::InvalidRoomName
         | Refusal::InvalidMessageBody
+        | Refusal::NonCanonicalAddressing
         | Refusal::InvalidRoleChange => RefusalClass::InvalidInput,
         Refusal::MessageSequenceExhausted
         | Refusal::RevisionExhausted
         | Refusal::EventSequenceExhausted => RefusalClass::Exhausted,
-        Refusal::AgentActivationDisabled
-        | Refusal::ExplicitActivationRequired
-        | Refusal::ActivationRequesterMustBeHuman
-        | Refusal::TargetNotAgent(_) => RefusalClass::Activation,
     }
 }
 
@@ -694,18 +688,18 @@ mod tests {
         }
         fn configured(&self) -> AgoraReceiver {
             let mut r = self.open();
-            r.apply(RevisionedCommandV1 {
+            r.apply(RevisionedCommandV2 {
                 expected_revision: r.revision(),
-                command: CommandV1::RegisterParticipant(Participant::new(
+                command: CommandV2::RegisterParticipant(Participant::new(
                     "owner",
                     "Owner",
                     ParticipantKind::Human,
                 )),
             })
             .unwrap();
-            r.apply(RevisionedCommandV1 {
+            r.apply(RevisionedCommandV2 {
                 expected_revision: r.revision(),
-                command: CommandV1::CreateRoom {
+                command: CommandV2::CreateRoom {
                     room_id: "room".into(),
                     name: "Room".into(),
                     owner: "owner".into(),

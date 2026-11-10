@@ -1,7 +1,7 @@
 use agora_engine::{
-    AdmissionPolicy, CommandV1 as AgoraCommand, Engine as Agora, LogicalTime,
-    OutcomeV1 as AgoraOutcome, Participant, ParticipantId, ParticipantKind, PublicationCommandV1,
-    PublicationKeyV1, RoomId,
+    AdmissionPolicy, CommandV2 as AgoraCommand, Engine as Agora, LogicalTime,
+    OutcomeV2 as AgoraOutcome, Participant, ParticipantId, ParticipantKind, PublicationCommandV2,
+    PublicationKeyV2, RoomId,
 };
 use moira_core::{
     AgoraMessageRefV1, AgoraPublicationReceiptV1, ChronosAdmissionReceiptV1,
@@ -106,9 +106,9 @@ fn lost_agora_reply_is_closed_by_keyed_replay_without_a_duplicate_message() {
             participant: ParticipantId::from("agent"),
         })
         .unwrap();
-    let publication = PublicationCommandV1::new(
+    let publication = PublicationCommandV2::new(
         agora.revision(),
-        PublicationKeyV1::new(publication_effect.into_bytes()),
+        PublicationKeyV2::new(publication_effect.into_bytes()),
         RoomId::from("room"),
         ParticipantId::from("agent"),
         LogicalTime(10),

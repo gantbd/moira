@@ -31,15 +31,15 @@ impl Fixture {
             ("human", ParticipantKind::Human),
             ("agent", ParticipantKind::Agent),
         ] {
-            r.apply(RevisionedCommandV1 {
+            r.apply(RevisionedCommandV2 {
                 expected_revision: r.revision(),
-                command: CommandV1::RegisterParticipant(Participant::new(id, id, kind)),
+                command: CommandV2::RegisterParticipant(Participant::new(id, id, kind)),
             })
             .unwrap();
         }
-        r.apply(RevisionedCommandV1 {
+        r.apply(RevisionedCommandV2 {
             expected_revision: r.revision(),
-            command: CommandV1::CreateRoom {
+            command: CommandV2::CreateRoom {
                 room_id: "room".into(),
                 name: "Room".into(),
                 owner: "human".into(),
@@ -47,9 +47,9 @@ impl Fixture {
             },
         })
         .unwrap();
-        r.apply(RevisionedCommandV1 {
+        r.apply(RevisionedCommandV2 {
             expected_revision: r.revision(),
-            command: CommandV1::Join {
+            command: CommandV2::Join {
                 room_id: "room".into(),
                 participant: "agent".into(),
             },
@@ -101,9 +101,9 @@ fn reply_and_exact_receipt_survive_restart_even_after_message_eviction() {
         .publish(EffectId::new([1; 16]), original, message())
         .unwrap();
     assert!(!first.replayed);
-    r.apply(RevisionedCommandV1 {
+    r.apply(RevisionedCommandV2 {
         expected_revision: r.revision(),
-        command: CommandV1::Speak {
+        command: CommandV2::Speak {
             room_id: "room".into(),
             author: "human".into(),
             at: LogicalTime(11),
@@ -182,9 +182,9 @@ fn conflicting_publication_and_stale_command_do_not_change_stored_state() {
         Err(AgoraReceiverError::PublicationConflict)
     ));
     assert!(
-        r.apply(RevisionedCommandV1 {
+        r.apply(RevisionedCommandV2 {
             expected_revision: Revision(0),
-            command: CommandV1::Join {
+            command: CommandV2::Join {
                 room_id: "room".into(),
                 participant: "agent".into()
             }

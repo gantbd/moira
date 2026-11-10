@@ -171,7 +171,9 @@ are explicit. Timed samples measure actual SQL attempts (startup separately), no
 end-to-end/UI responsiveness or delivery proof. Refusal diagnostics classify causes
 without participant/message identifiers. Acknowledgements preserve exact prefixes
 but remain host assertions of external delivery. Hosts authenticate actors; Agora
-owns room authorization and activation. No additional Aegis policy is inferred.
+owns room authorization and participant-neutral addressing. Addressing is not an
+execution request; Moira admits workflow only through its own explicit command.
+No additional Aegis policy is inferred.
 
 Real database tests cover commit rollback/reply loss, receipt replay after message
 eviction, exact outbox recovery and receiver process exit without cleanup. The full

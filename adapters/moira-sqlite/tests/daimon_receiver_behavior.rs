@@ -389,26 +389,26 @@ fn four_store_workflow_completes_or_fences_without_duplicate_effects() {
             ("agent", agora_engine::ParticipantKind::Agent),
         ] {
             agora
-                .apply(agora_engine::RevisionedCommandV1 {
+                .apply(agora_engine::RevisionedCommandV2 {
                     expected_revision: agora.revision(),
-                    command: agora_engine::CommandV1::RegisterParticipant(
+                    command: agora_engine::CommandV2::RegisterParticipant(
                         agora_engine::Participant::new(id, id, kind),
                     ),
                 })
                 .unwrap();
         }
         for command in [
-            agora_engine::CommandV1::CreateRoom {
+            agora_engine::CommandV2::CreateRoom {
                 room_id: "room".into(),
                 name: "Room".into(),
                 owner: "human".into(),
                 admission: agora_engine::AdmissionPolicy::Open,
             },
-            agora_engine::CommandV1::Join {
+            agora_engine::CommandV2::Join {
                 room_id: "room".into(),
                 participant: "agent".into(),
             },
-            agora_engine::CommandV1::Speak {
+            agora_engine::CommandV2::Speak {
                 room_id: "room".into(),
                 author: "human".into(),
                 at: agora_engine::LogicalTime(9),
@@ -416,7 +416,7 @@ fn four_store_workflow_completes_or_fences_without_duplicate_effects() {
             },
         ] {
             agora
-                .apply(agora_engine::RevisionedCommandV1 {
+                .apply(agora_engine::RevisionedCommandV2 {
                     expected_revision: agora.revision(),
                     command,
                 })
