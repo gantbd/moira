@@ -120,3 +120,9 @@ license|version_check|0.9.5|MIT/Apache-2.0
 license|windows-link|0.2.1|MIT OR Apache-2.0
 license|windows-sys|0.61.2|MIT OR Apache-2.0
 license|zmij|1.0.23|MIT
+license|agora-actor-publication-port|0.1.0|MIT OR Apache-2.0
+license|agora-delivery-projection-port|0.1.0|MIT OR Apache-2.0
+license|moira-reconciliation-command|0.1.0|MIT OR Apache-2.0
+license|moira-saga-local|0.1.0|MIT OR Apache-2.0
+license|signal-hook-registry|1.4.8|MIT OR Apache-2.0
+license|signal-hook|0.3.18|Apache-2.0/MIT

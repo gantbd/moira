@@ -16,11 +16,13 @@ package|adapters/moira-unix-peer/Cargo.toml|moira-unix-peer|0.1.0
 package|adapters/moira-vellum/Cargo.toml|moira-vellum|0.1.0
 package|apps/moira-agent-local/Cargo.toml|moira-agent-local|0.1.0
 package|apps/moira-methodical-local/Cargo.toml|moira-methodical-local|0.1.0
+package|apps/moira-saga-local/Cargo.toml|moira-saga-local|0.1.0
 package|crates/moira-client/Cargo.toml|moira-client|0.1.0
 package|crates/moira-host/Cargo.toml|moira-host|0.1.0
 package|crates/moira-local-daemon/Cargo.toml|moira-local-daemon|0.1.0
 package|crates/moira-local-harness/Cargo.toml|moira-local-harness|0.1.0
 package|crates/moira-protocol/Cargo.toml|moira-protocol|0.1.0
+package|crates/moira-reconciliation-command/Cargo.toml|moira-reconciliation-command|0.1.0
 package|crates/moira-service/Cargo.toml|moira-service|0.1.0
 package|crates/moira-wire/Cargo.toml|moira-wire|0.1.0
 package|qualification/aegis-moira-process/Cargo.toml|moira-qualification-aegis-process|0.0.1
@@ -31,6 +33,8 @@ package|qualification/daimon-process-execution/Cargo.toml|moira-qualification-da
 package|qualification/hermes-process-delivery/Cargo.toml|moira-qualification-hermes-process|0.0.1
 package|qualification/live-execution-chain/Cargo.toml|moira-qualification-live-execution-chain|0.0.1
 package|qualification/methodical-peer-live/Cargo.toml|moira-methodical-peer-live-qualification|0.0.0
+package|qualification/peer-effect-process/Cargo.toml|moira-peer-effect-process-qualification|0.0.0
+package|qualification/vellum-process-publication/Cargo.toml|moira-vellum-process-qualification|0.0.0
 package|sdk/embedded/Cargo.toml|moira-sdk-embedded|0.1.0
 fixture|tests/fixtures/checkpoint-v1-live.hex|c53d8c859edf657149421e73e4d065c2ca87ea5d9d9547aded3633ac7e1220af
 fixture|tests/fixtures/saga-checkpoint-v1-live.hex|7a991055ff3bf36b348cabbf51a39800137c741fcd131cfc064c501b5cc4d9f1

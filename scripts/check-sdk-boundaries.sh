@@ -54,13 +54,13 @@ echo 'Moira Dendrite grounding adapter dependency closure verified'
 expect_dependencies moira-rune-validator 'moira-host,serde,serde_json,sha2'
 echo 'Moira Rune validator adapter dependency closure verified'
 
-expect_dependencies moira-local-harness 'agora-client,daimon-client,daimon-wire,moira-agora,moira-client,moira-core,moira-daimon,moira-host,moira-protocol,moira-vellum,sha2,vellum-protocol'
+expect_dependencies moira-local-harness 'agora-actor-publication-port,agora-client,daimon-client,daimon-wire,moira-agora,moira-client,moira-core,moira-daimon,moira-host,moira-protocol,moira-vellum,sha2,vellum-protocol'
 echo 'Moira governed local harness dependency closure verified'
 
 expect_dependencies moira-methodical-local 'aegis-client,aegis-local-daemon,aegis-protocol,aegis-wire,chronos-local,daimon-protocol,daimon-wire,moira-aegis,moira-agora,moira-agora-local,moira-agora-publisher-sqlite,moira-chronos,moira-client,moira-core,moira-daimon,moira-dendrite,moira-host,moira-local-harness,moira-protocol,moira-rune-validator,moira-service,moira-sqlite,moira-vellum,serde,serde_json,sha2,vellum-protocol,vellum-transport'
 echo 'Moira methodical operator composition dependency closure verified'
 
-expect_dependencies moira-agora 'agora-client,agora-protocol,moira-protocol'
+expect_dependencies moira-agora 'agora-actor-publication-port,agora-client,agora-protocol,moira-protocol'
 echo 'Moira Agora adapter public-client dependency closure verified'
 
 expect_dependencies moira-agora-local 'agora-client,agora-protocol,agora-wire'

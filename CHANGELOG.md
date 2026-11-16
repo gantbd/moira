@@ -125,6 +125,9 @@ Semantic Versioning once a public distribution contract is selected.
 
 ### Changed
 
+- Reconciled the package, dependency, license, advisory, and SDK-boundary
+  baselines with the current 37-package, 128-component coordinated source
+  profile.
 - Split peer-aware local SQLite receivers out of `moira-sqlite`: Agora now lives
   in `moira-agora-sqlite`, while settlement-coupled Chronos/Daimon execution lives
   in `moira-execution-sqlite`; dependency-closure gates keep the base package

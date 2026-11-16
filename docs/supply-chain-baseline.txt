@@ -1,5 +1,5 @@
 # Exact Cargo.lock component inventory for the coordinated source profile.
-git-source|git+https://github.com/gantbd/keystone?rev=3486252cdbaeb2d784756076f43ef6157ed0b7f8#3486252cdbaeb2d784756076f43ef6157ed0b7f8
+git-source|git+https://github.com/gantbd/keystone?rev=8a7970cb77e668f3488ecd97dae7c9e765f170cc#8a7970cb77e668f3488ecd97dae7c9e765f170cc
 component|aegis-authority|0.0.1
 component|aegis-client|0.1.0
 component|aegis-host|0.0.1
@@ -9,7 +9,9 @@ component|aegis-local|0.0.1
 component|aegis-protocol|0.1.0
 component|aegis-service|0.1.0
 component|aegis-wire|0.1.0
+component|agora-actor-publication-port|0.1.0
 component|agora-client|0.1.0
+component|agora-delivery-projection-port|0.1.0
 component|agora-engine|0.3.0
 component|agora-protocol|0.1.0
 component|agora-scheduled-publication-port|0.1.0
@@ -86,7 +88,9 @@ component|moira-local-daemon|0.1.0
 component|moira-local-harness|0.1.0
 component|moira-methodical-local|0.1.0
 component|moira-protocol|0.1.0
+component|moira-reconciliation-command|0.1.0
 component|moira-rune-validator|0.1.0
+component|moira-saga-local|0.1.0
 component|moira-sdk-embedded|0.1.0
 component|moira-service|0.1.0
 component|moira-sqlite|0.0.1
@@ -106,6 +110,8 @@ component|serde_json|1.0.151
 component|serde|1.0.229
 component|sha2|0.10.9
 component|shlex|2.0.1
+component|signal-hook-registry|1.4.8
+component|signal-hook|0.3.18
 component|smallvec|1.16.5
 component|sqlite-wasm-rs|0.6.2
 component|syn|3.0.10

@@ -18,7 +18,7 @@ the accepted baseline remains Moira-owned policy.
 
 The excluded `qualification/aegis-moira-process` assurance workspace has a
 separate lockfile and is exercised by `make qualify-aegis-process`. Its graph is
-not silently merged into Moira's 112-component production/test baseline: doing so
+not silently merged into Moira's 128-component production/test baseline: doing so
 would conflate Aegis's shared Keystone storage with Chronos's sovereign vendored
 storage package merely because both currently use the same Cargo name and version.
 The excluded `qualification/chronos-service-recovery` workspace likewise owns a
