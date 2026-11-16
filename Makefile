@@ -1,8 +1,8 @@
-.PHONY: check check-peer-profiles check-release-contract check-compatibility-baseline check-physical-integrity check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc soak soak-process soak-hermes-process soak-live-execution performance build-live-execution-helpers qualify-aegis-process qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-agent-live-provider qualify-methodical-chatbot-live-provider qualify-methodical-chatbot-peers qualify-methodical-peers qualify-methodical-profiles qualify-methodical-tools qualify-methodical-workflow-live-provider qualify-methodical-workflow-peer-live-provider
+.PHONY: check check-peer-profiles check-release-contract check-compatibility-baseline check-physical-integrity check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc soak soak-process soak-hermes-process soak-live-execution performance build-live-execution-helpers qualify-aegis-process qualify-agent-local qualify-agent-reattach-recovery qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-agent-live-provider qualify-methodical-chatbot-live-provider qualify-methodical-chatbot-peers qualify-methodical-peers qualify-methodical-profiles qualify-methodical-tools qualify-methodical-workflow-live-provider qualify-methodical-workflow-peer-live-provider
 
 check: check-release-contract check-compatibility-baseline check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc
 
-check-peer-profiles: qualify-aegis-process qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-peers
+check-peer-profiles: qualify-aegis-process qualify-agent-local qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-peers
 
 check-release-contract:
 	bash scripts/check-release-contract.sh
@@ -26,7 +26,7 @@ check-sdk-boundaries:
 	./scripts/check-sdk-boundaries.sh
 
 fmt:
-	cargo fmt -p moira-core -p moira-sqlite -p moira-agora-sqlite -p moira-execution-sqlite -p moira-aegis -p moira-agora -p moira-agora-local -p moira-chronos -p moira-daimon -p moira-dendrite -p moira-hermes -p moira-rune-validator -p moira-unix-peer -p moira-methodical-local -p moira-client -p moira-host -p moira-local-daemon -p moira-local-harness -p moira-protocol -p moira-service -p moira-wire -p moira-sdk-embedded -- --check
+	cargo fmt -p moira-core -p moira-sqlite -p moira-agora-sqlite -p moira-execution-sqlite -p moira-aegis -p moira-agora -p moira-agora-local -p moira-chronos -p moira-daimon -p moira-dendrite -p moira-hermes -p moira-rune-validator -p moira-unix-peer -p moira-methodical-local -p moira-agent-local -p moira-client -p moira-host -p moira-local-daemon -p moira-local-harness -p moira-protocol -p moira-service -p moira-wire -p moira-sdk-embedded -- --check
 
 lint:
 	cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
@@ -58,6 +58,17 @@ performance:
 qualify-aegis-process:
 	cargo fmt --manifest-path qualification/aegis-moira-process/Cargo.toml -- --check
 	cargo test --manifest-path qualification/aegis-moira-process/Cargo.toml --all-targets --locked --offline
+
+qualify-agent-local:
+	cargo fmt -p moira-agent-local -- --check
+	cargo clippy -p moira-agent-local --all-targets --locked --offline -- -D warnings
+	cargo test -p moira-agent-local --all-targets --locked --offline
+
+qualify-agent-reattach-recovery:
+	cargo test --manifest-path ../daimon/Cargo.toml -p daimon-local-agent --test process_journey executable_restarts_idle_acp_session_and_requires_explicit_reattach --locked --offline -- --exact --nocapture
+	DAIMON_LOCAL_AGENT_PROGRAM='$(abspath ../daimon/target/debug/daimon-local-agent)' cargo test -p moira-agent-local --test combined_reattach_process moira_recovers_through_real_daimon_process_kill_and_explicit_confirmation --locked --offline -- --ignored --exact --nocapture
+	cargo test -p moira-agent-local --test real_process_journey executable_discovers_confirms_and_dispatches_governed_reattach --locked --offline -- --exact --nocapture
+	cargo test --manifest-path ../moira-tui/Cargo.toml -p moira-tui-cli --test permission_confirmation cli_views_then_confirms_only_the_server_prepared_reattach --locked --offline -- --exact --nocapture
 
 qualify-agora-local-port:
 	cargo fmt --manifest-path qualification/agora-local-port/Cargo.toml -- --check

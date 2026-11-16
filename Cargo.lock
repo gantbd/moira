@@ -23,11 +23,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "aegis-local-daemon"
+name = "aegis-local"
+version = "0.0.1"
+dependencies = [
+ "aegis-authority",
+ "aegis-host",
+ "keystone-storage-directory",
+]
+
+[[package]]
+name = "aegis-local-client"
 version = "0.1.0"
 dependencies = [
  "aegis-client",
+ "aegis-protocol",
+ "aegis-wire",
+]
+
+[[package]]
+name = "aegis-local-daemon"
+version = "0.1.0"
+dependencies = [
  "aegis-host",
+ "aegis-local-client",
  "aegis-protocol",
  "aegis-service",
  "aegis-wire",
@@ -62,6 +80,7 @@ name = "agora-client"
 version = "0.1.0"
 dependencies = [
  "agora-protocol",
+ "agora-scheduled-publication-port",
 ]
 
 [[package]]
@@ -73,10 +92,15 @@ name = "agora-protocol"
 version = "0.1.0"
 
 [[package]]
+name = "agora-scheduled-publication-port"
+version = "0.1.0"
+
+[[package]]
 name = "agora-wire"
 version = "0.1.0"
 dependencies = [
  "agora-protocol",
+ "agora-scheduled-publication-port",
  "keystone-codec 0.0.1",
 ]
 
@@ -85,6 +109,12 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bitflags"
@@ -179,6 +209,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "daimon-acp"
+version = "0.1.0"
+dependencies = [
+ "daimon-host",
+ "daimon-process",
+ "daimon-protocol",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "daimon-agent-router"
+version = "0.0.1"
+dependencies = [
+ "daimon-host",
+ "daimon-protocol",
+]
+
+[[package]]
 name = "daimon-chronos"
 version = "0.1.0"
 dependencies = [
@@ -186,6 +235,17 @@ dependencies = [
  "chronos-protocol",
  "daimon-host",
  "daimon-protocol",
+]
+
+[[package]]
+name = "daimon-claude"
+version = "0.1.0"
+dependencies = [
+ "daimon-host",
+ "daimon-process",
+ "daimon-protocol",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -216,6 +276,15 @@ dependencies = [
  "daimon-protocol",
  "daimon-service",
  "daimon-wire",
+]
+
+[[package]]
+name = "daimon-process"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -377,6 +446,14 @@ name = "keystone-storage"
 version = "0.0.1"
 
 [[package]]
+name = "keystone-storage-directory"
+version = "0.0.1"
+dependencies = [
+ "keystone-storage",
+ "rustix",
+]
+
+[[package]]
 name = "keystone-unix-listener"
 version = "0.0.1"
 
@@ -438,6 +515,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "moira-agent-local"
+version = "0.1.0"
+dependencies = [
+ "aegis-authority",
+ "aegis-local",
+ "aegis-local-daemon",
+ "aegis-service",
+ "aegis-wire",
+ "chronos-protocol",
+ "chronos-wire",
+ "daimon-acp",
+ "daimon-agent-router",
+ "daimon-claude",
+ "daimon-client",
+ "daimon-harness",
+ "daimon-host",
+ "daimon-local-daemon",
+ "daimon-protocol",
+ "daimon-service",
+ "daimon-wire",
+ "moira-client",
+ "moira-core",
+ "moira-daimon",
+ "moira-host",
+ "moira-local-daemon",
+ "moira-local-harness",
+ "moira-protocol",
+ "moira-service",
+ "moira-sqlite",
+ "moira-wire",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "moira-agora"
 version = "0.1.0"
 dependencies = [
@@ -494,6 +607,7 @@ name = "moira-client"
 version = "0.1.0"
 dependencies = [
  "moira-protocol",
+ "moira-wire",
 ]
 
 [[package]]
@@ -579,6 +693,7 @@ version = "0.1.0"
 dependencies = [
  "keystone-framing",
  "keystone-unix-listener",
+ "moira-client",
  "moira-core",
  "moira-host",
  "moira-protocol",

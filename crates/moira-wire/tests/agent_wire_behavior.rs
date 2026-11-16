@@ -84,6 +84,12 @@ fn every_agent_command_roundtrips_canonically() {
             },
             now: 7,
         },
+        CommandV1::Reattach {
+            session,
+            expected_revision: 7,
+            execution: execution(),
+            now: 8,
+        },
         CommandV1::Advance {
             session,
             turn,
@@ -154,6 +160,11 @@ fn every_event_outcome_and_refusal_roundtrips_canonically() {
             path: b"a.rs".to_vec(),
             content_digest: DigestV1([9; 32]),
         },
+        EventV1::FileRead {
+            path: b"Cargo.toml".to_vec(),
+            content_digest: DigestV1([12; 32]),
+            content_bytes: 42,
+        },
         EventV1::Usage {
             input_tokens: 10,
             output_tokens: 11,
@@ -181,6 +192,18 @@ fn every_event_outcome_and_refusal_roundtrips_canonically() {
             terminal: true,
             session_modes: true,
             session_models: true,
+        },
+    })));
+    round_reply(ReplyV1::Accepted(OutcomeV1::Session(SessionViewV1 {
+        session,
+        revision: 4,
+        phase: PhaseV1::ReattachRequired,
+        profile_document_digest: DigestV1([11; 32]),
+        active_turn: None,
+        last_event_cursor: Some(8),
+        capabilities: CapabilitiesV1 {
+            resume_session: true,
+            ..CapabilitiesV1::default()
         },
     })));
     round_reply(ReplyV1::Accepted(OutcomeV1::Events(EventPageV1 {

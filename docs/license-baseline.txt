@@ -1,11 +1,15 @@
 license|aegis-authority|0.0.1|MIT OR Apache-2.0
 license|aegis-client|0.1.0|MIT OR Apache-2.0
 license|aegis-host|0.0.1|MIT OR Apache-2.0
+license|aegis-local-client|0.1.0|MIT OR Apache-2.0
+license|aegis-local|0.0.1|MIT OR Apache-2.0
 license|aegis-protocol|0.1.0|MIT OR Apache-2.0
 license|aegis-service|0.1.0|MIT OR Apache-2.0
 license|agora-client|0.1.0|MIT OR Apache-2.0
 license|agora-engine|0.3.0|MIT OR Apache-2.0
 license|agora-protocol|0.1.0|MIT OR Apache-2.0
+license|agora-scheduled-publication-port|0.1.0|MIT OR Apache-2.0
+license|base64|0.22.1|MIT OR Apache-2.0
 license|autocfg|1.5.1|Apache-2.0 OR MIT
 license|bitflags|2.13.2|MIT OR Apache-2.0
 license|cc|1.11.1|MIT OR Apache-2.0
@@ -14,9 +18,13 @@ license|cfg_aliases|0.2.2|MIT
 license|chronos-client|0.1.0|MIT OR Apache-2.0
 license|chronos-engine|0.3.0|MIT OR Apache-2.0
 license|chronos-protocol|0.1.0|MIT OR Apache-2.0
+license|daimon-acp|0.1.0|MIT OR Apache-2.0
+license|daimon-agent-router|0.0.1|MIT OR Apache-2.0
+license|daimon-claude|0.1.0|MIT OR Apache-2.0
 license|daimon-client|0.1.0|MIT OR Apache-2.0
 license|daimon-harness|0.0.1|MIT OR Apache-2.0
 license|daimon-host|0.1.0|MIT OR Apache-2.0
+license|daimon-process|0.1.0|MIT OR Apache-2.0
 license|daimon-protocol|0.1.0|MIT OR Apache-2.0
 license|daimon-service|0.1.0|MIT OR Apache-2.0
 license|fallible-iterator|0.3.0|MIT/Apache-2.0
@@ -33,11 +41,13 @@ license|hermes-service|0.1.0|MIT OR Apache-2.0
 license|keystone-codec|0.0.1|MIT OR Apache-2.0
 license|keystone-effects|0.0.1|MIT OR Apache-2.0
 license|keystone-observe|0.0.1|MIT OR Apache-2.0
+license|keystone-storage-directory|0.0.1|MIT OR Apache-2.0
 license|keystone-storage|0.0.1|MIT OR Apache-2.0
 license|libc|0.2.191|MIT OR Apache-2.0
 license|libsqlite3-sys|0.39.1|MIT
 license|memoffset|0.9.1|MIT
 license|moira-aegis|0.1.0|MIT OR Apache-2.0
+license|moira-agent-local|0.1.0|MIT OR Apache-2.0
 license|moira-agora|0.1.0|MIT OR Apache-2.0
 license|moira-agora-sqlite|0.1.0|MIT OR Apache-2.0
 license|moira-chronos|0.1.0|MIT OR Apache-2.0

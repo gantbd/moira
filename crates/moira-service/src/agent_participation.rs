@@ -4,6 +4,7 @@ use crate::AccessV1;
 use moira_core::{self as core, agent_participation as domain, deliberation as dd};
 use moira_host::{
     AgentParticipationApplyErrorV1, AgentParticipationMutationV1, AgentParticipationStore,
+    AgentPromptStoreV1,
 };
 use moira_protocol::{agent_participation as public, deliberation as pd};
 
@@ -43,17 +44,32 @@ pub trait PermissionAuthorizer {
     ) -> Result<Option<PermissionAccessV1>, Self::Error>;
 }
 
+#[derive(Debug)]
+pub enum PromptSubmissionErrorV1<S, P> {
+    Service(S),
+    PromptStore(P),
+    PromptStoreIntegrity,
+}
+
+#[derive(Debug)]
+pub enum PromptMaterializationErrorV1<S, P> {
+    Service(S),
+    PromptStore(P),
+    PromptStoreIntegrity,
+}
+
 impl<S: AgentParticipationStore> AgentParticipationService<S> {
     pub const fn new(store: S) -> Self {
         Self { store }
     }
     pub fn execute(&mut self, command: public::CommandV1) -> Result<public::ReplyV1, S::Error> {
-        self.execute_authorized(
+        self.execute_with_policy(
             AccessV1 {
                 read: true,
                 mutate: true,
             },
             command,
+            true,
         )
     }
     pub fn execute_authorized(
@@ -61,15 +77,30 @@ impl<S: AgentParticipationStore> AgentParticipationService<S> {
         access: AccessV1,
         command: public::CommandV1,
     ) -> Result<public::ReplyV1, S::Error> {
+        self.execute_with_policy(access, command, false)
+    }
+
+    fn execute_with_policy(
+        &mut self,
+        access: AccessV1,
+        command: public::CommandV1,
+        trusted_prepare: bool,
+    ) -> Result<public::ReplyV1, S::Error> {
         let allowed = match command {
             public::CommandV1::Apply { ref mutation, .. } => {
-                access.mutate && !untrusted_permission_mutation(mutation)
+                access.mutate
+                    && !permission_prepare_mutation(mutation)
+                    && (trusted_prepare || !privileged_prepare_mutation(mutation))
             }
             public::CommandV1::Status
             | public::CommandV1::Participation { .. }
             | public::CommandV1::PermissionConfirmation { .. }
-            | public::CommandV1::CancelConfirmation { .. } => access.read,
-            public::CommandV1::ConfirmCancel(_) => access.mutate,
+            | public::CommandV1::CancelConfirmation { .. }
+            | public::CommandV1::ReattachConfirmation { .. } => access.read,
+            public::CommandV1::ConfirmCancel(_) | public::CommandV1::ConfirmReattach(_) => {
+                access.mutate
+            }
+            public::CommandV1::SubmitPrompt(_) | public::CommandV1::MaterializePrompt(_) => false,
             public::CommandV1::SelectPermission(_) | public::CommandV1::ConfirmPermission(_) => {
                 false
             }
@@ -138,10 +169,165 @@ impl<S: AgentParticipationStore> AgentParticipationService<S> {
                 )))
             }
             public::CommandV1::ConfirmCancel(selected) => self.execute_confirmed_cancel(selected),
+            public::CommandV1::ReattachConfirmation { participation } => {
+                let confirmation = self.store.storage_revision().and_then(|storage_revision| {
+                    self.store
+                        .participation(domain::ParticipationIdV1(participation.0))
+                        .map(view)
+                        .and_then(|value| public::reattach_confirmation(storage_revision, &value))
+                });
+                Ok(public::ReplyV1::Accepted(Box::new(
+                    public::OutcomeV1::ReattachConfirmation(confirmation),
+                )))
+            }
+            public::CommandV1::ConfirmReattach(selected) => {
+                self.execute_confirmed_reattach(selected)
+            }
             public::CommandV1::SelectPermission(_) | public::CommandV1::ConfirmPermission(_) => {
                 Ok(public::ReplyV1::Refused(public::RefusalV1::NotAuthorized))
             }
+            public::CommandV1::SubmitPrompt(_) => {
+                Ok(public::ReplyV1::Refused(public::RefusalV1::NotAuthorized))
+            }
+            public::CommandV1::MaterializePrompt(_) => {
+                Ok(public::ReplyV1::Refused(public::RefusalV1::NotAuthorized))
+            }
         }
+    }
+
+    pub fn execute_prompt_materialization<P: AgentPromptStoreV1>(
+        &mut self,
+        request: public::PromptMaterializationRequestV1,
+        prompts: &mut P,
+    ) -> Result<public::ReplyV1, PromptMaterializationErrorV1<S::Error, P::Error>> {
+        if self.store.needs_reopen() {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidCheckpoint,
+            ));
+        }
+        let Some(value) = self
+            .store
+            .participation(domain::ParticipationIdV1(request.participation.0))
+            .map(view)
+        else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::UnknownParticipation,
+            ));
+        };
+        if value.revision != request.expected_revision {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::RevisionConflict,
+            ));
+        }
+        if !matches!(
+            value.pending,
+            Some(public::OperationV1::Prompt { prompt_digest, .. })
+                if prompt_digest == request.prompt_digest
+        ) {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::NoPendingOperation,
+            ));
+        }
+        let Some(prompt) = prompts
+            .get(request.prompt_digest)
+            .map_err(PromptMaterializationErrorV1::PromptStore)?
+        else {
+            return Err(PromptMaterializationErrorV1::PromptStoreIntegrity);
+        };
+        if public::agent_prompt_digest(&prompt) != Some(request.prompt_digest) {
+            return Err(PromptMaterializationErrorV1::PromptStoreIntegrity);
+        }
+        Ok(public::ReplyV1::Accepted(Box::new(
+            public::OutcomeV1::PromptMaterialization(public::PromptMaterializationV1 {
+                participation: request.participation,
+                participation_revision: value.revision,
+                prompt_digest: request.prompt_digest,
+                prompt,
+            }),
+        )))
+    }
+
+    pub fn execute_prompt_authorized<P: AgentPromptStoreV1>(
+        &mut self,
+        access: AccessV1,
+        submission: public::PromptSubmissionV1,
+        prompts: &mut P,
+    ) -> Result<public::ReplyV1, PromptSubmissionErrorV1<S::Error, P::Error>> {
+        if !access.mutate {
+            return Ok(public::ReplyV1::Refused(public::RefusalV1::NotAuthorized));
+        }
+        let Some(prompt_digest) = public::agent_prompt_digest(&submission.prompt) else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidOperation,
+            ));
+        };
+        if self.store.needs_reopen() {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidCheckpoint,
+            ));
+        }
+        let Some(storage_revision) = self.store.storage_revision() else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::UnknownParticipation,
+            ));
+        };
+        let Some(value) = self
+            .store
+            .participation(domain::ParticipationIdV1(submission.participation.0))
+            .map(view)
+        else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::UnknownParticipation,
+            ));
+        };
+        if let Some(operation) = value.pending {
+            if matches!(
+                operation,
+                public::OperationV1::Prompt {
+                    prompt_digest: retained,
+                    ..
+                } if retained == prompt_digest
+            ) {
+                let commit = prompts
+                    .put(&submission.prompt)
+                    .map_err(PromptSubmissionErrorV1::PromptStore)?;
+                verify_prompt_commit(commit, prompt_digest, submission.prompt.len())?;
+                return Ok(public::ReplyV1::Accepted(Box::new(
+                    public::OutcomeV1::Applied {
+                        storage_revision,
+                        participation: value,
+                        replayed: true,
+                    },
+                )));
+            }
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::OperationConflict,
+            ));
+        }
+        let Some(operation) =
+            public::prepared_prompt_operation(storage_revision, &value, prompt_digest)
+        else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidOperation,
+            ));
+        };
+        let commit = prompts
+            .put(&submission.prompt)
+            .map_err(PromptSubmissionErrorV1::PromptStore)?;
+        verify_prompt_commit(commit, prompt_digest, submission.prompt.len())?;
+        self.execute_with_policy(
+            access,
+            public::CommandV1::Apply {
+                expected_storage_revision: Some(storage_revision),
+                mutation: Box::new(public::MutationV1::Prepare {
+                    participation: submission.participation,
+                    expected_revision: value.revision,
+                    operation,
+                }),
+            },
+            true,
+        )
+        .map_err(PromptSubmissionErrorV1::Service)
     }
 
     fn execute_confirmed_cancel(
@@ -178,6 +364,82 @@ impl<S: AgentParticipationStore> AgentParticipationService<S> {
             ));
         }
         let Some(operation) = public::confirmed_cancel_operation(confirmation, selected) else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidOperation,
+            ));
+        };
+        match self.store.apply(
+            Some(storage_revision),
+            AgentParticipationMutationV1::Prepare {
+                participation: domain::ParticipationIdV1(selected.participation.0),
+                expected_revision: value.revision,
+                operation: operation_domain(operation),
+            },
+        ) {
+            Ok(value) => Ok(public::ReplyV1::Accepted(Box::new(
+                public::OutcomeV1::Applied {
+                    storage_revision: value.storage_revision,
+                    participation: view(value.participation),
+                    replayed: value.replayed,
+                },
+            ))),
+            Err(AgentParticipationApplyErrorV1::Domain(value)) => {
+                Ok(public::ReplyV1::Refused(refusal(value)))
+            }
+            Err(AgentParticipationApplyErrorV1::Conflict { expected, actual }) => {
+                Ok(public::ReplyV1::Refused(
+                    public::RefusalV1::StorageRevisionConflict { expected, actual },
+                ))
+            }
+            Err(AgentParticipationApplyErrorV1::Backend(error)) => Err(error),
+        }
+    }
+
+    fn execute_confirmed_reattach(
+        &mut self,
+        selected: public::ConfirmedReattachV1,
+    ) -> Result<public::ReplyV1, S::Error> {
+        if self.store.needs_reopen() {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidCheckpoint,
+            ));
+        }
+        let Some(storage_revision) = self.store.storage_revision() else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::UnknownParticipation,
+            ));
+        };
+        let Some(value) = self
+            .store
+            .participation(domain::ParticipationIdV1(selected.participation.0))
+            .map(view)
+        else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::UnknownParticipation,
+            ));
+        };
+        if value.pending == public::reattach_operation_for_digest(selected, value.binding.attempt) {
+            return Ok(public::ReplyV1::Accepted(Box::new(
+                public::OutcomeV1::Applied {
+                    storage_revision,
+                    participation: value,
+                    replayed: true,
+                },
+            )));
+        }
+        let Some(confirmation) = public::reattach_confirmation(storage_revision, &value) else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::NoPendingOperation,
+            ));
+        };
+        if confirmation.confirmation_digest != selected.confirmation_digest {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::RevisionConflict,
+            ));
+        }
+        let Some(operation) =
+            public::confirmed_reattach_operation(confirmation, selected, value.binding.attempt)
+        else {
             return Ok(public::ReplyV1::Refused(
                 public::RefusalV1::InvalidOperation,
             ));
@@ -291,7 +553,23 @@ impl<S: AgentParticipationStore> AgentParticipationService<S> {
     }
 }
 
-fn untrusted_permission_mutation(value: &public::MutationV1) -> bool {
+fn verify_prompt_commit<S, P>(
+    commit: moira_host::AgentPromptCommitV1,
+    prompt_digest: [u8; 32],
+    prompt_bytes: usize,
+) -> Result<(), PromptSubmissionErrorV1<S, P>> {
+    if commit.record.prompt_digest != prompt_digest || commit.record.prompt_bytes != prompt_bytes {
+        Err(PromptSubmissionErrorV1::PromptStoreIntegrity)
+    } else {
+        Ok(())
+    }
+}
+
+fn privileged_prepare_mutation(value: &public::MutationV1) -> bool {
+    matches!(value, public::MutationV1::Prepare { .. })
+}
+
+fn permission_prepare_mutation(value: &public::MutationV1) -> bool {
     matches!(
         value,
         public::MutationV1::Prepare {
@@ -334,6 +612,15 @@ fn mutation_domain(value: public::MutationV1) -> AgentParticipationMutationV1 {
             participation: domain::ParticipationIdV1(participation.0),
             expected_revision,
             key: domain::IdempotencyKeyV1(key.0),
+        },
+        public::MutationV1::MarkReattachRequired {
+            participation,
+            expected_revision,
+            session_revision,
+        } => AgentParticipationMutationV1::MarkReattachRequired {
+            participation: domain::ParticipationIdV1(participation.0),
+            expected_revision,
+            session_revision,
         },
     }
 }
@@ -414,6 +701,15 @@ fn operation_domain(v: public::OperationV1) -> domain::OperationV1 {
         },
         public::OperationV1::Close { key } => domain::OperationV1::Close {
             key: domain::IdempotencyKeyV1(key.0),
+        },
+        public::OperationV1::Reattach {
+            key,
+            execution,
+            attempt,
+        } => domain::OperationV1::Reattach {
+            key: domain::IdempotencyKeyV1(key.0),
+            execution: domain::ExecutionIdV1(execution.0),
+            attempt: attempt_domain(attempt),
         },
     }
 }
@@ -556,6 +852,15 @@ fn operation_view(v: domain::OperationV1) -> public::OperationV1 {
         domain::OperationV1::Close { key } => public::OperationV1::Close {
             key: public::IdempotencyKeyV1(key.0),
         },
+        domain::OperationV1::Reattach {
+            key,
+            execution,
+            attempt,
+        } => public::OperationV1::Reattach {
+            key: public::IdempotencyKeyV1(key.0),
+            execution: public::ExecutionIdV1(execution.0),
+            attempt: attempt_view(attempt),
+        },
     }
 }
 fn capabilities_view(v: domain::CapabilitiesV1) -> public::CapabilitiesV1 {
@@ -593,7 +898,7 @@ fn terminal_view(v: domain::TerminalEvidenceV1) -> public::TerminalEvidenceV1 {
 }
 
 macro_rules! map_enum{($a:ident,$b:ident,$from:ty,$to:ty,{$($left:path=>$right:path),+$(,)?})=>{fn $a(v:$from)->$to{match v{$($left=>$right),+}}fn $b(v:$to)->$from{match v{$($right=>$left),+}}};}
-map_enum!(phase_domain,phase_view,public::PhaseV1,domain::PhaseV1,{public::PhaseV1::Admitted=>domain::PhaseV1::Admitted,public::PhaseV1::Ready=>domain::PhaseV1::Ready,public::PhaseV1::TurnActive=>domain::PhaseV1::TurnActive,public::PhaseV1::AwaitingPermission=>domain::PhaseV1::AwaitingPermission,public::PhaseV1::Terminal=>domain::PhaseV1::Terminal,public::PhaseV1::FencedUnknown=>domain::PhaseV1::FencedUnknown,public::PhaseV1::Closed=>domain::PhaseV1::Closed});
+map_enum!(phase_domain,phase_view,public::PhaseV1,domain::PhaseV1,{public::PhaseV1::Admitted=>domain::PhaseV1::Admitted,public::PhaseV1::Ready=>domain::PhaseV1::Ready,public::PhaseV1::TurnActive=>domain::PhaseV1::TurnActive,public::PhaseV1::AwaitingPermission=>domain::PhaseV1::AwaitingPermission,public::PhaseV1::Terminal=>domain::PhaseV1::Terminal,public::PhaseV1::FencedUnknown=>domain::PhaseV1::FencedUnknown,public::PhaseV1::Closed=>domain::PhaseV1::Closed,public::PhaseV1::ReattachRequired=>domain::PhaseV1::ReattachRequired});
 map_enum!(disposition_domain,disposition_view,public::DispositionV1,domain::DispositionV1,{public::DispositionV1::Completed=>domain::DispositionV1::Completed,public::DispositionV1::Failed=>domain::DispositionV1::Failed,public::DispositionV1::Cancelled=>domain::DispositionV1::Cancelled,public::DispositionV1::TimedOut=>domain::DispositionV1::TimedOut,public::DispositionV1::Uncertain=>domain::DispositionV1::Uncertain});
 map_enum!(stop_domain,stop_view,public::StopReasonV1,domain::StopReasonV1,{public::StopReasonV1::EndTurn=>domain::StopReasonV1::EndTurn,public::StopReasonV1::Cancelled=>domain::StopReasonV1::Cancelled,public::StopReasonV1::TimedOut=>domain::StopReasonV1::TimedOut,public::StopReasonV1::Failed=>domain::StopReasonV1::Failed,public::StopReasonV1::Disconnected=>domain::StopReasonV1::Disconnected,public::StopReasonV1::OutcomeUnknown=>domain::StopReasonV1::OutcomeUnknown});
 map_enum!(depth_domain,depth_view,pd::SurfaceDepthV1,dd::SurfaceDepthV1,{pd::SurfaceDepthV1::Ambient=>dd::SurfaceDepthV1::Ambient,pd::SurfaceDepthV1::Activated=>dd::SurfaceDepthV1::Activated,pd::SurfaceDepthV1::Reference=>dd::SurfaceDepthV1::Reference});

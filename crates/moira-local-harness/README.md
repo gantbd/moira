@@ -57,6 +57,40 @@ duplicates and bound violations refuse report admission. Provider configuration,
 credentials, Aegis authorization and Chronos-attempt validation remain in
 Daimon.
 
+Interactive-agent output is retained before report admission. The runtime
+connects independently to Moira's bounded participation socket and Daimon's
+dedicated agent socket; it never depends on terminal presentation code.
+`agent_runtime::load_prepared` retains the exact service/storage revision and
+`agent_runtime::drive_current` performs at most one state-dependent step:
+prepared work is fenced before one dispatch, fenced work is reconciled only by
+inspection, and idle work causes no provider call.
+`FixedAgentCommandTemplateV1` is the selected closed deployment template: the
+retained participation supplies operation, session, turn, revision, execution,
+key, profile and attempt identities, while deployment configuration supplies
+only a fixed principal, workspace, bounded context/tool allowlists and budgets.
+It refuses missing revisions, missing or unexpected prompt bytes, duplicate
+allowlist entries and disabled or oversized policy.
+
+For a separately deployed worker, `materialize_pending_prompt` asks the owning
+participation daemon for only the exact `(participation, revision, digest)`
+pending prompt. The daemon owns the prompt database exclusively and denies this
+command to ordinary terminal authentication. The worker closes that connection,
+reconnects for dispatch, and uses `RetainedPromptMaterializerV1`, which checks
+the digest again immediately before command construction. `moira-agent-local`
+provides this bounded one-step composition and never opens prompt storage.
+
+The runtime
+feeds cursor-contiguous assistant chunks into a separately owned SQLite output
+store across prompt, permission-decision, and advance slices. Exact last-page
+replay is safe; gaps, forks, changed bytes, aggregate bounds, owner drift, and
+profile drift refuse. A terminal report is eligible only when the retained
+participation, turn, final cursor, byte count, and SHA-256 output identity all
+match those durable bytes. `agent_report::admit_terminal_output` then parses
+only those bytes with the closed member-response schema, derives the report ID
+and baseline question/method/grounding/provider evidence server-side, rejects
+collisions and malformed responses before registry mutation, and gives exact
+replay the existing report receipt.
+
 ## Selected local process tools
 
 `process_tool::ProcessToolExecutorV1` is the production local profile for an

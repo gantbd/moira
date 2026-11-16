@@ -14,7 +14,7 @@ agora-client = { path = "../../../agora/client/agora-client" }
 moira-core = { path = "../.." }
 moira-agora = { path = "../../adapters/moira-agora" }
 moira-daimon = { path = "../../adapters/moira-daimon" }
-moira-client = { path = "../moira-client" }
+moira-client = { path = "../moira-client", features = ["unix"] }
 moira-host = { path = "../moira-host" }
 moira-protocol = { path = "../moira-protocol" }
 moira-vellum = { path = "../../adapters/moira-vellum" }

@@ -131,6 +131,11 @@ pub enum OperationV1 {
     Close {
         key: IdempotencyKeyV1,
     },
+    Reattach {
+        key: IdempotencyKeyV1,
+        execution: ExecutionIdV1,
+        attempt: AttemptV1,
+    },
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PhaseV1 {
@@ -141,6 +146,7 @@ pub enum PhaseV1 {
     Terminal,
     FencedUnknown,
     Closed,
+    ReattachRequired,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ObservationV1 {
@@ -187,6 +193,11 @@ pub enum MutationV1 {
         expected_revision: u64,
         key: IdempotencyKeyV1,
     },
+    MarkReattachRequired {
+        participation: ParticipationIdV1,
+        expected_revision: u64,
+        session_revision: u64,
+    },
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandV1 {
@@ -207,6 +218,36 @@ pub enum CommandV1 {
         participation: ParticipationIdV1,
     },
     ConfirmCancel(ConfirmedCancelV1),
+    ReattachConfirmation {
+        participation: ParticipationIdV1,
+    },
+    ConfirmReattach(ConfirmedReattachV1),
+    SubmitPrompt(PromptSubmissionV1),
+    /// Worker-only read of the exact bytes retained for the current pending
+    /// prompt. Authorization is deployment-owned and distinct from ordinary
+    /// read/mutation access.
+    MaterializePrompt(PromptMaterializationRequestV1),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PromptSubmissionV1 {
+    pub participation: ParticipationIdV1,
+    pub prompt: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PromptMaterializationRequestV1 {
+    pub participation: ParticipationIdV1,
+    pub expected_revision: u64,
+    pub prompt_digest: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PromptMaterializationV1 {
+    pub participation: ParticipationIdV1,
+    pub participation_revision: u64,
+    pub prompt_digest: [u8; 32],
+    pub prompt: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -258,6 +299,19 @@ pub struct CancelConfirmationV1 {
     pub confirmation_digest: [u8; 32],
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConfirmedReattachV1 {
+    pub participation: ParticipationIdV1,
+    pub confirmation_digest: [u8; 32],
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReattachConfirmationV1 {
+    pub storage_revision: u64,
+    pub participation: ParticipationIdV1,
+    pub participation_revision: u64,
+    pub session_revision: u64,
+    pub confirmation_digest: [u8; 32],
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StatusV1 {
     pub storage_revision: Option<u64>,
     pub needs_reopen: bool,
@@ -273,6 +327,8 @@ pub enum OutcomeV1 {
     Participation(Option<ParticipationViewV1>),
     PermissionConfirmation(Option<PermissionConfirmationV1>),
     CancelConfirmation(Option<CancelConfirmationV1>),
+    ReattachConfirmation(Option<ReattachConfirmationV1>),
+    PromptMaterialization(PromptMaterializationV1),
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RefusalV1 {
@@ -301,8 +357,9 @@ pub enum ReplyV1 {
     Refused(RefusalV1),
 }
 
-/// Builds the exact presentation challenge for one current retained permission.
-/// The digest is evidence for stale-choice prevention, not execution authority.
+/// Builds the exact presentation challenge for one current retained permission
+/// only while no provider operation is already pending. The digest is evidence
+/// for stale-choice prevention, not execution authority.
 pub fn permission_confirmation(
     storage_revision: u64,
     view: &ParticipationViewV1,
@@ -311,6 +368,7 @@ pub fn permission_confirmation(
     let permission = view.permission?;
     let count = usize::from(permission.option_count);
     if view.phase != PhaseV1::AwaitingPermission
+        || view.pending.is_some()
         || view.active_turn != Some(permission.turn)
         || count == 0
         || count > MAX_PERMISSION_OPTIONS_V1
@@ -488,6 +546,137 @@ pub fn confirmed_cancel_operation(
         key: IdempotencyKeyV1(key[..16].try_into().ok()?),
         turn: confirmation.turn,
     })
+}
+
+/// Builds a current confirmation for a session whose detached binding was
+/// discovered read-only and durably retained. The digest binds the complete
+/// methodical context; it conveys neither provider locator nor authority.
+pub fn reattach_confirmation(
+    storage_revision: u64,
+    view: &ParticipationViewV1,
+) -> Option<ReattachConfirmationV1> {
+    let session_revision = view.session_revision?;
+    let profile_document_digest = view.profile_document_digest?;
+    if view.phase != PhaseV1::ReattachRequired
+        || view.pending.is_some()
+        || view.active_turn.is_some()
+        || !view.capabilities.resume_session
+    {
+        return None;
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"MOIRARCF1");
+    hash.update(storage_revision.to_be_bytes());
+    hash.update(view.binding.participation.0);
+    hash.update(view.binding.workflow.0);
+    hash.update(view.binding.deliberation.0);
+    hash.update(view.binding.member.0);
+    hash.update(view.binding.session.0);
+    hash.update(view.binding.profile.0);
+    hash.update(view.binding.attempt.task_key);
+    hash.update(view.binding.attempt.incarnation.to_be_bytes());
+    hash.update(view.binding.attempt.attempt.to_be_bytes());
+    hash.update(view.binding.method.machine_digest);
+    hash.update(view.binding.method.state_digest);
+    hash.update(view.binding.grounding.authority_digest);
+    hash.update(view.binding.grounding.surface_digest);
+    hash.update([depth_tag(view.binding.grounding.depth)]);
+    hash.update([persona_tag(view.binding.persona)]);
+    hash.update(view.revision.to_be_bytes());
+    hash.update(session_revision.to_be_bytes());
+    hash.update(profile_document_digest);
+    hash.update(view.last_event_cursor.unwrap_or(u64::MAX).to_be_bytes());
+    Some(ReattachConfirmationV1 {
+        storage_revision,
+        participation: view.binding.participation,
+        participation_revision: view.revision,
+        session_revision,
+        confirmation_digest: hash.finalize().into(),
+    })
+}
+
+pub fn confirmed_reattach_operation(
+    confirmation: ReattachConfirmationV1,
+    selected: ConfirmedReattachV1,
+    attempt: AttemptV1,
+) -> Option<OperationV1> {
+    if selected.participation != confirmation.participation
+        || selected.confirmation_digest != confirmation.confirmation_digest
+    {
+        return None;
+    }
+    reattach_operation_for_digest(selected, attempt)
+}
+
+pub fn reattach_operation_for_digest(
+    selected: ConfirmedReattachV1,
+    attempt: AttemptV1,
+) -> Option<OperationV1> {
+    let key = derived_prompt_id(b"MOIRARKEY1", selected.confirmation_digest)?;
+    let execution = derived_prompt_id(b"MOIRAREXE1", selected.confirmation_digest)?;
+    Some(OperationV1::Reattach {
+        key: IdempotencyKeyV1(key),
+        execution: ExecutionIdV1(execution),
+        attempt,
+    })
+}
+
+pub fn agent_prompt_digest(prompt: &[u8]) -> Option<[u8; 32]> {
+    (!prompt.is_empty()).then(|| Sha256::digest(prompt).into())
+}
+
+/// Derives opaque replay identities for one exact prompt at one exact durable
+/// participation state. The terminal supplies neither identities nor attempt.
+pub fn prepared_prompt_operation(
+    storage_revision: u64,
+    view: &ParticipationViewV1,
+    prompt_digest: [u8; 32],
+) -> Option<OperationV1> {
+    let session_revision = view.session_revision?;
+    if view.phase != PhaseV1::Ready || view.pending.is_some() || prompt_digest == [0; 32] {
+        return None;
+    }
+    let mut context = Sha256::new();
+    context.update(b"MOIRAPSC1");
+    context.update(storage_revision.to_be_bytes());
+    context.update(view.binding.participation.0);
+    context.update(view.binding.workflow.0);
+    context.update(view.binding.deliberation.0);
+    context.update(view.binding.member.0);
+    context.update(view.binding.session.0);
+    context.update(view.binding.profile.0);
+    context.update(view.binding.attempt.task_key);
+    context.update(view.binding.attempt.incarnation.to_be_bytes());
+    context.update(view.binding.attempt.attempt.to_be_bytes());
+    context.update(view.binding.method.machine_digest);
+    context.update(view.binding.method.state_digest);
+    context.update(view.binding.grounding.authority_digest);
+    context.update(view.binding.grounding.surface_digest);
+    context.update([depth_tag(view.binding.grounding.depth)]);
+    context.update([persona_tag(view.binding.persona)]);
+    context.update(view.revision.to_be_bytes());
+    context.update(session_revision.to_be_bytes());
+    context.update(prompt_digest);
+    let context: [u8; 32] = context.finalize().into();
+    let key = derived_prompt_id(b"MOIRAPRKEY1", context)?;
+    let turn = derived_prompt_id(b"MOIRAPRTURN1", context)?;
+    let execution = derived_prompt_id(b"MOIRAPREXE1", context)?;
+    Some(OperationV1::Prompt {
+        key: IdempotencyKeyV1(key),
+        turn: AgentTurnIdV1(turn),
+        execution: ExecutionIdV1(execution),
+        prompt_digest,
+        attempt: view.binding.attempt,
+    })
+}
+
+fn derived_prompt_id(domain: &[u8], context: [u8; 32]) -> Option<[u8; 16]> {
+    let mut hash = Sha256::new();
+    hash.update(domain);
+    hash.update(context);
+    let digest: [u8; 32] = hash.finalize().into();
+    let value: [u8; 16] = digest[..16].try_into().ok()?;
+    (value != [0; 16]).then_some(value)
 }
 
 const fn depth_tag(value: deliberation::SurfaceDepthV1) -> u8 {

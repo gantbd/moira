@@ -14,6 +14,7 @@ package|adapters/moira-rune-validator/Cargo.toml|moira-rune-validator|0.1.0
 package|adapters/moira-sqlite/Cargo.toml|moira-sqlite|0.0.1
 package|adapters/moira-unix-peer/Cargo.toml|moira-unix-peer|0.1.0
 package|adapters/moira-vellum/Cargo.toml|moira-vellum|0.1.0
+package|apps/moira-agent-local/Cargo.toml|moira-agent-local|0.1.0
 package|apps/moira-methodical-local/Cargo.toml|moira-methodical-local|0.1.0
 package|crates/moira-client/Cargo.toml|moira-client|0.1.0
 package|crates/moira-host/Cargo.toml|moira-host|0.1.0

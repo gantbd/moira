@@ -2,19 +2,21 @@
 
 use crate::{
     ConnectionErrorV1, LocalCommand, LocalReply, serve_agent_participation_up_to,
-    serve_agent_up_to, serve_local_up_to, serve_saga_up_to,
+    serve_agent_up_to, serve_deliberation_up_to, serve_local_up_to, serve_saga_up_to,
 };
 use keystone_unix_listener::OwnedUnixListener;
 use moira_host::{
-    AgentGateway, AgentParticipationStore, AttemptReceiptStore, CoordinatorStore, SagaStore,
+    AgentGateway, AgentParticipationStore, AgentPromptCommitV1, AgentPromptStoreV1,
+    AttemptReceiptStore, CoordinatorStore, DeliberationStore, SagaStore,
 };
 use moira_protocol::attempt_lookup::{AttemptLookup, AttemptLookupRequestV1};
 use moira_protocol::{OperatorOperationV1, SagaCommandV1, agent_participation as participation};
 use moira_service::{
     AccessV1, Service,
     agent::AgentService,
-    agent_participation::{AgentParticipationService, PermissionAccessV1},
+    agent_participation::{AgentParticipationService, PermissionAccessV1, PromptSubmissionErrorV1},
     attempt_lookup::{AttemptLookupPolicy, ExactAttempt},
+    deliberation::DeliberationService,
     saga::{OperatorAccessV1, SagaService},
 };
 use moira_wire::{LimitsV1, ReadyV1, encode_ready};
@@ -51,6 +53,16 @@ pub trait AgentParticipationAuthenticator {
         &mut self,
         selection: participation::PermissionSelectionV1,
     ) -> Result<Option<PermissionAccessV1>, Self::Error>;
+
+    /// Separate worker capability for reading only the prompt bound to an
+    /// exact current pending operation. Ordinary terminal authenticators deny
+    /// this by default.
+    fn authorize_prompt_materialization(
+        &mut self,
+        _request: participation::PromptMaterializationRequestV1,
+    ) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -91,23 +103,64 @@ pub enum AgentDaemonErrorV1<A, S> {
 }
 
 #[derive(Debug)]
-pub enum AgentParticipationDispatchErrorV1<A, S> {
-    Authorization(A),
-    Service(S),
+pub enum DeliberationDaemonErrorV1<A, S> {
+    Io(io::Error),
+    Authentication(A),
+    Connection(ConnectionErrorV1<S>),
 }
 
 #[derive(Debug)]
-pub enum AgentParticipationDaemonErrorV1<A, S> {
-    Io(io::Error),
-    Authentication(A),
-    Connection(ConnectionErrorV1<AgentParticipationDispatchErrorV1<A, S>>),
+pub enum AgentParticipationDispatchErrorV1<A, S, P = PromptSubmissionDisabledErrorV1> {
+    Authorization(A),
+    Service(S),
+    PromptStore(P),
+    PromptStoreIntegrity,
 }
 
-pub struct AgentParticipationDaemon<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
-{
+#[derive(Debug)]
+pub enum AgentParticipationDaemonErrorV1<A, S, P = PromptSubmissionDisabledErrorV1> {
+    Io(io::Error),
+    Authentication(A),
+    Connection(ConnectionErrorV1<AgentParticipationDispatchErrorV1<A, S, P>>),
+}
+
+type AgentParticipationServeResultV1<S, A, P> = Result<
+    (),
+    AgentParticipationDaemonErrorV1<
+        <A as AgentParticipationAuthenticator>::Error,
+        <S as AgentParticipationStore>::Error,
+        <P as AgentPromptStoreV1>::Error,
+    >,
+>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PromptSubmissionDisabledErrorV1;
+
+#[derive(Debug, Default)]
+pub struct PromptSubmissionDisabledV1;
+
+impl AgentPromptStoreV1 for PromptSubmissionDisabledV1 {
+    type Error = PromptSubmissionDisabledErrorV1;
+
+    fn put(&mut self, _prompt: &[u8]) -> Result<AgentPromptCommitV1, Self::Error> {
+        Err(PromptSubmissionDisabledErrorV1)
+    }
+
+    fn get(&mut self, _prompt_digest: [u8; 32]) -> Result<Option<Vec<u8>>, Self::Error> {
+        Err(PromptSubmissionDisabledErrorV1)
+    }
+}
+
+pub struct AgentParticipationDaemon<
+    S: AgentParticipationStore,
+    A: AgentParticipationAuthenticator,
+    P: AgentPromptStoreV1 = PromptSubmissionDisabledV1,
+> {
     listener: OwnedUnixListener,
     service: AgentParticipationService<S>,
     authenticator: A,
+    prompts: P,
+    prompt_submission: bool,
     wire_limits: LimitsV1,
     io_timeout: Duration,
     max_requests: usize,
@@ -115,7 +168,7 @@ pub struct AgentParticipationDaemon<S: AgentParticipationStore, A: AgentParticip
 }
 
 impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
-    AgentParticipationDaemon<S, A>
+    AgentParticipationDaemon<S, A, PromptSubmissionDisabledV1>
 {
     pub fn bind_new(
         socket_path: impl AsRef<Path>,
@@ -135,6 +188,43 @@ impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
             listener: OwnedUnixListener::bind_new(socket_path)?,
             service,
             authenticator,
+            prompts: PromptSubmissionDisabledV1,
+            prompt_submission: false,
+            wire_limits,
+            io_timeout,
+            max_requests,
+            health: HealthV1 {
+                ready: true,
+                ..HealthV1::default()
+            },
+        })
+    }
+}
+
+impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator, P: AgentPromptStoreV1>
+    AgentParticipationDaemon<S, A, P>
+{
+    pub fn bind_new_with_prompt_store(
+        socket_path: impl AsRef<Path>,
+        service: AgentParticipationService<S>,
+        authenticator: A,
+        prompts: P,
+        wire_limits: LimitsV1,
+        io_timeout: Duration,
+        max_requests: usize,
+    ) -> io::Result<Self> {
+        if io_timeout.is_zero() || max_requests == 0 || wire_limits.max_frame_bytes == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "disabled limit",
+            ));
+        }
+        Ok(Self {
+            listener: OwnedUnixListener::bind_new(socket_path)?,
+            service,
+            authenticator,
+            prompts,
+            prompt_submission: true,
             wire_limits,
             io_timeout,
             max_requests,
@@ -149,9 +239,7 @@ impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
         self.health
     }
 
-    pub fn serve_next(
-        &mut self,
-    ) -> Result<(), AgentParticipationDaemonErrorV1<A::Error, S::Error>> {
+    pub fn serve_next(&mut self) -> AgentParticipationServeResultV1<S, A, P> {
         let (mut stream, _) = self
             .listener
             .accept()
@@ -187,7 +275,7 @@ impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
     fn serve_stream(
         &mut self,
         stream: &mut UnixStream,
-    ) -> Result<(), AgentParticipationDaemonErrorV1<A::Error, S::Error>> {
+    ) -> AgentParticipationServeResultV1<S, A, P> {
         stream
             .set_read_timeout(Some(self.io_timeout))
             .and_then(|()| stream.set_write_timeout(Some(self.io_timeout)))
@@ -242,6 +330,55 @@ impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
                         )),
                     }
                 }
+                participation::CommandV1::SubmitPrompt(submission) => {
+                    if !self.prompt_submission {
+                        return Ok(participation::ReplyV1::Refused(
+                            participation::RefusalV1::NotAuthorized,
+                        ));
+                    }
+                    self.service
+                        .execute_prompt_authorized(access, submission, &mut self.prompts)
+                        .map_err(|error| match error {
+                            PromptSubmissionErrorV1::Service(error) => {
+                                AgentParticipationDispatchErrorV1::Service(error)
+                            }
+                            PromptSubmissionErrorV1::PromptStore(error) => {
+                                AgentParticipationDispatchErrorV1::PromptStore(error)
+                            }
+                            PromptSubmissionErrorV1::PromptStoreIntegrity => {
+                                AgentParticipationDispatchErrorV1::PromptStoreIntegrity
+                            }
+                        })
+                }
+                participation::CommandV1::MaterializePrompt(request) => {
+                    if !self.prompt_submission {
+                        return Ok(participation::ReplyV1::Refused(
+                            participation::RefusalV1::NotAuthorized,
+                        ));
+                    }
+                    let authorized = self
+                        .authenticator
+                        .authorize_prompt_materialization(request)
+                        .map_err(AgentParticipationDispatchErrorV1::Authorization)?;
+                    if !authorized {
+                        return Ok(participation::ReplyV1::Refused(
+                            participation::RefusalV1::NotAuthorized,
+                        ));
+                    }
+                    self.service
+                        .execute_prompt_materialization(request, &mut self.prompts)
+                        .map_err(|error| match error {
+                            moira_service::agent_participation::PromptMaterializationErrorV1::Service(error) => {
+                                AgentParticipationDispatchErrorV1::Service(error)
+                            }
+                            moira_service::agent_participation::PromptMaterializationErrorV1::PromptStore(error) => {
+                                AgentParticipationDispatchErrorV1::PromptStore(error)
+                            }
+                            moira_service::agent_participation::PromptMaterializationErrorV1::PromptStoreIntegrity => {
+                                AgentParticipationDispatchErrorV1::PromptStoreIntegrity
+                            }
+                        })
+                }
                 _ => self
                     .service
                     .execute_authorized(access, command)
@@ -252,6 +389,14 @@ impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
         .map_err(AgentParticipationDaemonErrorV1::Connection)
     }
 
+    pub fn into_prompt_parts(self) -> (AgentParticipationService<S>, A, P) {
+        (self.service, self.authenticator, self.prompts)
+    }
+}
+
+impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator>
+    AgentParticipationDaemon<S, A, PromptSubmissionDisabledV1>
+{
     pub fn into_parts(self) -> (AgentParticipationService<S>, A) {
         (self.service, self.authenticator)
     }
@@ -351,6 +496,111 @@ impl<G: AgentGateway, A: Authenticator> AgentDaemon<G, A> {
     }
 
     pub fn into_parts(self) -> (AgentService<G>, A) {
+        (self.service, self.authenticator)
+    }
+}
+
+/// Private deliberation owner projection. Authentication yields only the
+/// service access facts; it cannot manufacture proof, Pareto selection, or
+/// action authority.
+pub struct DeliberationDaemon<S: DeliberationStore, A: Authenticator> {
+    listener: OwnedUnixListener,
+    service: DeliberationService<S>,
+    authenticator: A,
+    wire_limits: LimitsV1,
+    io_timeout: Duration,
+    max_requests: usize,
+    health: HealthV1,
+}
+
+impl<S: DeliberationStore, A: Authenticator> DeliberationDaemon<S, A> {
+    pub fn bind_new(
+        socket_path: impl AsRef<Path>,
+        service: DeliberationService<S>,
+        authenticator: A,
+        wire_limits: LimitsV1,
+        io_timeout: Duration,
+        max_requests: usize,
+    ) -> io::Result<Self> {
+        if io_timeout.is_zero() || max_requests == 0 || wire_limits.max_frame_bytes == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "disabled limit",
+            ));
+        }
+        Ok(Self {
+            listener: OwnedUnixListener::bind_new(socket_path)?,
+            service,
+            authenticator,
+            wire_limits,
+            io_timeout,
+            max_requests,
+            health: HealthV1 {
+                ready: true,
+                ..HealthV1::default()
+            },
+        })
+    }
+
+    pub fn health(&self) -> HealthV1 {
+        self.health
+    }
+
+    pub fn serve_next(&mut self) -> Result<(), DeliberationDaemonErrorV1<A::Error, S::Error>> {
+        let (mut stream, _) = self
+            .listener
+            .accept()
+            .map_err(DeliberationDaemonErrorV1::Io)?;
+        increment(
+            &mut self.health.active_connections,
+            &mut self.health.saturated,
+        );
+        let result = self.serve_stream(&mut stream);
+        self.health.active_connections = self.health.active_connections.saturating_sub(1);
+        if result.is_err() {
+            increment(
+                &mut self.health.refused_connections,
+                &mut self.health.saturated,
+            );
+        } else {
+            increment(
+                &mut self.health.accepted_connections,
+                &mut self.health.saturated,
+            );
+        }
+        if matches!(
+            &result,
+            Err(DeliberationDaemonErrorV1::Connection(
+                ConnectionErrorV1::OutcomeUnknown(_)
+            ))
+        ) {
+            increment(&mut self.health.outcome_unknown, &mut self.health.saturated);
+        }
+        result
+    }
+
+    fn serve_stream(
+        &mut self,
+        stream: &mut UnixStream,
+    ) -> Result<(), DeliberationDaemonErrorV1<A::Error, S::Error>> {
+        stream
+            .set_read_timeout(Some(self.io_timeout))
+            .and_then(|()| stream.set_write_timeout(Some(self.io_timeout)))
+            .map_err(DeliberationDaemonErrorV1::Io)?;
+        let access = self
+            .authenticator
+            .authenticate(stream)
+            .map_err(DeliberationDaemonErrorV1::Authentication)?;
+        write_ready(stream, self.wire_limits, self.max_requests)
+            .map_err(DeliberationDaemonErrorV1::Io)?;
+        serve_deliberation_up_to(stream, self.wire_limits, self.max_requests, |command| {
+            self.service.execute_authorized(access, command)
+        })
+        .map(|_| ())
+        .map_err(DeliberationDaemonErrorV1::Connection)
+    }
+
+    pub fn into_parts(self) -> (DeliberationService<S>, A) {
         (self.service, self.authenticator)
     }
 }
@@ -584,7 +834,14 @@ impl<S: SagaStore, A: SagaAuthenticator> SagaDaemon<S, A> {
                 self.wire_limits,
                 self.max_requests,
                 |command| match command {
-                    SagaCommandV1::Reconcile { operation, .. } => {
+                    SagaCommandV1::ConfirmReconciliation(selected) => {
+                        let (expected_revision, operation) =
+                            match self.service.prepare_confirmed_reconciliation(selected) {
+                                Ok(value) => value,
+                                Err(refusal) => {
+                                    return Ok(moira_protocol::SagaReplyV1::Refused(refusal));
+                                }
+                            };
                         let operator = self
                             .authenticator
                             .authorize_operator(operation)
@@ -592,13 +849,25 @@ impl<S: SagaStore, A: SagaAuthenticator> SagaDaemon<S, A> {
                         match operator {
                             Some(operator) => self
                                 .service
-                                .execute_operator_authorized(operator, command)
+                                .execute_operator_authorized(
+                                    operator,
+                                    SagaCommandV1::Reconcile {
+                                        expected_revision,
+                                        operation,
+                                    },
+                                )
                                 .map_err(SagaDispatchErrorV1::Service),
                             None => Ok(moira_protocol::SagaReplyV1::Refused(
                                 moira_protocol::SagaRefusalV1::NotAuthorized,
                             )),
                         }
                     }
+                    // Raw operations remain an internal service command. The
+                    // public daemon accepts only a current server-prepared
+                    // confirmation, so callers cannot invent action identity.
+                    SagaCommandV1::Reconcile { .. } => Ok(moira_protocol::SagaReplyV1::Refused(
+                        moira_protocol::SagaRefusalV1::NotAuthorized,
+                    )),
                     _ => self
                         .service
                         .execute_authorized(access, command)

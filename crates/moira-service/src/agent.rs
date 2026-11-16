@@ -33,6 +33,7 @@ impl<G: AgentGateway> AgentService<G> {
             agent::CommandV1::Open { .. }
             | agent::CommandV1::Prompt { .. }
             | agent::CommandV1::DecidePermission { .. }
+            | agent::CommandV1::Reattach { .. }
             | agent::CommandV1::Advance { .. }
             | agent::CommandV1::Cancel { .. }
             | agent::CommandV1::Close { .. } => access.mutate,

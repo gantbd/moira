@@ -7,8 +7,12 @@ publish = false
 license = "MIT OR Apache-2.0"
 description = "Transport-neutral Moira service client"
 
+[features]
+unix = ["dep:moira-wire"]
+
 [dependencies]
 moira-protocol = { path = "../moira-protocol" }
+moira-wire = { path = "../moira-wire", optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"

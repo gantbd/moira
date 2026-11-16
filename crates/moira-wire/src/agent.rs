@@ -128,6 +128,18 @@ fn command(w: &mut Writer, value: &CommandV1) -> Result<(), CodecErrorV1> {
             *idempotency_key,
             *now,
         ),
+        CommandV1::Reattach {
+            session,
+            expected_revision,
+            execution: value,
+            now,
+        } => {
+            w.byte(9)?;
+            w.raw(&session.0)?;
+            w.u64(*expected_revision)?;
+            execution(w, value)?;
+            w.u64(*now)
+        }
     }
 }
 
@@ -188,6 +200,12 @@ fn read_command(r: &mut Reader<'_>) -> Result<CommandV1, CodecErrorV1> {
                 now,
             }
         }
+        9 => CommandV1::Reattach {
+            session: SessionIdV1(r.raw()?),
+            expected_revision: r.u64()?,
+            execution: read_execution(r)?,
+            now: r.u64()?,
+        },
         _ => return Err(CodecErrorV1::Unsupported),
     })
 }
@@ -520,6 +538,16 @@ fn event(w: &mut Writer, value: &EventV1) -> Result<(), CodecErrorV1> {
             w.byte(stop_tag(*stop_reason))?;
             w.option(*output_digest, |w, v| w.raw(&v.0))
         }
+        EventV1::FileRead {
+            path,
+            content_digest,
+            content_bytes,
+        } => {
+            w.byte(9)?;
+            w.bytes(path)?;
+            w.raw(&content_digest.0)?;
+            w.u64(u64::try_from(*content_bytes).map_err(|_| CodecErrorV1::Limit)?)
+        }
     }
 }
 fn read_event(r: &mut Reader<'_>) -> Result<EventV1, CodecErrorV1> {
@@ -549,6 +577,11 @@ fn read_event(r: &mut Reader<'_>) -> Result<EventV1, CodecErrorV1> {
             disposition: read_disposition(r.byte()?)?,
             stop_reason: read_stop(r.byte()?)?,
             output_digest: r.option(|r| r.raw().map(DigestV1))?,
+        },
+        9 => EventV1::FileRead {
+            path: r.bytes()?,
+            content_digest: DigestV1(r.raw()?),
+            content_bytes: usize::try_from(r.u64()?).map_err(|_| CodecErrorV1::Limit)?,
         },
         _ => return Err(CodecErrorV1::Unsupported),
     })
@@ -597,7 +630,7 @@ fn read_permission(r: &mut Reader<'_>) -> Result<PermissionRequestV1, CodecError
 }
 
 macro_rules! tags { ($tag:ident,$read:ident,$ty:ty,{$($variant:path=>$n:expr),+$(,)?}) => { fn $tag(value:$ty)->u8{match value{$($variant=>$n),+}} fn $read(value:u8)->Result<$ty,CodecErrorV1>{match value{$($n=>Ok($variant),)+_=>Err(CodecErrorV1::Unsupported)}} }; }
-tags!(phase_tag,read_phase,PhaseV1,{PhaseV1::Opening=>0,PhaseV1::Ready=>1,PhaseV1::TurnActive=>2,PhaseV1::AwaitingPermission=>3,PhaseV1::OutcomeUnknown=>4,PhaseV1::Closed=>5});
+tags!(phase_tag,read_phase,PhaseV1,{PhaseV1::Opening=>0,PhaseV1::Ready=>1,PhaseV1::TurnActive=>2,PhaseV1::AwaitingPermission=>3,PhaseV1::OutcomeUnknown=>4,PhaseV1::Closed=>5,PhaseV1::ReattachRequired=>6});
 tags!(disposition_tag,read_disposition,DispositionV1,{DispositionV1::Completed=>0,DispositionV1::Failed=>1,DispositionV1::Cancelled=>2,DispositionV1::TimedOut=>3,DispositionV1::Uncertain=>4});
 tags!(stop_tag,read_stop,StopReasonV1,{StopReasonV1::EndTurn=>0,StopReasonV1::Cancelled=>1,StopReasonV1::TimedOut=>2,StopReasonV1::Failed=>3,StopReasonV1::Disconnected=>4,StopReasonV1::OutcomeUnknown=>5});
 tags!(option_kind_tag,read_option_kind,PermissionOptionKindV1,{PermissionOptionKindV1::AllowOnce=>0,PermissionOptionKindV1::AllowAlways=>1,PermissionOptionKindV1::RejectOnce=>2,PermissionOptionKindV1::RejectAlways=>3});

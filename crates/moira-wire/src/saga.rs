@@ -94,6 +94,19 @@ fn command(w: &mut Writer, value: &SagaCommandV1) -> Result<(), CodecErrorV1> {
             w.u64(*expected_revision)?;
             operator_operation(w, *operation)
         }
+        SagaCommandV1::ReconciliationConfirmation { proposal } => {
+            w.byte(10)?;
+            w.u64(proposal.saga.0)?;
+            operator_disposition(w, proposal.disposition)
+        }
+        SagaCommandV1::ConfirmReconciliation(value) => {
+            w.byte(11)?;
+            w.u64(value.storage_revision)?;
+            w.u64(value.saga.0)?;
+            operator_disposition(w, value.disposition)?;
+            w.raw(&value.action.0)?;
+            w.raw(&value.confirmation_digest)
+        }
     }
 }
 
@@ -131,6 +144,19 @@ fn read_command(r: &mut Reader<'_>) -> Result<SagaCommandV1, CodecErrorV1> {
             expected_revision: r.u64()?,
             operation: read_operator_operation(r)?,
         },
+        10 => SagaCommandV1::ReconciliationConfirmation {
+            proposal: ReconciliationProposalV1 {
+                saga: SagaIdV1(r.u64()?),
+                disposition: read_operator_disposition(r)?,
+            },
+        },
+        11 => SagaCommandV1::ConfirmReconciliation(ConfirmedReconciliationV1 {
+            storage_revision: r.u64()?,
+            saga: SagaIdV1(r.u64()?),
+            disposition: read_operator_disposition(r)?,
+            action: OperatorActionIdV1(r.raw()?),
+            confirmation_digest: r.raw()?,
+        }),
         _ => return Err(CodecErrorV1::Unsupported),
     })
 }
@@ -353,6 +379,10 @@ fn outcome(w: &mut Writer, value: &SagaOutcomeV1) -> Result<(), CodecErrorV1> {
             }
             w.option(value.next_after, |w, value| w.raw(&value.0))
         }
+        SagaOutcomeV1::ReconciliationConfirmation(value) => {
+            w.byte(9)?;
+            w.option(*value, reconciliation_confirmation)
+        }
     }
 }
 
@@ -383,7 +413,31 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<SagaOutcomeV1, CodecErrorV1> {
             entries: read_vec(r, read_operator_receipt)?,
             next_after: r.option(|r| r.raw().map(OperatorActionIdV1))?,
         }),
+        9 => SagaOutcomeV1::ReconciliationConfirmation(r.option(read_reconciliation_confirmation)?),
         _ => return Err(CodecErrorV1::Unsupported),
+    })
+}
+
+fn reconciliation_confirmation(
+    w: &mut Writer,
+    value: ReconciliationConfirmationV1,
+) -> Result<(), CodecErrorV1> {
+    w.u64(value.storage_revision)?;
+    w.u64(value.saga.0)?;
+    operator_disposition(w, value.disposition)?;
+    w.raw(&value.action.0)?;
+    w.raw(&value.confirmation_digest)
+}
+
+fn read_reconciliation_confirmation(
+    r: &mut Reader<'_>,
+) -> Result<ReconciliationConfirmationV1, CodecErrorV1> {
+    Ok(ReconciliationConfirmationV1 {
+        storage_revision: r.u64()?,
+        saga: SagaIdV1(r.u64()?),
+        disposition: read_operator_disposition(r)?,
+        action: OperatorActionIdV1(r.raw()?),
+        confirmation_digest: r.raw()?,
     })
 }
 

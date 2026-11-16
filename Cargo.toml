@@ -20,6 +20,7 @@ exclude = [
 ]
 members = [
   ".",
+  "apps/moira-agent-local",
   "apps/moira-methodical-local",
   "adapters/moira-sqlite",
   "adapters/moira-agora-sqlite",
@@ -46,6 +47,7 @@ members = [
 ]
 default-members = [
   ".",
+  "apps/moira-agent-local",
   "apps/moira-methodical-local",
   "adapters/moira-sqlite",
   "adapters/moira-agora-sqlite",

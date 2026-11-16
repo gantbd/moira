@@ -3,9 +3,9 @@
 use moira_core::saga::{SagaLimitsV1, persistence::SagaCodecLimitsV1};
 use moira_local_daemon::unix::{SagaAuthenticator, SagaDaemon};
 use moira_protocol::{
-    OperatorActionIdV1, OperatorDispositionV1, OperatorOperationV1, SagaCommandV1,
-    SagaEffectOutcomeV1, SagaMutationV1, SagaOutcomeV1, SagaRefusalV1, SagaReplyV1, SagaSourceV1,
-    SagaTransitionV1,
+    ConfirmedReconciliationV1, OperatorDispositionV1, OperatorOperationV1,
+    ReconciliationProposalV1, SagaCommandV1, SagaEffectOutcomeV1, SagaMutationV1, SagaOutcomeV1,
+    SagaRefusalV1, SagaReplyV1, SagaSourceV1, SagaTransitionV1,
 };
 use moira_service::{
     AccessV1,
@@ -94,7 +94,7 @@ fn send(stream: &mut UnixStream, command: SagaCommandV1) -> SagaReplyV1 {
 }
 
 #[test]
-fn private_saga_socket_reconciles_and_replays_after_sqlite_daemon_reopen() {
+fn private_saga_socket_confirms_recovers_receipt_and_refuses_raw_reconcile() {
     let database = path("service.db");
     let socket = path("service.sock");
     let owner = [8; 16];
@@ -120,7 +120,6 @@ fn private_saga_socket_reconciles_and_replays_after_sqlite_daemon_reopen() {
         fs::metadata(&socket).unwrap().permissions().mode() & 0o777,
         0o600
     );
-    let action = OperatorActionIdV1([6; 16]);
     let client_socket = socket.clone();
     let first = thread::spawn(move || {
         let mut stream = UnixStream::connect(client_socket).unwrap();
@@ -156,24 +155,39 @@ fn private_saga_socket_reconciles_and_replays_after_sqlite_daemon_reopen() {
                 },
             },
         );
-        let operation = OperatorOperationV1 {
-            action,
+        let proposal = ReconciliationProposalV1 {
             saga,
             disposition: OperatorDispositionV1::KeepUncertain,
         };
+        let SagaReplyV1::Accepted(SagaOutcomeV1::ReconciliationConfirmation(Some(confirmation))) =
+            send(
+                &mut stream,
+                SagaCommandV1::ReconciliationConfirmation { proposal },
+            )
+        else {
+            panic!("reconciliation confirmation expected")
+        };
         let reconciled = send(
             &mut stream,
-            SagaCommandV1::Reconcile {
-                expected_revision: 2,
-                operation,
+            SagaCommandV1::ConfirmReconciliation(ConfirmedReconciliationV1 {
+                storage_revision: confirmation.storage_revision,
+                saga,
+                disposition: proposal.disposition,
+                action: confirmation.action,
+                confirmation_digest: confirmation.confirmation_digest,
+            }),
+        );
+        let exported = send(
+            &mut stream,
+            SagaCommandV1::OperatorReceipt {
+                action: confirmation.action,
             },
         );
-        let exported = send(&mut stream, SagaCommandV1::OperatorReceipt { action });
         drop(stream);
-        (operation, reconciled, exported)
+        (confirmation.action, saga, reconciled, exported)
     });
     daemon.serve_next().unwrap();
-    let (operation, reconciled, exported) = first.join().unwrap();
+    let (action, saga, reconciled, exported) = first.join().unwrap();
     assert!(matches!(
         reconciled,
         SagaReplyV1::Accepted(SagaOutcomeV1::Applied {
@@ -207,21 +221,29 @@ fn private_saga_socket_reconciles_and_replays_after_sqlite_daemon_reopen() {
     let replay = thread::spawn(move || {
         let mut stream = UnixStream::connect(replay_socket).unwrap();
         decode_ready(&frame(&mut stream), LimitsV1::default()).unwrap();
-        let reply = send(
+        let receipt = send(&mut stream, SagaCommandV1::OperatorReceipt { action });
+        let raw = send(
             &mut stream,
             SagaCommandV1::Reconcile {
                 expected_revision: 2,
-                operation,
+                operation: OperatorOperationV1 {
+                    action,
+                    saga,
+                    disposition: OperatorDispositionV1::KeepUncertain,
+                },
             },
         );
         drop(stream);
-        reply
+        (receipt, raw)
     });
     daemon.serve_next().unwrap();
+    let (receipt, raw) = replay.join().unwrap();
     assert!(matches!(
-        replay.join().unwrap(),
-        SagaReplyV1::Accepted(SagaOutcomeV1::Applied { replayed: true, .. })
+        receipt,
+        SagaReplyV1::Accepted(SagaOutcomeV1::OperatorReceipt(Some(value)))
+            if value.action == action && value.saga == saga
     ));
+    assert_eq!(raw, SagaReplyV1::Refused(SagaRefusalV1::NotAuthorized));
     drop(daemon);
 
     let reopened = SagaSqliteStore::open(&database, owner, limits()).unwrap();
@@ -233,22 +255,34 @@ fn private_saga_socket_reconciles_and_replays_after_sqlite_daemon_reopen() {
         },
         LimitsV1::default(),
         Duration::from_secs(2),
-        2,
+        3,
     )
     .unwrap();
     let denied_socket = socket.clone();
     let denied = thread::spawn(move || {
         let mut stream = UnixStream::connect(denied_socket).unwrap();
         decode_ready(&frame(&mut stream), LimitsV1::default()).unwrap();
+        let proposal = ReconciliationProposalV1 {
+            saga,
+            disposition: OperatorDispositionV1::FailTerminal,
+        };
+        let SagaReplyV1::Accepted(SagaOutcomeV1::ReconciliationConfirmation(Some(confirmation))) =
+            send(
+                &mut stream,
+                SagaCommandV1::ReconciliationConfirmation { proposal },
+            )
+        else {
+            panic!("denied confirmation expected")
+        };
         let reply = send(
             &mut stream,
-            SagaCommandV1::Reconcile {
-                expected_revision: 3,
-                operation: OperatorOperationV1 {
-                    action: OperatorActionIdV1([7; 16]),
-                    ..operation
-                },
-            },
+            SagaCommandV1::ConfirmReconciliation(ConfirmedReconciliationV1 {
+                storage_revision: confirmation.storage_revision,
+                saga,
+                disposition: proposal.disposition,
+                action: confirmation.action,
+                confirmation_digest: confirmation.confirmation_digest,
+            }),
         );
         let status = send(&mut stream, SagaCommandV1::Status);
         drop(stream);

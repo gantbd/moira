@@ -140,6 +140,11 @@ pub enum OperationV1 {
     Close {
         key: IdempotencyKeyV1,
     },
+    Reattach {
+        key: IdempotencyKeyV1,
+        execution: ExecutionIdV1,
+        attempt: AttemptV1,
+    },
 }
 
 impl OperationV1 {
@@ -150,7 +155,8 @@ impl OperationV1 {
             | Self::Advance { key, .. }
             | Self::DecidePermission { key, .. }
             | Self::Cancel { key, .. }
-            | Self::Close { key } => key,
+            | Self::Close { key }
+            | Self::Reattach { key, .. } => key,
         }
     }
 }
@@ -164,6 +170,7 @@ pub enum PhaseV1 {
     Terminal,
     FencedUnknown,
     Closed,
+    ReattachRequired,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -405,6 +412,39 @@ impl Engine {
         Ok(receipt(snapshot, false))
     }
 
+    pub fn mark_reattach_required(
+        &mut self,
+        id: ParticipationIdV1,
+        expected_revision: u64,
+        session_revision: u64,
+    ) -> Result<ReceiptV1, RefusalV1> {
+        let snapshot = self
+            .participations
+            .get_mut(&id)
+            .ok_or(RefusalV1::UnknownParticipation)?;
+        if snapshot.phase == PhaseV1::ReattachRequired
+            && snapshot.session_revision == Some(session_revision)
+        {
+            return Ok(receipt(snapshot, true));
+        }
+        if snapshot.revision != expected_revision {
+            return Err(RefusalV1::RevisionConflict);
+        }
+        if snapshot.phase != PhaseV1::Ready
+            || snapshot.pending.is_some()
+            || snapshot.session_revision != Some(session_revision)
+            || !snapshot.capabilities.resume_session
+        {
+            return Err(RefusalV1::InvalidObservation);
+        }
+        snapshot.revision = snapshot
+            .revision
+            .checked_add(1)
+            .ok_or(RefusalV1::RevisionExhausted)?;
+        snapshot.phase = PhaseV1::ReattachRequired;
+        Ok(receipt(snapshot, false))
+    }
+
     pub fn recover(checkpoint: CheckpointV1) -> Result<Self, RefusalV1> {
         if checkpoint.version != 1
             || checkpoint.participations.len() > checkpoint.limits.max_participations
@@ -512,6 +552,14 @@ fn valid_operation(snapshot: &SnapshotV1, value: OperationV1) -> bool {
             ) && snapshot.active_turn == Some(turn)
         }
         OperationV1::Close { .. } => matches!(snapshot.phase, PhaseV1::Ready | PhaseV1::Terminal),
+        OperationV1::Reattach {
+            execution, attempt, ..
+        } => {
+            snapshot.phase == PhaseV1::ReattachRequired
+                && execution.0 != [0; 16]
+                && attempt == snapshot.binding.attempt
+                && snapshot.capabilities.resume_session
+        }
     }
 }
 
@@ -524,7 +572,7 @@ fn valid_observation(snapshot: &SnapshotV1, operation: OperationV1, value: Obser
         return false;
     }
     let shape = match value.phase {
-        PhaseV1::Admitted | PhaseV1::FencedUnknown => false,
+        PhaseV1::Admitted | PhaseV1::FencedUnknown | PhaseV1::ReattachRequired => false,
         PhaseV1::Ready => {
             value.active_turn.is_none() && value.permission.is_none() && value.terminal.is_none()
         }
@@ -566,6 +614,7 @@ fn valid_observation(snapshot: &SnapshotV1, operation: OperationV1, value: Obser
                 })
         }
         OperationV1::Close { .. } => value.phase == PhaseV1::Closed,
+        OperationV1::Reattach { .. } => value.phase == PhaseV1::Ready,
     }
 }
 
@@ -655,6 +704,16 @@ fn valid_snapshot(value: &SnapshotV1) -> bool {
                 && value.pending.is_none()
                 && value.active_turn.is_none()
         }
+        PhaseV1::ReattachRequired => {
+            value.session_revision.is_some()
+                && value
+                    .pending
+                    .is_none_or(|operation| matches!(operation, OperationV1::Reattach { .. }))
+                && value.active_turn.is_none()
+                && value.permission.is_none()
+                && value.terminal.is_none()
+                && value.capabilities.resume_session
+        }
     }
 }
 
@@ -708,6 +767,15 @@ fn valid_fenced_operation(snapshot: &SnapshotV1, value: OperationV1) -> bool {
         OperationV1::Close { .. } => {
             snapshot.session_revision.is_some() && snapshot.active_turn.is_none()
         }
+        OperationV1::Reattach {
+            execution, attempt, ..
+        } => {
+            execution.0 != [0; 16]
+                && attempt == snapshot.binding.attempt
+                && snapshot.session_revision.is_some()
+                && snapshot.active_turn.is_none()
+                && snapshot.capabilities.resume_session
+        }
     }
 }
 
@@ -730,7 +798,8 @@ fn valid_permission_options(value: PermissionEvidenceV1) -> bool {
 }
 
 fn observation_matches_snapshot(snapshot: &SnapshotV1, value: ObservationV1) -> bool {
-    snapshot.phase == value.phase
+    (snapshot.phase == value.phase
+        || snapshot.phase == PhaseV1::ReattachRequired && value.phase == PhaseV1::Ready)
         && snapshot.session_revision == Some(value.session_revision)
         && snapshot.last_event_cursor == value.last_event_cursor
         && snapshot.profile_document_digest == Some(value.profile_document_digest)

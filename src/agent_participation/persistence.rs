@@ -323,6 +323,16 @@ fn operation(w: &mut Writer, value: OperationV1) -> Result<(), CodecErrorV1> {
             w.byte(5)?;
             w.id(key.0)
         }
+        OperationV1::Reattach {
+            key,
+            execution,
+            attempt: value,
+        } => {
+            w.byte(6)?;
+            w.id(key.0)?;
+            w.id(execution.0)?;
+            attempt(w, value)
+        }
     }
 }
 fn read_operation(r: &mut Reader<'_>) -> Result<OperationV1, CodecErrorV1> {
@@ -356,6 +366,11 @@ fn read_operation(r: &mut Reader<'_>) -> Result<OperationV1, CodecErrorV1> {
         },
         5 => OperationV1::Close {
             key: IdempotencyKeyV1(r.id()?),
+        },
+        6 => OperationV1::Reattach {
+            key: IdempotencyKeyV1(r.id()?),
+            execution: ExecutionIdV1(r.id()?),
+            attempt: read_attempt(r)?,
         },
         _ => return Err(CodecErrorV1::Invalid),
     })
@@ -472,7 +487,7 @@ fn read_capabilities(r: &mut Reader<'_>) -> Result<CapabilitiesV1, CodecErrorV1>
 }
 
 macro_rules! tags{($tag:ident,$read:ident,$ty:ty,{$($variant:path=>$n:expr),+$(,)?})=>{fn $tag(value:$ty)->u8{match value{$($variant=>$n),+}}fn $read(value:u8)->Result<$ty,CodecErrorV1>{match value{$($n=>Ok($variant),)+_=>Err(CodecErrorV1::Invalid)}}};}
-tags!(phase_tag,read_phase,PhaseV1,{PhaseV1::Admitted=>0,PhaseV1::Ready=>1,PhaseV1::TurnActive=>2,PhaseV1::AwaitingPermission=>3,PhaseV1::Terminal=>4,PhaseV1::FencedUnknown=>5,PhaseV1::Closed=>6});
+tags!(phase_tag,read_phase,PhaseV1,{PhaseV1::Admitted=>0,PhaseV1::Ready=>1,PhaseV1::TurnActive=>2,PhaseV1::AwaitingPermission=>3,PhaseV1::Terminal=>4,PhaseV1::FencedUnknown=>5,PhaseV1::Closed=>6,PhaseV1::ReattachRequired=>7});
 tags!(disposition_tag,read_disposition,DispositionV1,{DispositionV1::Completed=>0,DispositionV1::Failed=>1,DispositionV1::Cancelled=>2,DispositionV1::TimedOut=>3,DispositionV1::Uncertain=>4});
 tags!(stop_tag,read_stop,StopReasonV1,{StopReasonV1::EndTurn=>0,StopReasonV1::Cancelled=>1,StopReasonV1::TimedOut=>2,StopReasonV1::Failed=>3,StopReasonV1::Disconnected=>4,StopReasonV1::OutcomeUnknown=>5});
 tags!(depth_tag,read_depth,deliberation::SurfaceDepthV1,{deliberation::SurfaceDepthV1::Ambient=>0,deliberation::SurfaceDepthV1::Activated=>1,deliberation::SurfaceDepthV1::Reference=>2});

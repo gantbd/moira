@@ -6,9 +6,9 @@ use moira_core::saga::{
 };
 use moira_host::{SagaApplyErrorV1, SagaApplyReceiptV1, SagaStore};
 use moira_protocol::{
-    OperatorActionIdV1, OperatorDispositionV1, OperatorOperationV1, SagaCommandV1,
-    SagaEffectOutcomeV1, SagaIdV1, SagaMutationV1, SagaOutcomeV1, SagaRefusalV1, SagaReplyV1,
-    SagaSourceV1, SagaTransitionV1,
+    ConfirmedReconciliationV1, OperatorActionIdV1, OperatorDispositionV1, OperatorOperationV1,
+    ReconciliationProposalV1, SagaCommandV1, SagaEffectOutcomeV1, SagaIdV1, SagaMutationV1,
+    SagaOutcomeV1, SagaRefusalV1, SagaReplyV1, SagaSourceV1, SagaTransitionV1,
 };
 use moira_service::{
     AccessV1,
@@ -253,6 +253,28 @@ fn operator_reconciliation_requires_verified_aegis_facts_and_replays_exactly() {
             },
         })
         .unwrap();
+    let proposal = ReconciliationProposalV1 {
+        saga,
+        disposition: OperatorDispositionV1::KeepUncertain,
+    };
+    let SagaReplyV1::Accepted(SagaOutcomeV1::ReconciliationConfirmation(Some(confirmation))) =
+        service
+            .execute(SagaCommandV1::ReconciliationConfirmation { proposal })
+            .unwrap()
+    else {
+        panic!("confirmation expected")
+    };
+    let selected = ConfirmedReconciliationV1 {
+        storage_revision: confirmation.storage_revision,
+        saga,
+        disposition: proposal.disposition,
+        action: confirmation.action,
+        confirmation_digest: confirmation.confirmation_digest,
+    };
+    let (expected_revision, prepared) = service.prepare_confirmed_reconciliation(selected).unwrap();
+    assert_eq!(expected_revision, 2);
+    assert_eq!(prepared.action, confirmation.action);
+    assert_eq!(prepared.saga, saga);
     let operation = OperatorOperationV1 {
         action: OperatorActionIdV1([7; 16]),
         saga,

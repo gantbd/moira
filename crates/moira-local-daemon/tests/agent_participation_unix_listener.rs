@@ -1,5 +1,9 @@
 #![cfg(unix)]
 
+use moira_client::{
+    AgentParticipationServicePort,
+    unix::{AgentParticipationUnixPort, ParticipationClientLimitsV1},
+};
 use moira_core::agent_participation::{LimitsV1 as DomainLimits, persistence::CodecLimitsV1};
 use moira_local_daemon::unix::{AgentParticipationAuthenticator, AgentParticipationDaemon};
 use moira_protocol::{WorkflowIdV1, agent_participation as p, deliberation as d};
@@ -10,6 +14,7 @@ use moira_service::{
 use moira_sqlite::agent_participation::{
     AgentParticipationSqliteStore, AgentParticipationStoreLimitsV1,
 };
+use moira_sqlite::agent_prompt::{AgentPromptSqliteStore, AgentPromptStoreLimitsV1};
 use moira_wire::{
     LimitsV1, decode_agent_participation_reply, decode_ready, encode_agent_participation_request,
 };
@@ -55,6 +60,30 @@ impl AgentParticipationAuthenticator for Authentication {
     }
 }
 
+struct WorkerAuthentication(Authentication);
+
+impl AgentParticipationAuthenticator for WorkerAuthentication {
+    type Error = Infallible;
+
+    fn authenticate(&mut self, stream: &UnixStream) -> Result<AccessV1, Self::Error> {
+        self.0.authenticate(stream)
+    }
+
+    fn authorize_permission(
+        &mut self,
+        selection: p::PermissionSelectionV1,
+    ) -> Result<Option<PermissionAccessV1>, Self::Error> {
+        self.0.authorize_permission(selection)
+    }
+
+    fn authorize_prompt_materialization(
+        &mut self,
+        _: p::PromptMaterializationRequestV1,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
+
 fn path(kind: &str) -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     std::env::temp_dir().join(format!(
@@ -91,6 +120,22 @@ fn send(stream: &mut UnixStream, command: p::CommandV1) -> p::ReplyV1 {
         .unwrap();
     stream.write_all(&bytes).unwrap();
     decode_agent_participation_reply(&frame(stream), LimitsV1::default()).unwrap()
+}
+
+#[test]
+fn ordinary_terminal_authentication_does_not_grant_prompt_materialization() {
+    let mut authentication = Authentication {
+        authorizations: Arc::new(AtomicUsize::new(0)),
+    };
+    assert!(
+        !authentication
+            .authorize_prompt_materialization(p::PromptMaterializationRequestV1 {
+                participation: p::ParticipationIdV1([1; 16]),
+                expected_revision: 2,
+                prompt_digest: [3; 32],
+            })
+            .unwrap()
+    );
 }
 
 #[test]
@@ -215,6 +260,199 @@ fn private_profile_authorizes_selection_but_rejects_forged_generic_permission() 
     for suffix in ["", "-journal", ".owner.lock"] {
         let _ = fs::remove_file(format!("{}{}", database.display(), suffix));
     }
+}
+
+#[test]
+fn governed_prompt_socket_commits_bytes_and_replays_server_derived_operation() {
+    let database = path("prompt-service.db");
+    let prompts = path("prompt-bytes.db");
+    let socket = path("prompt-service.sock");
+    let binding = binding();
+    prime_ready(&database, binding);
+    let service = AgentParticipationService::new(
+        AgentParticipationSqliteStore::open(&database, [1; 16], limits()).unwrap(),
+    );
+    let prompt_store = AgentPromptSqliteStore::open(
+        &prompts,
+        [2; 16],
+        AgentPromptStoreLimitsV1 {
+            max_entries: 4,
+            max_prompt_bytes: 128,
+            max_database_pages: 64,
+        },
+    )
+    .unwrap();
+    let authorizations = Arc::new(AtomicUsize::new(0));
+    let mut daemon = AgentParticipationDaemon::bind_new_with_prompt_store(
+        &socket,
+        service,
+        WorkerAuthentication(Authentication {
+            authorizations: Arc::clone(&authorizations),
+        }),
+        prompt_store,
+        LimitsV1::default(),
+        Duration::from_secs(2),
+        4,
+    )
+    .unwrap();
+    let client_socket = socket.clone();
+    let client = thread::spawn(move || {
+        let mut stream = UnixStream::connect(client_socket).unwrap();
+        decode_ready(&frame(&mut stream), LimitsV1::default()).unwrap();
+        let submission = p::PromptSubmissionV1 {
+            participation: binding.participation,
+            prompt: b"respond from this exact prompt".to_vec(),
+        };
+        let forged = send(
+            &mut stream,
+            p::CommandV1::Apply {
+                expected_storage_revision: Some(2),
+                mutation: Box::new(p::MutationV1::Prepare {
+                    participation: binding.participation,
+                    expected_revision: 2,
+                    operation: p::OperationV1::Prompt {
+                        key: p::IdempotencyKeyV1([81; 16]),
+                        turn: p::AgentTurnIdV1([82; 16]),
+                        execution: p::ExecutionIdV1([83; 16]),
+                        prompt_digest: [84; 32],
+                        attempt: binding.attempt,
+                    },
+                }),
+            },
+        );
+        let first = send(&mut stream, p::CommandV1::SubmitPrompt(submission.clone()));
+        let replay = send(&mut stream, p::CommandV1::SubmitPrompt(submission));
+        let materialized = send(
+            &mut stream,
+            p::CommandV1::MaterializePrompt(p::PromptMaterializationRequestV1 {
+                participation: binding.participation,
+                expected_revision: 3,
+                prompt_digest: p::agent_prompt_digest(b"respond from this exact prompt").unwrap(),
+            }),
+        );
+        (forged, first, replay, materialized)
+    });
+    daemon.serve_next().unwrap();
+    let (forged, first, replay, materialized) = client.join().unwrap();
+    assert_eq!(forged, p::ReplyV1::Refused(p::RefusalV1::NotAuthorized));
+    let operation = match first {
+        p::ReplyV1::Accepted(value) => match *value {
+            p::OutcomeV1::Applied {
+                participation,
+                replayed: false,
+                ..
+            } => participation.pending.unwrap(),
+            other => panic!("unexpected {other:?}"),
+        },
+        other => panic!("unexpected {other:?}"),
+    };
+    assert!(matches!(
+        replay,
+        p::ReplyV1::Accepted(value)
+            if matches!(&*value, p::OutcomeV1::Applied {
+                participation,
+                replayed: true,
+                ..
+            } if participation.pending == Some(operation))
+    ));
+    assert!(matches!(
+        materialized,
+        p::ReplyV1::Accepted(value)
+            if matches!(&*value, p::OutcomeV1::PromptMaterialization(value)
+                if value.participation == binding.participation
+                    && value.participation_revision == 3
+                    && value.prompt == b"respond from this exact prompt")
+    ));
+    assert_eq!(authorizations.load(Ordering::Relaxed), 0);
+    let (_, _, mut prompt_store) = daemon.into_prompt_parts();
+    let digest = p::agent_prompt_digest(b"respond from this exact prompt").unwrap();
+    use moira_host::AgentPromptStoreV1;
+    assert_eq!(
+        prompt_store.get(digest).unwrap().unwrap(),
+        b"respond from this exact prompt"
+    );
+    drop(prompt_store);
+    for value in [&database, &prompts] {
+        for suffix in ["", "-journal", ".owner.lock"] {
+            let _ = fs::remove_file(format!("{}{}", value.display(), suffix));
+        }
+    }
+}
+
+#[test]
+fn canonical_client_connects_to_real_private_participation_profile() {
+    let database = path("client-service.db");
+    let socket = path("client-service.sock");
+    let service = AgentParticipationService::new(
+        AgentParticipationSqliteStore::open(&database, [1; 16], limits()).unwrap(),
+    );
+    let mut daemon = AgentParticipationDaemon::bind_new(
+        &socket,
+        service,
+        Authentication {
+            authorizations: Arc::new(AtomicUsize::new(0)),
+        },
+        LimitsV1::default(),
+        Duration::from_secs(2),
+        1,
+    )
+    .unwrap();
+    let client_socket = socket.clone();
+    let client = thread::spawn(move || {
+        let mut port = AgentParticipationUnixPort::connect(
+            client_socket,
+            ParticipationClientLimitsV1 {
+                max_requests: 1,
+                ..ParticipationClientLimitsV1::default()
+            },
+        )
+        .unwrap();
+        port.execute_participation(p::CommandV1::Status).unwrap()
+    });
+    daemon.serve_next().unwrap();
+    assert!(matches!(
+        client.join().unwrap(),
+        p::ReplyV1::Accepted(value)
+            if matches!(&*value, p::OutcomeV1::Status(p::StatusV1 {
+                storage_revision: None,
+                needs_reopen: false,
+            }))
+    ));
+    drop(daemon);
+    assert!(!socket.exists());
+    for suffix in ["", "-journal", ".owner.lock"] {
+        let _ = fs::remove_file(format!("{}{}", database.display(), suffix));
+    }
+}
+
+fn prime_ready(database: &PathBuf, binding: p::BindingV1) {
+    let mut service = AgentParticipationService::new(
+        AgentParticipationSqliteStore::open(database, [1; 16], limits()).unwrap(),
+    );
+    apply(&mut service, None, p::MutationV1::Admit(binding));
+    let open = p::OperationV1::Open {
+        key: p::IdempotencyKeyV1([61; 16]),
+        execution: p::ExecutionIdV1([62; 16]),
+    };
+    apply(
+        &mut service,
+        Some(0),
+        p::MutationV1::Prepare {
+            participation: binding.participation,
+            expected_revision: 0,
+            operation: open,
+        },
+    );
+    apply(
+        &mut service,
+        Some(1),
+        p::MutationV1::Observe {
+            participation: binding.participation,
+            expected_revision: 1,
+            key: p::IdempotencyKeyV1([61; 16]),
+            observation: observation(p::PhaseV1::Ready, 1, None, None),
+        },
+    );
 }
 
 fn prime(database: &PathBuf, binding: p::BindingV1) -> p::PermissionEvidenceV1 {

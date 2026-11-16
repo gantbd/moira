@@ -1,0 +1,48 @@
+[package]
+name = "moira-agent-local"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "One-step local worker for governed Moira agent participations"
+
+[dependencies]
+daimon-wire = { path = "../../../daimon/crates/daimon-wire" }
+moira-client = { path = "../../crates/moira-client", features = ["unix"] }
+moira-local-harness = { path = "../../crates/moira-local-harness" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+aegis-authority = { path = "../../../aegis" }
+aegis-local = { path = "../../../aegis/adapters/aegis-local" }
+aegis-local-daemon = { path = "../../../aegis/crates/aegis-local-daemon" }
+aegis-service = { path = "../../../aegis/crates/aegis-service" }
+aegis-wire = { path = "../../../aegis/crates/aegis-wire" }
+chronos-protocol = { path = "../../../chronos/protocol/chronos-protocol" }
+chronos-wire = { path = "../../../chronos/protocol/chronos-wire" }
+daimon-acp = { path = "../../../daimon/adapters/daimon-acp" }
+daimon-agent-router = { path = "../../../daimon/adapters/daimon-agent-router" }
+daimon-claude = { path = "../../../daimon/adapters/daimon-claude" }
+daimon-harness = { path = "../../../daimon" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-client = { path = "../../../daimon/crates/daimon-client", features = ["unix"] }
+daimon-local-daemon = { path = "../../../daimon/crates/daimon-local-daemon" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+daimon-service = { path = "../../../daimon/crates/daimon-service" }
+moira-core = { path = "../.." }
+moira-daimon = { path = "../../adapters/moira-daimon" }
+moira-host = { path = "../../crates/moira-host" }
+moira-local-daemon = { path = "../../crates/moira-local-daemon" }
+moira-service = { path = "../../crates/moira-service" }
+moira-wire = { path = "../../crates/moira-wire" }
+sha2 = "0.10"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

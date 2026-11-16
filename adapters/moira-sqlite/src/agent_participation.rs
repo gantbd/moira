@@ -301,6 +301,11 @@ fn apply_domain(
             expected_revision,
             key,
         } => engine.fence_unknown(participation, expected_revision, key),
+        AgentParticipationMutationV1::MarkReattachRequired {
+            participation,
+            expected_revision,
+            session_revision,
+        } => engine.mark_reattach_required(participation, expected_revision, session_revision),
     }
 }
 

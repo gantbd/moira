@@ -93,6 +93,26 @@ fn command(w: &mut Writer, value: &p::CommandV1) -> Result<(), CodecErrorV1> {
             w.raw(&value.participation.0)?;
             w.raw(&value.confirmation_digest)
         }
+        p::CommandV1::SubmitPrompt(value) => {
+            w.byte(8)?;
+            w.raw(&value.participation.0)?;
+            w.bytes(&value.prompt)
+        }
+        p::CommandV1::MaterializePrompt(value) => {
+            w.byte(9)?;
+            w.raw(&value.participation.0)?;
+            w.u64(value.expected_revision)?;
+            w.raw(&value.prompt_digest)
+        }
+        p::CommandV1::ReattachConfirmation { participation } => {
+            w.byte(10)?;
+            w.raw(&participation.0)
+        }
+        p::CommandV1::ConfirmReattach(value) => {
+            w.byte(11)?;
+            w.raw(&value.participation.0)?;
+            w.raw(&value.confirmation_digest)
+        }
     }
 }
 
@@ -121,6 +141,24 @@ fn read_command(r: &mut Reader<'_>) -> Result<p::CommandV1, CodecErrorV1> {
             participation: p::ParticipationIdV1(r.raw()?),
         }),
         7 => Ok(p::CommandV1::ConfirmCancel(p::ConfirmedCancelV1 {
+            participation: p::ParticipationIdV1(r.raw()?),
+            confirmation_digest: r.raw()?,
+        })),
+        8 => Ok(p::CommandV1::SubmitPrompt(p::PromptSubmissionV1 {
+            participation: p::ParticipationIdV1(r.raw()?),
+            prompt: r.bytes()?,
+        })),
+        9 => Ok(p::CommandV1::MaterializePrompt(
+            p::PromptMaterializationRequestV1 {
+                participation: p::ParticipationIdV1(r.raw()?),
+                expected_revision: r.u64()?,
+                prompt_digest: r.raw()?,
+            },
+        )),
+        10 => Ok(p::CommandV1::ReattachConfirmation {
+            participation: p::ParticipationIdV1(r.raw()?),
+        }),
+        11 => Ok(p::CommandV1::ConfirmReattach(p::ConfirmedReattachV1 {
             participation: p::ParticipationIdV1(r.raw()?),
             confirmation_digest: r.raw()?,
         })),
@@ -166,6 +204,16 @@ fn mutation(w: &mut Writer, value: &p::MutationV1) -> Result<(), CodecErrorV1> {
             w.u64(*expected_revision)?;
             w.raw(&key.0)
         }
+        p::MutationV1::MarkReattachRequired {
+            participation,
+            expected_revision,
+            session_revision,
+        } => {
+            w.byte(4)?;
+            w.raw(&participation.0)?;
+            w.u64(*expected_revision)?;
+            w.u64(*session_revision)
+        }
     }
 }
 
@@ -187,6 +235,11 @@ fn read_mutation(r: &mut Reader<'_>) -> Result<p::MutationV1, CodecErrorV1> {
             participation: p::ParticipationIdV1(r.raw()?),
             expected_revision: r.u64()?,
             key: p::IdempotencyKeyV1(r.raw()?),
+        }),
+        4 => Ok(p::MutationV1::MarkReattachRequired {
+            participation: p::ParticipationIdV1(r.raw()?),
+            expected_revision: r.u64()?,
+            session_revision: r.u64()?,
         }),
         _ => Err(CodecErrorV1::Unsupported),
     }
@@ -247,6 +300,17 @@ fn outcome(w: &mut Writer, value: &p::OutcomeV1) -> Result<(), CodecErrorV1> {
             w.byte(4)?;
             w.option(*value, cancel_confirmation)
         }
+        p::OutcomeV1::PromptMaterialization(value) => {
+            w.byte(5)?;
+            w.raw(&value.participation.0)?;
+            w.u64(value.participation_revision)?;
+            w.raw(&value.prompt_digest)?;
+            w.bytes(&value.prompt)
+        }
+        p::OutcomeV1::ReattachConfirmation(value) => {
+            w.byte(6)?;
+            w.option(*value, reattach_confirmation)
+        }
     }
 }
 
@@ -268,6 +332,17 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<p::OutcomeV1, CodecErrorV1> {
         4 => Ok(p::OutcomeV1::CancelConfirmation(
             r.option(read_cancel_confirmation)?,
         )),
+        5 => Ok(p::OutcomeV1::PromptMaterialization(
+            p::PromptMaterializationV1 {
+                participation: p::ParticipationIdV1(r.raw()?),
+                participation_revision: r.u64()?,
+                prompt_digest: r.raw()?,
+                prompt: r.bytes()?,
+            },
+        )),
+        6 => Ok(p::OutcomeV1::ReattachConfirmation(
+            r.option(read_reattach_confirmation)?,
+        )),
         _ => Err(CodecErrorV1::Unsupported),
     }
 }
@@ -288,6 +363,29 @@ fn read_cancel_confirmation(r: &mut Reader<'_>) -> Result<p::CancelConfirmationV
         participation_revision: r.u64()?,
         session_revision: r.u64()?,
         turn: p::AgentTurnIdV1(r.raw()?),
+        confirmation_digest: r.raw()?,
+    })
+}
+
+fn reattach_confirmation(
+    w: &mut Writer,
+    value: p::ReattachConfirmationV1,
+) -> Result<(), CodecErrorV1> {
+    w.u64(value.storage_revision)?;
+    w.raw(&value.participation.0)?;
+    w.u64(value.participation_revision)?;
+    w.u64(value.session_revision)?;
+    w.raw(&value.confirmation_digest)
+}
+
+fn read_reattach_confirmation(
+    r: &mut Reader<'_>,
+) -> Result<p::ReattachConfirmationV1, CodecErrorV1> {
+    Ok(p::ReattachConfirmationV1 {
+        storage_revision: r.u64()?,
+        participation: p::ParticipationIdV1(r.raw()?),
+        participation_revision: r.u64()?,
+        session_revision: r.u64()?,
         confirmation_digest: r.raw()?,
     })
 }
@@ -428,6 +526,16 @@ fn operation(w: &mut Writer, value: p::OperationV1) -> Result<(), CodecErrorV1> 
             w.byte(5)?;
             w.raw(&key.0)
         }
+        p::OperationV1::Reattach {
+            key,
+            execution,
+            attempt: value,
+        } => {
+            w.byte(6)?;
+            w.raw(&key.0)?;
+            w.raw(&execution.0)?;
+            attempt(w, value)
+        }
     }
 }
 
@@ -467,6 +575,11 @@ fn read_operation(r: &mut Reader<'_>) -> Result<p::OperationV1, CodecErrorV1> {
         }),
         5 => Ok(p::OperationV1::Close {
             key: p::IdempotencyKeyV1(r.raw()?),
+        }),
+        6 => Ok(p::OperationV1::Reattach {
+            key: p::IdempotencyKeyV1(r.raw()?),
+            execution: p::ExecutionIdV1(r.raw()?),
+            attempt: read_attempt(r)?,
         }),
         _ => Err(CodecErrorV1::Unsupported),
     }
@@ -730,6 +843,7 @@ fn phase_tag(value: p::PhaseV1) -> u8 {
         p::PhaseV1::Terminal => 4,
         p::PhaseV1::FencedUnknown => 5,
         p::PhaseV1::Closed => 6,
+        p::PhaseV1::ReattachRequired => 7,
     }
 }
 
@@ -742,6 +856,7 @@ fn read_phase(value: u8) -> Result<p::PhaseV1, CodecErrorV1> {
         4 => Ok(p::PhaseV1::Terminal),
         5 => Ok(p::PhaseV1::FencedUnknown),
         6 => Ok(p::PhaseV1::Closed),
+        7 => Ok(p::PhaseV1::ReattachRequired),
         _ => Err(CodecErrorV1::Unsupported),
     }
 }

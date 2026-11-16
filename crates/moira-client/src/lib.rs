@@ -1,5 +1,8 @@
 //! Capability-shaped client facades for the native Moira contract.
 
+#[cfg(all(unix, feature = "unix"))]
+pub mod unix;
+
 use moira_protocol::OperatorOperationV1;
 use moira_protocol::agent;
 use moira_protocol::agent_participation as participation;
@@ -76,6 +79,15 @@ impl<P: AgentParticipationServicePort> AgentParticipationReadOnlyClient<P> {
                 participation: id,
             })
     }
+    pub fn reattach_confirmation(
+        &mut self,
+        id: participation::ParticipationIdV1,
+    ) -> Result<participation::ReplyV1, P::Error> {
+        self.0
+            .execute_participation(participation::CommandV1::ReattachConfirmation {
+                participation: id,
+            })
+    }
     pub fn into_port(self) -> P {
         self.0
     }
@@ -92,6 +104,66 @@ impl<P: AgentParticipationServicePort> AgentParticipationCancellationClient<P> {
     ) -> Result<participation::ReplyV1, P::Error> {
         self.0
             .execute_participation(participation::CommandV1::ConfirmCancel(confirmation))
+    }
+    pub fn into_port(self) -> P {
+        self.0
+    }
+}
+
+pub struct AgentParticipationReattachClient<P>(P);
+impl<P: AgentParticipationServicePort> AgentParticipationReattachClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+    pub fn confirm(
+        &mut self,
+        confirmation: participation::ConfirmedReattachV1,
+    ) -> Result<participation::ReplyV1, P::Error> {
+        self.0
+            .execute_participation(participation::CommandV1::ConfirmReattach(confirmation))
+    }
+    pub fn into_port(self) -> P {
+        self.0
+    }
+}
+
+pub struct AgentParticipationPromptClient<P>(P);
+impl<P: AgentParticipationServicePort> AgentParticipationPromptClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+    pub fn submit(
+        &mut self,
+        participation: participation::ParticipationIdV1,
+        prompt: Vec<u8>,
+    ) -> Result<participation::ReplyV1, P::Error> {
+        self.0
+            .execute_participation(participation::CommandV1::SubmitPrompt(
+                participation::PromptSubmissionV1 {
+                    participation,
+                    prompt,
+                },
+            ))
+    }
+    pub fn into_port(self) -> P {
+        self.0
+    }
+}
+
+/// Worker-only capability facade. The daemon independently authorizes this
+/// exact participation/revision/digest read; possession of the port alone does
+/// not grant prompt access.
+pub struct AgentParticipationMaterializationClient<P>(P);
+impl<P: AgentParticipationServicePort> AgentParticipationMaterializationClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+    pub fn materialize_prompt(
+        &mut self,
+        request: participation::PromptMaterializationRequestV1,
+    ) -> Result<participation::ReplyV1, P::Error> {
+        self.0
+            .execute_participation(participation::CommandV1::MaterializePrompt(request))
     }
     pub fn into_port(self) -> P {
         self.0
@@ -158,6 +230,21 @@ impl<P: AgentServicePort> AgentMutationClient<P> {
             expected_revision,
             execution,
             decision,
+            now,
+        })
+    }
+
+    pub fn reattach(
+        &mut self,
+        session: agent::SessionIdV1,
+        expected_revision: u64,
+        execution: agent::ExecutionV1,
+        now: u64,
+    ) -> Result<agent::ReplyV1, P::Error> {
+        self.0.execute(agent::CommandV1::Reattach {
+            session,
+            expected_revision,
+            execution,
             now,
         })
     }
@@ -352,6 +439,14 @@ impl<P: SagaServicePort> SagaReadOnlyClient<P> {
         self.0.execute(SagaCommandV1::Reconciliation { saga })
     }
 
+    pub fn reconciliation_confirmation(
+        &mut self,
+        proposal: moira_protocol::ReconciliationProposalV1,
+    ) -> Result<SagaReplyV1, P::Error> {
+        self.0
+            .execute(SagaCommandV1::ReconciliationConfirmation { proposal })
+    }
+
     pub fn evidence(
         &mut self,
         saga: SagaIdV1,
@@ -399,6 +494,28 @@ impl<P: SagaServicePort> SagaOperatorClient<P> {
             expected_revision,
             operation,
         })
+    }
+
+    pub fn into_port(self) -> P {
+        self.0
+    }
+}
+
+/// Public operator facade that can submit only an exact server-prepared
+/// reconciliation confirmation. It deliberately exposes no raw operation API.
+pub struct SagaConfirmedReconciliationClient<P>(P);
+
+impl<P: SagaServicePort> SagaConfirmedReconciliationClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+
+    pub fn confirm(
+        &mut self,
+        confirmation: moira_protocol::ConfirmedReconciliationV1,
+    ) -> Result<SagaReplyV1, P::Error> {
+        self.0
+            .execute(SagaCommandV1::ConfirmReconciliation(confirmation))
     }
 
     pub fn into_port(self) -> P {

@@ -215,6 +215,61 @@ fn unknown_outcome_fences_without_redispatch_and_can_be_reconciled() {
     );
 }
 
+#[test]
+fn detached_idle_binding_requires_a_derived_reattach_and_survives_recovery() {
+    let mut engine = agent::Engine::try_new(agent::LimitsV1::default()).unwrap();
+    let binding = binding();
+    engine.admit(binding).unwrap();
+    let open = agent::OperationV1::Open {
+        key: agent::IdempotencyKeyV1([30; 16]),
+        execution: agent::ExecutionIdV1([31; 16]),
+    };
+    engine.prepare(binding.participation, 0, open).unwrap();
+    engine
+        .observe(
+            binding.participation,
+            1,
+            open.key(),
+            observation(agent::PhaseV1::Ready, 1, None, None, None),
+        )
+        .unwrap();
+    let marked = engine
+        .mark_reattach_required(binding.participation, 2, 1)
+        .unwrap();
+    assert_eq!(marked.phase, agent::PhaseV1::ReattachRequired);
+    assert!(
+        engine
+            .mark_reattach_required(binding.participation, 2, 1)
+            .unwrap()
+            .replayed
+    );
+    let operation = agent::OperationV1::Reattach {
+        key: agent::IdempotencyKeyV1([32; 16]),
+        execution: agent::ExecutionIdV1([33; 16]),
+        attempt: binding.attempt,
+    };
+    engine.prepare(binding.participation, 3, operation).unwrap();
+    engine
+        .fence_unknown(binding.participation, 4, operation.key())
+        .unwrap();
+    let mut recovered = agent::Engine::recover(engine.checkpoint()).unwrap();
+    recovered
+        .observe(
+            binding.participation,
+            5,
+            operation.key(),
+            observation(agent::PhaseV1::Ready, 2, None, None, None),
+        )
+        .unwrap();
+    assert_eq!(
+        recovered
+            .participation(binding.participation)
+            .unwrap()
+            .phase,
+        agent::PhaseV1::Ready
+    );
+}
+
 fn binding() -> agent::BindingV1 {
     agent::BindingV1 {
         participation: agent::ParticipationIdV1([1; 16]),
@@ -255,6 +310,7 @@ fn observation(
         last_event_cursor: Some(session_revision),
         profile_document_digest: [40; 32],
         capabilities: agent::CapabilitiesV1 {
+            resume_session: true,
             permissions: true,
             terminal: true,
             ..agent::CapabilitiesV1::default()

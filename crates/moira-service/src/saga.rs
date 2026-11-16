@@ -75,8 +75,10 @@ impl<S: SagaStore> SagaService<S> {
             | protocol::SagaCommandV1::Reconciliation { .. }
             | protocol::SagaCommandV1::Evidence { .. }
             | protocol::SagaCommandV1::OperatorReceipt { .. }
-            | protocol::SagaCommandV1::OperatorReceipts { .. } => access.read,
-            protocol::SagaCommandV1::Reconcile { .. } => false,
+            | protocol::SagaCommandV1::OperatorReceipts { .. }
+            | protocol::SagaCommandV1::ReconciliationConfirmation { .. } => access.read,
+            protocol::SagaCommandV1::Reconcile { .. }
+            | protocol::SagaCommandV1::ConfirmReconciliation(_) => false,
         };
         if !allowed {
             return Ok(protocol::SagaReplyV1::Refused(
@@ -211,10 +213,65 @@ impl<S: SagaStore> SagaService<S> {
                     Err(value) => Ok(protocol::SagaReplyV1::Refused(refusal(value))),
                 }
             }
-            protocol::SagaCommandV1::Reconcile { .. } => Ok(protocol::SagaReplyV1::Refused(
-                protocol::SagaRefusalV1::NotAuthorized,
-            )),
+            protocol::SagaCommandV1::ReconciliationConfirmation { proposal } => {
+                let confirmation = (!self.store.needs_reopen())
+                    .then(|| {
+                        self.store
+                            .reconciliation_view(core::SagaIdV1(proposal.saga.0))
+                            .map(reconciliation_view)
+                            .and_then(|view| {
+                                protocol::reconciliation_confirmation(
+                                    self.store.revision(),
+                                    view,
+                                    proposal,
+                                )
+                            })
+                    })
+                    .flatten();
+                Ok(protocol::SagaReplyV1::Accepted(
+                    protocol::SagaOutcomeV1::ReconciliationConfirmation(confirmation),
+                ))
+            }
+            protocol::SagaCommandV1::Reconcile { .. }
+            | protocol::SagaCommandV1::ConfirmReconciliation(_) => Ok(
+                protocol::SagaReplyV1::Refused(protocol::SagaRefusalV1::NotAuthorized),
+            ),
         }
+    }
+
+    /// Revalidates a terminal confirmation against the current retained saga
+    /// and derives the exact replay-stable operation presented to Aegis.
+    pub fn prepare_confirmed_reconciliation(
+        &self,
+        selected: protocol::ConfirmedReconciliationV1,
+    ) -> Result<(u64, protocol::OperatorOperationV1), protocol::SagaRefusalV1> {
+        if self.store.needs_reopen() {
+            return Err(protocol::SagaRefusalV1::InvalidCheckpoint);
+        }
+        let storage_revision = self.store.revision();
+        if selected.storage_revision != storage_revision {
+            return Err(protocol::SagaRefusalV1::RevisionConflict {
+                expected: selected.storage_revision,
+                actual: storage_revision,
+            });
+        }
+        let view = self
+            .store
+            .reconciliation_view(core::SagaIdV1(selected.saga.0))
+            .map(reconciliation_view)
+            .ok_or(protocol::SagaRefusalV1::UnknownSaga)?;
+        let proposal = protocol::ReconciliationProposalV1 {
+            saga: selected.saga,
+            disposition: selected.disposition,
+        };
+        let confirmation = protocol::reconciliation_confirmation(storage_revision, view, proposal)
+            .ok_or(protocol::SagaRefusalV1::InvalidPhase)?;
+        if confirmation.confirmation_digest != selected.confirmation_digest {
+            return Err(protocol::SagaRefusalV1::InputConflict);
+        }
+        let operation = protocol::confirmed_reconciliation_operation(confirmation, selected)
+            .ok_or(protocol::SagaRefusalV1::InputConflict)?;
+        Ok((storage_revision, operation))
     }
 
     /// Executes only a reconciliation operation after an Aegis adapter has

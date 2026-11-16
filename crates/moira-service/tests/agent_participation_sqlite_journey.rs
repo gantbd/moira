@@ -1,11 +1,16 @@
 #![cfg(unix)]
 
 use moira_core::agent_participation::{LimitsV1 as DomainLimits, persistence::CodecLimitsV1};
+use moira_host::AgentPromptStoreV1;
 use moira_protocol::{WorkflowIdV1, agent_participation as p, deliberation as d};
-use moira_service::agent_participation::{AgentParticipationService, PermissionAccessV1};
+use moira_service::{
+    AccessV1,
+    agent_participation::{AgentParticipationService, PermissionAccessV1},
+};
 use moira_sqlite::agent_participation::{
     AgentParticipationSqliteStore, AgentParticipationStoreLimitsV1,
 };
+use moira_sqlite::agent_prompt::{AgentPromptSqliteStore, AgentPromptStoreLimitsV1};
 use std::{
     fs,
     path::PathBuf,
@@ -29,6 +34,9 @@ impl Fixture {
     fn path(&self) -> PathBuf {
         self.directory.join("agent.db")
     }
+    fn prompt_path(&self) -> PathBuf {
+        self.directory.join("prompts.db")
+    }
     fn limits(&self) -> AgentParticipationStoreLimitsV1 {
         AgentParticipationStoreLimitsV1 {
             codec: CodecLimitsV1 {
@@ -48,11 +56,199 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        for name in ["agent.db", "agent.db-journal", "agent.db.owner.lock"] {
+        for name in [
+            "agent.db",
+            "agent.db-journal",
+            "agent.db.owner.lock",
+            "prompts.db",
+            "prompts.db-journal",
+            "prompts.db.owner.lock",
+        ] {
             let _ = fs::remove_file(self.directory.join(name));
         }
         let _ = fs::remove_dir(&self.directory);
     }
+}
+
+#[test]
+fn prompt_bytes_commit_before_server_derived_operation_and_replay_exactly() {
+    let fixture = Fixture::new();
+    let binding = binding();
+    let mut service = fixture.service();
+    apply(&mut service, None, p::MutationV1::Admit(binding));
+    let open = p::OperationV1::Open {
+        key: p::IdempotencyKeyV1([71; 16]),
+        execution: p::ExecutionIdV1([72; 16]),
+    };
+    apply(
+        &mut service,
+        Some(0),
+        p::MutationV1::Prepare {
+            participation: binding.participation,
+            expected_revision: 0,
+            operation: open,
+        },
+    );
+    apply(
+        &mut service,
+        Some(1),
+        p::MutationV1::Observe {
+            participation: binding.participation,
+            expected_revision: 1,
+            key: key(open),
+            observation: observation(p::PhaseV1::Ready, 1, None, None, None),
+        },
+    );
+    let mut prompts = AgentPromptSqliteStore::open(
+        fixture.prompt_path(),
+        [2; 16],
+        AgentPromptStoreLimitsV1 {
+            max_entries: 4,
+            max_prompt_bytes: 128,
+            max_database_pages: 64,
+        },
+    )
+    .unwrap();
+    let submission = p::PromptSubmissionV1 {
+        participation: binding.participation,
+        prompt: b"answer from the grounded record".to_vec(),
+    };
+    let first = service
+        .execute_prompt_authorized(
+            AccessV1 {
+                read: true,
+                mutate: true,
+            },
+            submission.clone(),
+            &mut prompts,
+        )
+        .unwrap();
+    let (storage_revision, prepared) = match first {
+        p::ReplyV1::Accepted(value) => match *value {
+            p::OutcomeV1::Applied {
+                storage_revision,
+                participation,
+                replayed: false,
+            } => (storage_revision, participation),
+            other => panic!("unexpected {other:?}"),
+        },
+        other => panic!("unexpected {other:?}"),
+    };
+    let operation = prepared.pending.unwrap();
+    let digest = p::agent_prompt_digest(&submission.prompt).unwrap();
+    assert!(matches!(
+        operation,
+        p::OperationV1::Prompt {
+            prompt_digest,
+            attempt,
+            ..
+        } if prompt_digest == digest && attempt == binding.attempt
+    ));
+    assert_eq!(prompts.get(digest).unwrap().unwrap(), submission.prompt);
+
+    let replay = service
+        .execute_prompt_authorized(
+            AccessV1 {
+                read: true,
+                mutate: true,
+            },
+            submission.clone(),
+            &mut prompts,
+        )
+        .unwrap();
+    match replay {
+        p::ReplyV1::Accepted(value) => match *value {
+            p::OutcomeV1::Applied {
+                storage_revision: revision,
+                participation,
+                replayed: true,
+            } => {
+                assert_eq!(revision, storage_revision);
+                assert_eq!(participation.pending, Some(operation));
+            }
+            other => panic!("unexpected {other:?}"),
+        },
+        other => panic!("unexpected {other:?}"),
+    }
+    let materialized = service
+        .execute_prompt_materialization(
+            p::PromptMaterializationRequestV1 {
+                participation: binding.participation,
+                expected_revision: prepared.revision,
+                prompt_digest: digest,
+            },
+            &mut prompts,
+        )
+        .unwrap();
+    assert!(matches!(
+        materialized,
+        p::ReplyV1::Accepted(value)
+            if matches!(&*value, p::OutcomeV1::PromptMaterialization(value)
+                if value.participation == binding.participation
+                    && value.participation_revision == prepared.revision
+                    && value.prompt_digest == digest
+                    && value.prompt == submission.prompt)
+    ));
+    assert_eq!(
+        service
+            .execute_prompt_materialization(
+                p::PromptMaterializationRequestV1 {
+                    participation: binding.participation,
+                    expected_revision: prepared.revision - 1,
+                    prompt_digest: digest,
+                },
+                &mut prompts,
+            )
+            .unwrap(),
+        p::ReplyV1::Refused(p::RefusalV1::RevisionConflict)
+    );
+    assert_eq!(
+        service
+            .execute_prompt_materialization(
+                p::PromptMaterializationRequestV1 {
+                    participation: binding.participation,
+                    expected_revision: prepared.revision,
+                    prompt_digest: [99; 32],
+                },
+                &mut prompts,
+            )
+            .unwrap(),
+        p::ReplyV1::Refused(p::RefusalV1::NoPendingOperation)
+    );
+    assert_eq!(
+        service
+            .execute_prompt_authorized(
+                AccessV1 {
+                    read: true,
+                    mutate: true,
+                },
+                p::PromptSubmissionV1 {
+                    participation: binding.participation,
+                    prompt: b"a conflicting prompt".to_vec(),
+                },
+                &mut prompts,
+            )
+            .unwrap(),
+        p::ReplyV1::Refused(p::RefusalV1::OperationConflict)
+    );
+    assert_eq!(
+        service
+            .execute(p::CommandV1::SubmitPrompt(submission))
+            .unwrap(),
+        p::ReplyV1::Refused(p::RefusalV1::NotAuthorized)
+    );
+    assert_eq!(
+        service
+            .execute(p::CommandV1::MaterializePrompt(
+                p::PromptMaterializationRequestV1 {
+                    participation: binding.participation,
+                    expected_revision: prepared.revision,
+                    prompt_digest: digest,
+                }
+            ))
+            .unwrap(),
+        p::ReplyV1::Refused(p::RefusalV1::NotAuthorized)
+    );
 }
 
 #[test]
@@ -310,7 +506,8 @@ fn key(value: p::OperationV1) -> p::IdempotencyKeyV1 {
         | p::OperationV1::Advance { key, .. }
         | p::OperationV1::DecidePermission { key, .. }
         | p::OperationV1::Cancel { key, .. }
-        | p::OperationV1::Close { key } => key,
+        | p::OperationV1::Close { key }
+        | p::OperationV1::Reattach { key, .. } => key,
     }
 }
 fn binding() -> p::BindingV1 {

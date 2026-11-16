@@ -140,6 +140,14 @@ reports and never turns model agreement into authority. See the
 one-shot executable and checked example are documented in the
 [operator profile](docs/methodical-local-operator.md).
 
+That same retained deliberation now has its own canonical bounded wire family,
+authenticated finite-request private Unix daemon, and capability-shaped Unix
+client. A read-only terminal attachment can observe exact personas, grounding,
+reports, dissent, candidates and retained proof/authorized-choice/maybe/mu
+resolution after SQLite reopen, while mutation remains refused by the service's
+existing access boundary. The sibling `moira-tui` qualifies both versioned
+headless JSON and a reusable stable-revision component over this path.
+
 The strict operator exposes that core through closed `chatbot`, `workflow` and
 `agent` product profiles. Chatbots admit one grounded member and an explicit
 single-member action-policy digest; workflows require an orthogonal ensemble;
@@ -180,6 +188,22 @@ Interactive coding-agent sessions now cross a separate Moira public contract:
 independent agent DTOs, capability-shaped mutation/read clients, authorization
 before gateway dispatch, a `moira-daimon` public-client projection, distinct
 canonical wire frames, and bounded local daemon profiles. A separate durable
+`moira-local-harness::unix::connect_daimon_agent` composition binds that gateway
+projection to Daimon's authenticated private agent socket while provider launch
+policy and credentials remain in Daimon; a real-socket gate qualifies the path.
+`moira-client` now also owns a bounded optional Unix port for the governed
+participation service, so runtime workers do not depend on terminal presentation
+code. The standard `drive_current` step loads the exact store revision and then
+dispatches one prepared operation, reconciles a retained uncertainty fence only
+by inspection, or leaves an ordinary idle participation untouched. A Ready
+resume-capable participation receives one read-only inspection so a detached
+provider binding can be durably marked without automatic reattachment.
+`moira-agent-local` is the strict one-step process composition for that path.
+Its `--check` mode performs no socket or store access. At runtime it obtains
+pending prompt bytes only through a worker-authorized, revision-and-digest-bound
+daemon command, closes that connection, and reconnects before the existing
+pre-dispatch currency check and fence. It never opens the prompt database.
+A separate durable
 participation record binds workflow/member, exact Chronos attempt, Rune method,
 Dendrite grounding, persona, Daimon session/profile, execution identities,
 permission evidence, and terminal evidence. Its exclusive SQLite owner and
@@ -200,12 +224,31 @@ the exact Aegis boundary without exposing authority material to the terminal.
 The sibling cancellation challenge binds the active turn and current durable
 context; Moira derives the cancel key and requires authenticated mutation
 access, so the terminal cannot invent either turn or idempotency identity.
-The report-admission gate accepts only an exact completed EndTurn
-observation whose member, method, persona, grounding, output, provider evidence,
-and grounding evidence match the governed participation. Mutating terminal
-controls remain withheld pending their closed confirmation UX and
-provider-output parsing/composition; provider text and UI selection still confer
-no authority.
+Permission and cancellation challenges cease to exist as soon as their exact
+derived operation is durably pending. A retained provider request therefore
+cannot be presented as a fresh selectable challenge during recovery.
+For prompts, a separately owned content-addressed SQLite store acknowledges the
+exact bounded bytes before the participation service prepares a digest-only
+operation. Moira derives the turn, execution, key, and retained attempt from
+the complete current binding and revisions; the terminal supplies none of
+them. Exact pending submissions replay without creating another turn. The
+participation daemon is the prompt store's exclusive owner. The terminal
+profile is denied materialization by default; an independently authenticated
+worker can receive only the exact current pending prompt. The worker and runtime
+both verify its digest before the deployment template can construct a provider
+command.
+Assistant-message chunks flow in the other direction through a separately
+owned, cursor-ordered output store. It composes bytes across permission and
+advance slices, replays only the exact last page, and refuses cursor gaps,
+forks, altered chunks, and bounds violations. Terminal report admission then
+requires those exact bytes at the participation's final cursor and digest;
+matching metadata alone cannot create a deliberation report.
+The report-admission gate parses those retained bytes through the same closed
+`moira.member-response.v1` contract used by ensemble execution. It derives the
+report identity and baseline question, Rune method, Dendrite grounding, and
+provider evidence server-side, then accepts only an exact completed EndTurn
+observation whose governed context matches. Other mutating terminal controls
+are not exposed; provider text and UI selection still confer no authority.
 
 Terminal resolution is a separate authority boundary. The harness hashes the
 exact unresolved checkpoint before asking an external validator or selector.
@@ -298,6 +341,13 @@ non-authoritative on their own.
 
 The bounded operator command family now supports evidence adjudication,
 keep-uncertain, fresh retry, compensation, cancellation and terminal failure.
+The public service prepares an exact current-revision confirmation for a
+proposed disposition, derives its opaque replay-stable action identity, and
+revalidates both before the daemon requests fresh command-scoped authority.
+The public daemon refuses the legacy raw reconciliation frame; that form exists
+only as the service-internal command after confirmation and authorization.
+After a lost reply, the exported action identity addresses the durable operator
+receipt; the terminal does not infer success or submit a fresh action.
 Action receipts durably retain redacted subject and Aegis decision/epoch
 attribution and replay exactly after SQLite reopen. Ordinary mutation access
 cannot invoke reconciliation. The `moira-aegis` adapter uses Aegis's public
@@ -531,6 +581,8 @@ Aegis authority; the complete message-to-reply chain remains open.
 
 The Aegis→Moira daemon journey runs from the isolated
 `qualification/aegis-moira-process` workspace via `make qualify-aegis-process`.
+The governed interactive-agent worker and its two private-socket process
+journeys run via `make qualify-agent-local`.
 Agora durable-service restart assurance runs from the isolated
 `qualification/agora-service-recovery` workspace via `make qualify-agora-recovery`.
 Chronos service restart/lookup assurance runs from the isolated

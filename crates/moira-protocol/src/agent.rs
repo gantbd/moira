@@ -143,6 +143,7 @@ pub enum PhaseV1 {
     AwaitingPermission,
     OutcomeUnknown,
     Closed,
+    ReattachRequired,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -187,6 +188,11 @@ pub enum EventV1 {
     FileChange {
         path: Vec<u8>,
         content_digest: DigestV1,
+    },
+    FileRead {
+        path: Vec<u8>,
+        content_digest: DigestV1,
+        content_bytes: usize,
     },
     Usage {
         input_tokens: u64,
@@ -247,6 +253,12 @@ pub enum CommandV1 {
         expected_revision: u64,
         execution: ExecutionV1,
         decision: PermissionDecisionV1,
+        now: u64,
+    },
+    Reattach {
+        session: SessionIdV1,
+        expected_revision: u64,
+        execution: ExecutionV1,
         now: u64,
     },
     Advance {

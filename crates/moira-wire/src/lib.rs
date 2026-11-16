@@ -15,6 +15,11 @@ pub use agent_participation::{
     decode_agent_participation_reply, decode_agent_participation_request,
     encode_agent_participation_reply, encode_agent_participation_request,
 };
+mod deliberation;
+pub use deliberation::{
+    decode_deliberation_reply, decode_deliberation_request, encode_deliberation_reply,
+    encode_deliberation_request,
+};
 mod saga;
 pub use saga::{decode_saga_reply, decode_saga_request, encode_saga_reply, encode_saga_request};
 

@@ -123,6 +123,18 @@ fn every_saga_command_and_closed_mutation_roundtrips() {
                 disposition,
             },
         });
+        round_request(SagaCommandV1::ReconciliationConfirmation {
+            proposal: ReconciliationProposalV1 { saga, disposition },
+        });
+        round_request(SagaCommandV1::ConfirmReconciliation(
+            ConfirmedReconciliationV1 {
+                storage_revision: 5,
+                saga,
+                disposition,
+                action: OperatorActionIdV1([7; 16]),
+                confirmation_digest: [8; 32],
+            },
+        ));
     }
     for command in [
         SagaCommandV1::Status,
@@ -226,6 +238,13 @@ fn every_saga_outcome_transition_and_refusal_roundtrips() {
                 observed_at: 11,
             }),
             automatic_progress: AutomaticProgressV1::BlockedUncertain,
+        })),
+        SagaOutcomeV1::ReconciliationConfirmation(Some(ReconciliationConfirmationV1 {
+            storage_revision: 7,
+            saga,
+            disposition: OperatorDispositionV1::KeepUncertain,
+            action: OperatorActionIdV1([8; 16]),
+            confirmation_digest: [9; 32],
         })),
         SagaOutcomeV1::Evidence(EffectEvidencePageV1 {
             entries: vec![EffectEvidenceV1 {

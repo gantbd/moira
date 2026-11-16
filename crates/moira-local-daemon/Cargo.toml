@@ -17,6 +17,7 @@ moira-wire = { path = "../moira-wire" }
 
 [dev-dependencies]
 moira-core = { path = "../.." }
+moira-client = { path = "../moira-client", features = ["unix"] }
 moira-sqlite = { path = "../../adapters/moira-sqlite" }
 
 [lints.rust]

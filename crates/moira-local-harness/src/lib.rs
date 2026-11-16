@@ -30,9 +30,16 @@ pub mod tool_turn;
 
 #[cfg(unix)]
 pub mod unix {
-    use daimon_client::unix::{ClientErrorV1, ModelUnixPort, connect_model};
+    use daimon_client::unix::{
+        AgentClientErrorV1, AgentUnixPort, ClientErrorV1, ModelUnixPort, connect_agent,
+        connect_model,
+    };
+    use daimon_wire::agent::AgentWireLimitsV1;
     use daimon_wire::{LimitsV1, ModelLimitsV1};
-    use moira_daimon::ModelExecutionAdapter;
+    use moira_client::unix::{
+        AgentParticipationUnixPort, ParticipationClientErrorV1, ParticipationClientLimitsV1,
+    };
+    use moira_daimon::{ModelExecutionAdapter, agent::AgentAdapter};
     use std::{path::Path, time::Duration};
 
     /// Connect to Daimon's authenticated private model socket. Provider
@@ -45,6 +52,29 @@ pub mod unix {
     ) -> Result<ModelExecutionAdapter<ModelUnixPort>, ClientErrorV1> {
         let (session, port) = connect_model(socket, handshake_limits, model_limits, timeout)?;
         Ok(ModelExecutionAdapter::new(session, port))
+    }
+
+    /// Connect Moira's governed agent gateway to Daimon's dedicated private
+    /// agent socket. Provider launch policy and credentials remain in Daimon;
+    /// this adapter only projects Moira's independent public agent contract.
+    pub fn connect_daimon_agent(
+        socket: impl AsRef<Path>,
+        handshake_limits: LimitsV1,
+        agent_limits: AgentWireLimitsV1,
+        timeout: Duration,
+    ) -> Result<AgentAdapter<AgentUnixPort>, AgentClientErrorV1> {
+        let (session, port) = connect_agent(socket, handshake_limits, agent_limits, timeout)?;
+        Ok(AgentAdapter::new(session, port))
+    }
+
+    /// Connect a runtime worker to Moira's governed participation service.
+    /// This port carries prepared/fenced state only; it grants no provider or
+    /// permission authority by itself.
+    pub fn connect_participation(
+        socket: impl AsRef<Path>,
+        limits: ParticipationClientLimitsV1,
+    ) -> Result<AgentParticipationUnixPort, ParticipationClientErrorV1> {
+        AgentParticipationUnixPort::connect(socket, limits)
     }
 }
 

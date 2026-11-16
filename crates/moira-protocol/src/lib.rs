@@ -372,6 +372,34 @@ pub enum SagaCommandV1 {
         expected_revision: u64,
         operation: OperatorOperationV1,
     },
+    ReconciliationConfirmation {
+        proposal: ReconciliationProposalV1,
+    },
+    ConfirmReconciliation(ConfirmedReconciliationV1),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReconciliationProposalV1 {
+    pub saga: SagaIdV1,
+    pub disposition: OperatorDispositionV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConfirmedReconciliationV1 {
+    pub storage_revision: u64,
+    pub saga: SagaIdV1,
+    pub disposition: OperatorDispositionV1,
+    pub action: OperatorActionIdV1,
+    pub confirmation_digest: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReconciliationConfirmationV1 {
+    pub storage_revision: u64,
+    pub saga: SagaIdV1,
+    pub disposition: OperatorDispositionV1,
+    pub action: OperatorActionIdV1,
+    pub confirmation_digest: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -549,10 +577,140 @@ pub enum SagaOutcomeV1 {
     Evidence(EffectEvidencePageV1),
     OperatorReceipt(Option<OperatorReceiptSummaryV1>),
     OperatorReceipts(OperatorReceiptPageV1),
+    ReconciliationConfirmation(Option<ReconciliationConfirmationV1>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SagaReplyV1 {
     Accepted(SagaOutcomeV1),
     Refused(SagaRefusalV1),
+}
+
+/// Builds a presentation challenge for an exact operator proposal at the
+/// current retained saga revision. The digest is a stale-choice fence, not an
+/// authority credential.
+pub fn reconciliation_confirmation(
+    storage_revision: u64,
+    view: SagaReconciliationViewV1,
+    proposal: ReconciliationProposalV1,
+) -> Option<ReconciliationConfirmationV1> {
+    use sha2::{Digest, Sha256};
+
+    if proposal.saga != view.saga.saga || storage_revision == u64::MAX {
+        return None;
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"MOIRASRC1");
+    hash.update(storage_revision.to_be_bytes());
+    hash.update(proposal.saga.0.to_be_bytes());
+    hash.update(view.last_confirmed_revision.to_be_bytes());
+    hash.update(view.retained_evidence.to_be_bytes());
+    hash.update([saga_phase_tag(view.saga.phase)]);
+    hash.update(view.saga.deadline.to_be_bytes());
+    hash.update(view.saga.timer.0.to_be_bytes());
+    hash.update(
+        view.saga
+            .current_effect
+            .map_or(u64::MAX, |value| value.0)
+            .to_be_bytes(),
+    );
+    hash.update([view.saga.current_kind.map_or(u8::MAX, saga_effect_kind_tag)]);
+    hash.update([view.saga.retries_used, view.saga.retry_budget]);
+    hash_operator_disposition(&mut hash, proposal.disposition);
+    let confirmation_digest: [u8; 32] = hash.finalize().into();
+    let mut action = Sha256::new();
+    action.update(b"MOIRASRA1");
+    action.update(confirmation_digest);
+    let action: [u8; 32] = action.finalize().into();
+    let action: [u8; 16] = action[..16].try_into().ok()?;
+    if action == [0; 16] {
+        return None;
+    }
+    Some(ReconciliationConfirmationV1 {
+        storage_revision,
+        saga: proposal.saga,
+        disposition: proposal.disposition,
+        action: OperatorActionIdV1(action),
+        confirmation_digest,
+    })
+}
+
+/// Resolves an exact current confirmation into the replay-stable operation
+/// that may be presented for command-scoped authorization.
+pub fn confirmed_reconciliation_operation(
+    confirmation: ReconciliationConfirmationV1,
+    selected: ConfirmedReconciliationV1,
+) -> Option<OperatorOperationV1> {
+    (selected.saga == confirmation.saga
+        && selected.storage_revision == confirmation.storage_revision
+        && selected.disposition == confirmation.disposition
+        && selected.action == confirmation.action
+        && selected.confirmation_digest == confirmation.confirmation_digest)
+        .then_some(OperatorOperationV1 {
+            action: confirmation.action,
+            saga: confirmation.saga,
+            disposition: confirmation.disposition,
+        })
+}
+
+fn hash_operator_disposition(hash: &mut sha2::Sha256, value: OperatorDispositionV1) {
+    use sha2::Digest;
+    match value {
+        OperatorDispositionV1::AdmitEvidence {
+            effect,
+            outcome,
+            observed_at,
+        } => {
+            hash.update([0, saga_effect_outcome_tag(outcome)]);
+            hash.update(effect.0.to_be_bytes());
+            hash.update(observed_at.to_be_bytes());
+        }
+        OperatorDispositionV1::KeepUncertain => hash.update([1]),
+        OperatorDispositionV1::Retry { failed_effect, now } => {
+            hash.update([2]);
+            hash.update(failed_effect.0.to_be_bytes());
+            hash.update(now.to_be_bytes());
+        }
+        OperatorDispositionV1::Compensate { now } => {
+            hash.update([3]);
+            hash.update(now.to_be_bytes());
+        }
+        OperatorDispositionV1::Cancel { now } => {
+            hash.update([4]);
+            hash.update(now.to_be_bytes());
+        }
+        OperatorDispositionV1::FailTerminal => hash.update([5]),
+    }
+}
+
+const fn saga_phase_tag(value: SagaPhaseV1) -> u8 {
+    match value {
+        SagaPhaseV1::ForwardPending => 0,
+        SagaPhaseV1::ForwardSucceeded => 1,
+        SagaPhaseV1::ForwardFailed => 2,
+        SagaPhaseV1::TerminalPending => 3,
+        SagaPhaseV1::TerminalFailed => 4,
+        SagaPhaseV1::CompensationPending => 5,
+        SagaPhaseV1::CompensationFailed => 6,
+        SagaPhaseV1::FencedUncertain => 7,
+        SagaPhaseV1::Completed => 8,
+        SagaPhaseV1::Failed => 9,
+        SagaPhaseV1::Cancelled => 10,
+    }
+}
+
+const fn saga_effect_kind_tag(value: SagaEffectKindV1) -> u8 {
+    match value {
+        SagaEffectKindV1::Forward => 0,
+        SagaEffectKindV1::Terminal => 1,
+        SagaEffectKindV1::Compensation => 2,
+    }
+}
+
+const fn saga_effect_outcome_tag(value: SagaEffectOutcomeV1) -> u8 {
+    match value {
+        SagaEffectOutcomeV1::Succeeded => 0,
+        SagaEffectOutcomeV1::Failed => 1,
+        SagaEffectOutcomeV1::Uncertain => 2,
+    }
 }

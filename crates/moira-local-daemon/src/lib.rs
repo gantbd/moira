@@ -49,6 +49,30 @@ where
         moira_wire::encode_agent_participation_reply,
     )
 }
+
+/// Methodical-deliberation profile. Its distinct frame kind prevents a
+/// deliberation view or mutation from crossing another Moira service family.
+pub fn serve_deliberation_up_to<IO, F, E>(
+    io: &mut IO,
+    limits: LimitsV1,
+    max_requests: usize,
+    mut execute: F,
+) -> Result<usize, ConnectionErrorV1<E>>
+where
+    IO: Read + Write,
+    F: FnMut(
+        moira_protocol::deliberation::CommandV1,
+    ) -> Result<moira_protocol::deliberation::ReplyV1, E>,
+{
+    serve_frames(
+        io,
+        limits,
+        max_requests,
+        &mut execute,
+        moira_wire::decode_deliberation_request,
+        moira_wire::encode_deliberation_reply,
+    )
+}
 use std::io::{Read, Write};
 
 #[cfg(unix)]

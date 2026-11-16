@@ -117,6 +117,11 @@ pub enum AgentParticipationMutationV1 {
         expected_revision: u64,
         key: moira_core::agent_participation::IdempotencyKeyV1,
     },
+    MarkReattachRequired {
+        participation: AgentParticipationIdV1,
+        expected_revision: u64,
+        session_revision: u64,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -395,4 +400,65 @@ pub trait ToolOutputStoreV1 {
         &mut self,
         execution: moira_core::tool_continuation::ToolExecutionIdV1,
     ) -> Result<Option<(ToolOutputRecordV1, Vec<u8>)>, Self::Error>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgentPromptRecordV1 {
+    pub prompt_digest: [u8; 32],
+    pub prompt_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgentPromptCommitV1 {
+    pub record: AgentPromptRecordV1,
+    pub replayed: bool,
+}
+
+/// Separately durable content-addressed agent prompt bytes. A prompt operation
+/// may refer to a digest only after this port acknowledges the exact bytes.
+pub trait AgentPromptStoreV1 {
+    type Error;
+
+    fn put(&mut self, prompt: &[u8]) -> Result<AgentPromptCommitV1, Self::Error>;
+
+    fn get(&mut self, prompt_digest: [u8; 32]) -> Result<Option<Vec<u8>>, Self::Error>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgentOutputRecordV1 {
+    pub participation: [u8; 16],
+    pub turn: [u8; 16],
+    pub last_cursor: u64,
+    pub output_digest: [u8; 32],
+    pub output_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgentOutputCommitV1 {
+    pub record: AgentOutputRecordV1,
+    pub replayed: bool,
+}
+
+/// Durable cursor-ordered assistant output for one governed turn. Callers pass
+/// only already validated contiguous event pages. Exact last-page replay is
+/// idempotent; gaps, forks, and altered bytes must refuse.
+pub trait AgentOutputStoreV1 {
+    type Error;
+
+    #[allow(clippy::too_many_arguments)]
+    fn append(
+        &mut self,
+        participation: [u8; 16],
+        turn: [u8; 16],
+        after: Option<u64>,
+        through: u64,
+        page_digest: [u8; 32],
+        assistant_bytes: &[u8],
+    ) -> Result<AgentOutputCommitV1, Self::Error>;
+
+    fn get(
+        &mut self,
+        participation: [u8; 16],
+        turn: [u8; 16],
+    ) -> Result<Option<(AgentOutputRecordV1, Vec<u8>)>, Self::Error>;
 }

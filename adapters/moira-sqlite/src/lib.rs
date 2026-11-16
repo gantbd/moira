@@ -2,7 +2,9 @@
 #![forbid(unsafe_code)]
 #![cfg(unix)]
 
+pub mod agent_output;
 pub mod agent_participation;
+pub mod agent_prompt;
 mod backup;
 pub mod deliberation;
 pub mod model_saga;

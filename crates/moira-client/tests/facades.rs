@@ -1,6 +1,6 @@
 use moira_client::{
-    MutationClient, ReadOnlyClient, SagaMutationClient, SagaOperatorClient, SagaReadOnlyClient,
-    SagaServicePort, ServicePort,
+    MutationClient, ReadOnlyClient, SagaConfirmedReconciliationClient, SagaMutationClient,
+    SagaOperatorClient, SagaReadOnlyClient, SagaServicePort, ServicePort,
 };
 use moira_protocol::{
     CommandV1, MessageRefV1, MutationV1, OperatorActionIdV1, OperatorDispositionV1,
@@ -137,5 +137,22 @@ fn saga_operator_facade_carries_only_operation_not_authority_facts() {
             expected_revision: 4,
             operation,
         }]
+    );
+}
+
+#[test]
+fn confirmed_reconciliation_facade_carries_only_the_server_challenge() {
+    let confirmation = moira_protocol::ConfirmedReconciliationV1 {
+        storage_revision: 4,
+        saga: SagaIdV1(3),
+        disposition: OperatorDispositionV1::KeepUncertain,
+        action: OperatorActionIdV1([8; 16]),
+        confirmation_digest: [7; 32],
+    };
+    let mut client = SagaConfirmedReconciliationClient::new(SagaPort::default());
+    client.confirm(confirmation).unwrap();
+    assert_eq!(
+        client.into_port().0,
+        vec![SagaCommandV1::ConfirmReconciliation(confirmation)]
     );
 }

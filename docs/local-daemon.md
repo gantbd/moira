@@ -1,7 +1,8 @@
 # Private local daemon profile
 
 Status: qualified bounded Unix connection profiles and selected local OS-account
-authentication for the native legacy and closed saga services. Executable
+authentication for the native legacy, closed saga, provider-neutral agent,
+governed participation, and methodical-deliberation services. Executable
 packaging, supervision, remote identity and deployment grant provisioning remain open.
 
 `moira-local-daemon` binds only a new filesystem path, creates a mode-`0600` Unix
@@ -29,6 +30,14 @@ infers Aegis authority from a local UID. `moira-aegis` supplies the selected
 implementation of that service-owned port through Aegis's public client, an
 explicit time source and exact-saga `Administer` checks.
 
+The methodical-deliberation profile uses its own canonical frame kinds and the
+existing `DeliberationService` access check. A terminal peer authenticated with
+read-only access can request status and one exact bounded deliberation but an
+`Apply` frame is refused before the SQLite owner is mutated. Its real-socket
+gate reopens retained persona, grounding and resolution facts, attempts a denied
+mutation, and proves the registry revision remains unchanged. Displayed
+authority references are evidence only; this daemon does not run a selector.
+
 Health contains only readiness, active/accepted/refused connections,
 outcome-unknown count and saturation. Drop removes the socket only when its
 device/inode still match the entry created by this daemon.
@@ -36,9 +45,13 @@ device/inode still match the entry created by this daemon.
 The legacy real-socket journey covers authenticated negotiation, socket mode,
 durable admission, status inspection, teardown, SQLite/daemon reopen, exact replay
 without a second workflow, health and owned-path cleanup. The saga journey covers
-admission, uncertainty, authorized reconciliation, content-safe receipt export,
-daemon/SQLite reopen, exact stale-request replay and denied reconciliation without
-revision change. A separate subprocess journey connects a real Aegis daemon to
+admission, uncertainty, a server-prepared current-revision confirmation,
+command-scoped authorized reconciliation, content-safe receipt export,
+daemon/SQLite reopen, exact receipt recovery and denied reconciliation without
+revision change. Raw `Reconcile` frames are refused at the daemon boundary;
+only revalidated `ConfirmReconciliation` reaches command-scoped authorization.
+The confirmation derives the action identity used for durable
+receipt recovery; it carries no reusable authority. A separate subprocess journey connects a real Aegis daemon to
 the Moira saga authenticator over Aegis's public client/wire, then drives Moira
 over its public client/wire and verifies the live authority decision is retained
 in the operator receipt. Focused connection tests cover both frame families,

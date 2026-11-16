@@ -32,9 +32,14 @@ fn prompt_binding_is_exact_and_view_is_independent() {
             active_turn: Some(daimon::AgentTurnIdV1::new([2; 16])),
             last_event_cursor: Some(3),
             capabilities: upstream::AgentCapabilitiesV1 {
+                load_session: true,
+                resume_session: true,
                 permissions: true,
+                filesystem_read: true,
+                filesystem_write: true,
                 terminal: true,
-                ..upstream::AgentCapabilitiesV1::default()
+                session_modes: true,
+                session_models: true,
             },
         },
     ));
@@ -60,8 +65,19 @@ fn prompt_binding_is_exact_and_view_is_independent() {
     assert_eq!(view.revision, 8);
     assert_eq!(view.phase, public::PhaseV1::TurnActive);
     assert_eq!(view.active_turn, Some(public::TurnIdV1([2; 16])));
-    assert!(view.capabilities.permissions);
-    assert!(view.capabilities.terminal);
+    assert_eq!(
+        view.capabilities,
+        public::CapabilitiesV1 {
+            load_session: true,
+            resume_session: true,
+            permissions: true,
+            filesystem_read: true,
+            filesystem_write: true,
+            terminal: true,
+            session_modes: true,
+            session_models: true,
+        }
+    );
 
     let port = adapter.into_port();
     let Some((service_session, upstream::AgentCommandV1::Prompt { request, now })) = port.seen
@@ -140,6 +156,58 @@ fn permission_event_and_refusal_remain_typed() {
             .unwrap(),
         public::ReplyV1::Refused(public::RefusalV1::AttemptDenied)
     );
+}
+
+#[test]
+fn reattach_binding_and_required_phase_are_exact() {
+    let reply = upstream::AgentReplyV1::Accepted(upstream::AgentOutcomeV1::Session(
+        upstream::AgentSessionViewV1 {
+            session: daimon::AgentSessionIdV1::new([1; 16]),
+            revision: 9,
+            phase: upstream::AgentSessionPhaseV1::ReattachRequired,
+            profile_document_digest: daimon::ContentDigestV1::new([9; 32]),
+            active_turn: None,
+            last_event_cursor: Some(3),
+            capabilities: upstream::AgentCapabilitiesV1 {
+                resume_session: true,
+                ..upstream::AgentCapabilitiesV1::default()
+            },
+        },
+    ));
+    let mut adapter = moira_daimon::agent::AgentAdapter::new(
+        daimon::SessionHandleV1(44),
+        Port { reply, seen: None },
+    );
+    let result = adapter
+        .execute_agent(public::CommandV1::Reattach {
+            session: public::SessionIdV1([1; 16]),
+            expected_revision: 8,
+            execution: execution(),
+            now: 99,
+        })
+        .unwrap();
+    let public::ReplyV1::Accepted(public::OutcomeV1::Session(view)) = result else {
+        panic!("session view expected")
+    };
+    assert_eq!(view.phase, public::PhaseV1::ReattachRequired);
+
+    let Some((
+        service_session,
+        upstream::AgentCommandV1::Reattach {
+            session,
+            expected_revision,
+            execution,
+            now,
+        },
+    )) = adapter.into_port().seen
+    else {
+        panic!("reattach dispatch expected")
+    };
+    assert_eq!(service_session, daimon::SessionHandleV1(44));
+    assert_eq!(session, daimon::AgentSessionIdV1::new([1; 16]));
+    assert_eq!(expected_revision, 8);
+    assert_eq!(execution.task_attempt.attempt_number, 4);
+    assert_eq!(now, 99);
 }
 
 fn execution() -> public::ExecutionV1 {

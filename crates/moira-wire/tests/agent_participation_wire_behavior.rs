@@ -144,6 +144,15 @@ fn commands_and_mutations_roundtrip_on_distinct_canonical_frames() {
             expected_revision: 1,
             operation: operation(),
         },
+        p::MutationV1::Prepare {
+            participation,
+            expected_revision: 2,
+            operation: p::OperationV1::Reattach {
+                key: p::IdempotencyKeyV1([40; 16]),
+                execution: p::ExecutionIdV1([41; 16]),
+                attempt: attempt(),
+            },
+        },
         p::MutationV1::Observe {
             participation,
             expected_revision: 2,
@@ -169,6 +178,11 @@ fn commands_and_mutations_roundtrip_on_distinct_canonical_frames() {
             participation,
             expected_revision: 3,
             key: p::IdempotencyKeyV1([31; 16]),
+        },
+        p::MutationV1::MarkReattachRequired {
+            participation,
+            expected_revision: 4,
+            session_revision: 24,
         },
     ] {
         round_request(p::CommandV1::Apply {
@@ -202,6 +216,39 @@ fn commands_and_mutations_roundtrip_on_distinct_canonical_frames() {
         participation,
         confirmation_digest: [36; 32],
     }));
+    round_request(p::CommandV1::SubmitPrompt(p::PromptSubmissionV1 {
+        participation,
+        prompt: b"ground this response".to_vec(),
+    }));
+    round_request(p::CommandV1::MaterializePrompt(
+        p::PromptMaterializationRequestV1 {
+            participation,
+            expected_revision: 23,
+            prompt_digest: [38; 32],
+        },
+    ));
+    round_request(p::CommandV1::ReattachConfirmation { participation });
+    round_request(p::CommandV1::ConfirmReattach(p::ConfirmedReattachV1 {
+        participation,
+        confirmation_digest: [39; 32],
+    }));
+}
+
+#[test]
+fn prompt_submission_obeys_the_frame_bound() {
+    let value = p::CommandV1::SubmitPrompt(p::PromptSubmissionV1 {
+        participation: binding().participation,
+        prompt: vec![1; 64],
+    });
+    assert_eq!(
+        encode_agent_participation_request(
+            &value,
+            LimitsV1 {
+                max_frame_bytes: 32,
+            },
+        ),
+        Err(CodecErrorV1::Limit)
+    );
 }
 
 #[test]
@@ -243,6 +290,23 @@ fn outcomes_and_refusals_roundtrip_canonically() {
             session_revision: 14,
             turn: permission().turn,
             confirmation_digest: [37; 32],
+        })),
+    )));
+    round_reply(p::ReplyV1::Accepted(Box::new(
+        p::OutcomeV1::PromptMaterialization(p::PromptMaterializationV1 {
+            participation: binding().participation,
+            participation_revision: 23,
+            prompt_digest: [38; 32],
+            prompt: b"ground this response".to_vec(),
+        }),
+    )));
+    round_reply(p::ReplyV1::Accepted(Box::new(
+        p::OutcomeV1::ReattachConfirmation(Some(p::ReattachConfirmationV1 {
+            storage_revision: 24,
+            participation: binding().participation,
+            participation_revision: 25,
+            session_revision: 26,
+            confirmation_digest: [39; 32],
         })),
     )));
     for refusal in [

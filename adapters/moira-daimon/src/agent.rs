@@ -93,6 +93,17 @@ fn command_upstream(value: public::CommandV1) -> upstream::AgentCommandV1 {
             },
             now,
         },
+        public::CommandV1::Reattach {
+            session: id,
+            expected_revision,
+            execution: request,
+            now,
+        } => upstream::AgentCommandV1::Reattach {
+            session: session(id),
+            expected_revision,
+            execution: execution(request),
+            now,
+        },
         public::CommandV1::Advance {
             session: id,
             turn: turn_id,
@@ -234,6 +245,15 @@ fn event_public(value: upstream::AgentEventV1) -> public::EventV1 {
             path,
             content_digest: public::DigestV1(content_digest.into_bytes()),
         },
+        upstream::AgentEventV1::FileRead {
+            path,
+            content_digest,
+            content_bytes,
+        } => public::EventV1::FileRead {
+            path,
+            content_digest: public::DigestV1(content_digest.into_bytes()),
+            content_bytes,
+        },
         upstream::AgentEventV1::Usage {
             input_tokens,
             output_tokens,
@@ -307,6 +327,7 @@ fn phase_public(value: upstream::AgentSessionPhaseV1) -> public::PhaseV1 {
         upstream::AgentSessionPhaseV1::AwaitingPermission => public::PhaseV1::AwaitingPermission,
         upstream::AgentSessionPhaseV1::OutcomeUnknown => public::PhaseV1::OutcomeUnknown,
         upstream::AgentSessionPhaseV1::Closed => public::PhaseV1::Closed,
+        upstream::AgentSessionPhaseV1::ReattachRequired => public::PhaseV1::ReattachRequired,
     }
 }
 

@@ -132,6 +132,13 @@ fn stale_context_and_nonmember_options_fail_closed() {
     changed = value;
     changed.permission.as_mut().unwrap().option_count = 0;
     assert!(p::permission_confirmation(24, &changed).is_none());
+
+    changed = view();
+    changed.pending = Some(p::OperationV1::Cancel {
+        key: p::IdempotencyKeyV1([31; 16]),
+        turn: changed.active_turn.unwrap(),
+    });
+    assert!(p::permission_confirmation(24, &changed).is_none());
 }
 
 #[test]
@@ -162,4 +169,84 @@ fn cancellation_confirmation_binds_active_turn_and_derives_only_the_key() {
     );
     value.pending = Some(first);
     assert!(p::cancel_confirmation(24, &value).is_none());
+}
+
+#[test]
+fn prompt_preparation_binds_bytes_and_full_ready_context() {
+    let mut value = view();
+    value.phase = p::PhaseV1::Ready;
+    value.active_turn = None;
+    value.permission = None;
+    let digest = p::agent_prompt_digest(b"use the retained evidence").unwrap();
+    let first = p::prepared_prompt_operation(24, &value, digest).unwrap();
+    let replay = p::prepared_prompt_operation(24, &value, digest).unwrap();
+    assert_eq!(first, replay);
+    assert!(matches!(
+        first,
+        p::OperationV1::Prompt {
+            key,
+            turn,
+            execution,
+            prompt_digest,
+            attempt,
+        } if key.0 != [0; 16]
+            && turn.0 != [0; 16]
+            && execution.0 != [0; 16]
+            && prompt_digest == digest
+            && attempt == value.binding.attempt
+    ));
+
+    let other_digest = p::agent_prompt_digest(b"use different evidence").unwrap();
+    assert_ne!(
+        first,
+        p::prepared_prompt_operation(24, &value, other_digest).unwrap()
+    );
+    value.binding.grounding.surface_digest[0] ^= 1;
+    assert_ne!(
+        first,
+        p::prepared_prompt_operation(24, &value, digest).unwrap()
+    );
+    value.pending = Some(first);
+    assert!(p::prepared_prompt_operation(24, &value, digest).is_none());
+    assert!(p::agent_prompt_digest(b"").is_none());
+}
+
+#[test]
+fn reattach_confirmation_binds_detached_methodical_context_without_exposing_attempt() {
+    let mut value = view();
+    value.phase = p::PhaseV1::ReattachRequired;
+    value.active_turn = None;
+    value.permission = None;
+    value.capabilities.resume_session = true;
+    let confirmation = p::reattach_confirmation(24, &value).unwrap();
+    let selected = p::ConfirmedReattachV1 {
+        participation: value.binding.participation,
+        confirmation_digest: confirmation.confirmation_digest,
+    };
+    let first =
+        p::confirmed_reattach_operation(confirmation, selected, value.binding.attempt).unwrap();
+    assert_eq!(
+        first,
+        p::confirmed_reattach_operation(confirmation, selected, value.binding.attempt).unwrap()
+    );
+    assert!(matches!(
+        first,
+        p::OperationV1::Reattach {
+            key,
+            execution,
+            attempt,
+        } if key.0 != [0; 16]
+            && execution.0 != [0; 16]
+            && attempt == value.binding.attempt
+    ));
+
+    value.binding.method.state_digest[0] ^= 1;
+    assert_ne!(
+        confirmation.confirmation_digest,
+        p::reattach_confirmation(24, &value)
+            .unwrap()
+            .confirmation_digest
+    );
+    value.pending = Some(first);
+    assert!(p::reattach_confirmation(24, &value).is_none());
 }
