@@ -1,0 +1,36 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-peer-effect-process-qualification"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dev-dependencies]
+agora-actor-publication-port = { path = "../../../agora/ports/agora-actor-publication-port" }
+agora-local-client = { path = "../../../agora/client/agora-local-client" }
+agora-wire = { path = "../../../agora/protocol/agora-wire" }
+moira-agora = { path = "../../adapters/moira-agora" }
+moira-client = { path = "../../crates/moira-client" }
+moira-core = { path = "../.." }
+moira-daimon = { path = "../../adapters/moira-daimon" }
+moira-local-harness = { path = "../../crates/moira-local-harness" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-service = { path = "../../crates/moira-service" }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+moira-vellum = { path = "../../adapters/moira-vellum" }
+vellum-adapter-local-authentication = { path = "../../../vellum/adapters/local-authentication" }
+vellum-client = { path = "../../../vellum/client/vellum-client" }
+vellum-daemon = { path = "../../../vellum/applications/vellum-daemon" }
+vellum-protocol = { path = "../../../vellum/protocol/vellum-protocol" }
+vellum-transport = { path = "../../../vellum/transport/vellum-transport" }
+vellum-wire = { path = "../../../vellum/protocol/vellum-wire" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

@@ -110,7 +110,10 @@
   A selected local federation journey loses Agora and Vellum replies, reopens the
   proposal store, reconciles Vellum through historical lookup and proves one
   Chronos validation, provider call, message and document mutation. Private
-  wire/daemon transport and the multi-process kill matrix remain open.
+  wire/daemon transport is now qualified against the exact Aegis, Agora, and
+  Vellum standalone owners for both peer effects, including a Moira SQLite reopen
+  between each discarded accepted reply. The top-level ingress/execution/event
+  kill matrix remains open.
 
 ## Phase 4 — reusable operator surface and standalone CLI
 

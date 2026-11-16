@@ -209,8 +209,14 @@ documented terminal reason why none is safe.
   duplicate task, execution, event, edit or response:
   - [x] Live Daimon execution reply loss and process reopen under simultaneous
     Aegis/Chronos composition.
-  - [ ] Compose the now-qualified Agora response and Vellum edit profiles with
-    message admission and event delivery in one process-separated workflow.
+  - [x] Compose the qualified Agora response and Vellum edit profiles in one
+    durable peer-effect saga against the exact standalone Aegis, Agora, and
+    Vellum owners. Discard each accepted reply in provider order, reopen Moira's
+    SQLite saga between boundaries, observe Agora's stable actor operation and
+    look up Vellum's historical receipt through fresh public clients, then prove
+    completed replay makes no peer call.
+  - [ ] Carry that combined exact-owner peer-effect fault gate around the live
+    message-admission and workflow-event-delivery segments.
 - [x] Qualify stopped single-owner backup/restore for both native SQLite profiles,
   including released ownership, exclusion of persistent lock sentinels,
   byte-exact copy, retained effect identity and exact replay, with an operator

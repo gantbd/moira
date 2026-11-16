@@ -1,8 +1,8 @@
-.PHONY: check check-peer-profiles check-release-contract check-compatibility-baseline check-physical-integrity check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc soak soak-process soak-hermes-process soak-live-execution performance build-live-execution-helpers qualify-aegis-process qualify-agent-local qualify-agent-reattach-recovery qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-agent-live-provider qualify-methodical-chatbot-live-provider qualify-methodical-chatbot-peers qualify-methodical-peers qualify-methodical-profiles qualify-methodical-tools qualify-methodical-workflow-live-provider qualify-methodical-workflow-peer-live-provider qualify-vellum-process
+.PHONY: check check-peer-profiles check-release-contract check-compatibility-baseline check-physical-integrity check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc soak soak-process soak-hermes-process soak-live-execution performance build-live-execution-helpers qualify-aegis-process qualify-agent-local qualify-agent-reattach-recovery qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-agent-live-provider qualify-methodical-chatbot-live-provider qualify-methodical-chatbot-peers qualify-methodical-peers qualify-methodical-profiles qualify-methodical-tools qualify-methodical-workflow-live-provider qualify-methodical-workflow-peer-live-provider qualify-peer-effect-process qualify-vellum-process
 
 check: check-release-contract check-compatibility-baseline check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc
 
-check-peer-profiles: qualify-aegis-process qualify-agent-local qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-peers qualify-vellum-process
+check-peer-profiles: qualify-aegis-process qualify-agent-local qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-peers qualify-peer-effect-process qualify-vellum-process
 
 check-release-contract:
 	bash scripts/check-release-contract.sh
@@ -87,6 +87,14 @@ qualify-vellum-process:
 	cargo fmt --manifest-path qualification/vellum-process-publication/Cargo.toml -- --check
 	cargo clippy --manifest-path qualification/vellum-process-publication/Cargo.toml --target-dir target/qualification-vellum-process --all-targets --locked --offline -- -D warnings
 	MOIRA_VELLUM_DAEMON_PROGRAM='$(abspath ../vellum/target/debug/vellum-daemon)' cargo test --manifest-path qualification/vellum-process-publication/Cargo.toml --target-dir target/qualification-vellum-process --all-targets --locked --offline
+
+qualify-peer-effect-process:
+	cargo build --manifest-path ../aegis/Cargo.toml -p aegis-daemon --bin aegis-daemon --locked --offline
+	cargo build --manifest-path ../agora/Cargo.toml -p agora-private-local --bin agora-private-local --locked --offline
+	cargo build --manifest-path ../vellum/Cargo.toml -p vellum-daemon --bin vellum-daemon --locked --offline
+	cargo fmt --manifest-path qualification/peer-effect-process/Cargo.toml -- --check
+	cargo clippy --manifest-path qualification/peer-effect-process/Cargo.toml --target-dir target/qualification-peer-effect-process --all-targets --locked --offline -- -D warnings
+	MOIRA_AEGIS_DAEMON_PROGRAM='$(abspath ../aegis/target/debug/aegis-daemon)' MOIRA_AGORA_DAEMON_PROGRAM='$(abspath ../agora/target/debug/agora-private-local)' MOIRA_VELLUM_DAEMON_PROGRAM='$(abspath ../vellum/target/debug/vellum-daemon)' cargo test --manifest-path qualification/peer-effect-process/Cargo.toml --target-dir target/qualification-peer-effect-process --all-targets --locked --offline -- --test-threads=1
 
 qualify-chronos-recovery:
 	cargo fmt --manifest-path qualification/chronos-service-recovery/Cargo.toml -- --check

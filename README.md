@@ -97,7 +97,8 @@ blindly executed again. Completed replay is peer-side-effect free. Selecting
 which ensemble result may create effects remains an explicit policy/resolution
 step; retaining an expert report does not publish or edit. Private wire/daemon
 transport and operator route composition are implemented for the selected local
-profile; the combined multi-process kill matrix remains open. A selected ensemble journey now begins unresolved, obtains one real Aegis
+profile. The exact-owner peer-effect matrix is closed; the wider top-level
+ingress/execution/event kill matrix remains open. A selected ensemble journey now begins unresolved, obtains one real Aegis
 decision for Pareto-frontier candidate choice and a second distinct decision for
 the exact retained report allowed to act, crosses trusted Vellum routing and
 `MOIRAMP2`, recovers a lost edit reply by historical lookup only, and replays
@@ -138,8 +139,16 @@ Opaque `(room, reply_to)` model references resolve only through deployment-owned
 Agora routes containing the real room, revision, logical time, source and
 audience. Opaque Vellum references resolve only through `moira-vellum`'s trusted
 workspace/document catalogue, while the retained source extent remains a host
-fact. Agora uncertainty replays the prepared request; Vellum uncertainty uses
-historical lookup and cannot fall through to another edit. A selected one-member
+fact. The legacy conversation router replays its prepared V2 request only within
+the retained client namespace. The production-shaped actor router instead binds
+the Moira effect directly to Agora's stable actor operation and reconciles only
+through historical observation after reconnect; Vellum uncertainty likewise
+uses historical lookup and cannot fall through to another edit. The isolated
+`qualify-peer-effect-process` gate admits both effects into one SQLite-backed
+saga, discards each accepted peer reply in provider order, reopens the saga
+between boundaries, and completes through fresh public clients against the exact
+Aegis, Agora, and Vellum standalone owners. Completed replay calls neither peer.
+A selected one-member
 chatbot qualification crosses policy selection, `MOIRAMP2`, both SQLite owners
 and lost Agora reply recovery, then proves completed replay makes no peer call
 and retains one message. The complementary ensemble qualification crosses

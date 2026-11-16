@@ -722,6 +722,7 @@ dependencies = [
  "aegis-host",
  "aegis-protocol",
  "aegis-service",
+ "agora-actor-publication-port",
  "agora-client",
  "agora-protocol",
  "daimon-client",

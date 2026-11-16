@@ -11,6 +11,7 @@ description = "Local application composition for methodical Moira deliberations"
 daimon-client = { path = "../../../daimon/crates/daimon-client", features = ["unix"] }
 daimon-wire = { path = "../../../daimon/crates/daimon-wire" }
 agora-client = { path = "../../../agora/client/agora-client" }
+agora-actor-publication-port = { path = "../../../agora/ports/agora-actor-publication-port" }
 moira-core = { path = "../.." }
 moira-agora = { path = "../../adapters/moira-agora" }
 moira-daimon = { path = "../../adapters/moira-daimon" }

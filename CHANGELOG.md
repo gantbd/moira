@@ -20,6 +20,11 @@ Semantic Versioning once a public distribution contract is selected.
   discards an accepted durable edit reply, reconciles the stable Moira operation
   through a fresh authenticated public client using historical lookup only, and
   cleanly drains the owner through its public control socket.
+- Added a reconnect-safe actor peer router and an exact-owner Aegis/Agora/Vellum
+  qualification. One SQLite-backed Moira saga now loses the committed Agora and
+  Vellum replies in provider order, reopens between both fences, reconciles only
+  by actor observation and durable-receipt lookup, and replays completion with
+  no peer access.
 - Added a lockfile-bound RustSec advisory attestation and live CI advisory gate.
 - Added `moira-unix-peer`, a bounded exact kernel UID/GID authenticator for both
   local daemon profiles. It maps only ordinary read/mutate facts, refuses unknown
