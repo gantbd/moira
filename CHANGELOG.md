@@ -147,6 +147,8 @@ Semantic Versioning once a public distribution contract is selected.
 
 ### Security
 
+- Updated the coordinated lockfile from `rustix` 1.1.4 to 1.1.6, closing
+  RUSTSEC-2026-0486, and renewed the zero-warning RustSec attestation.
 - Unknown or contradictory peer evidence remains fenced; correlation and
   workflow identifiers confer no authority.
 

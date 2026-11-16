@@ -103,7 +103,7 @@ component|proc-macro2|1.0.107
 component|quote|1.0.47
 component|rsqlite-vfs|0.2.0
 component|rusqlite|0.41.1
-component|rustix|1.1.4
+component|rustix|1.1.6
 component|serde_core|1.0.229
 component|serde_derive|1.0.229
 component|serde_json|1.0.151

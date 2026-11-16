@@ -20,7 +20,7 @@ sed 's/license|moira-core|0.0.1|MIT OR Apache-2.0/license|moira-core|0.0.1|MIT/'
 if MOIRA_LICENSE_BASELINE="$task_dir/licenses.txt" bash scripts/check-supply-chain.sh >"$task_dir/output" 2>&1; then
   echo 'Moira supply gate accepted a license-expression mutant' >&2; exit 1
 fi
-sed 's/a57bb62a/057bb62a/' docs/advisory-attestation.md > "$task_dir/advisory.md"
+sed 's/1a2bff82/0a2bff82/' docs/advisory-attestation.md > "$task_dir/advisory.md"
 if MOIRA_ADVISORY_ATTESTATION="$task_dir/advisory.md" bash scripts/check-advisory-attestation.sh >"$task_dir/output" 2>&1; then
   echo 'Moira advisory gate accepted a lockfile-digest mutant' >&2; exit 1
 fi

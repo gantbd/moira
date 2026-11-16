@@ -108,7 +108,7 @@ license|moira-local-harness|0.1.0|MIT OR Apache-2.0
 license|moira-methodical-local|0.1.0|MIT OR Apache-2.0
 license|moira-rune-validator|0.1.0|MIT OR Apache-2.0
 license|moira-vellum|0.1.0|MIT OR Apache-2.0
-license|rustix|1.1.4|Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+license|rustix|1.1.6|Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
 license|serde_json|1.0.151|MIT OR Apache-2.0
 license|sha2|0.10.9|MIT OR Apache-2.0
 license|typenum|1.20.1|MIT OR Apache-2.0
