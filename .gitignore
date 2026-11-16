@@ -1,2 +1,4 @@
-/target/
+# Rust build output is generated beside both workspace and qualification
+# manifests; never retain it at any depth.
+target/
 
