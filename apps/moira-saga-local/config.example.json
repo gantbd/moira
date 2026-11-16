@@ -1,0 +1,22 @@
+{
+  "database": "/private/tmp/moira-saga.db",
+  "socket": "/private/tmp/moira-saga.sock",
+  "owner": "31313131313131313131313131313131",
+  "mappings": [
+    {
+      "effective_uid": 501,
+      "effective_gid": 20,
+      "read": true,
+      "mutate": true
+    }
+  ],
+  "io_timeout_ms": 5000,
+  "max_requests_per_connection": 32,
+  "max_frame_bytes": 65536,
+  "max_checkpoint_bytes": 1048576,
+  "max_database_pages": 4096,
+  "max_sagas": 1024,
+  "max_retries_per_saga": 8,
+  "max_inspection_page": 256,
+  "max_operator_actions": 4096
+}

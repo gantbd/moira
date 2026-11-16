@@ -1,16 +1,18 @@
 //! Bounded private Unix transport for Moira's governed participation service.
 
-use crate::{AgentParticipationServicePort, DeliberationServicePort};
+use crate::{AgentParticipationServicePort, DeliberationServicePort, SagaServicePort};
 use moira_protocol::agent_participation as participation;
 use moira_protocol::deliberation;
+use moira_protocol::{SagaCommandV1, SagaReplyV1};
 use moira_wire::{
     LimitsV1, decode_agent_participation_reply, decode_deliberation_reply, decode_ready,
-    encode_agent_participation_request, encode_deliberation_request,
+    decode_saga_reply, encode_agent_participation_request, encode_deliberation_request,
+    encode_saga_request,
 };
 use std::{
     io::{self, Read, Write},
     os::unix::net::UnixStream,
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -43,6 +45,89 @@ pub enum ParticipationClientErrorV1 {
 
 pub type DeliberationClientLimitsV1 = ParticipationClientLimitsV1;
 pub type DeliberationClientErrorV1 = ParticipationClientErrorV1;
+pub type SagaClientLimitsV1 = ParticipationClientLimitsV1;
+pub type SagaClientErrorV1 = ParticipationClientErrorV1;
+
+/// Reconnectable public Unix port for Moira's closed saga service.
+///
+/// The total request budget survives reconnects. Once transmission starts, a
+/// failed exchange consumes capacity and is reported as outcome-unknown.
+pub struct SagaUnixPort {
+    endpoint: PathBuf,
+    client_limits: SagaClientLimitsV1,
+    stream: Option<UnixStream>,
+    wire_limits: LimitsV1,
+    requests_left: usize,
+    connection_requests_left: usize,
+}
+
+impl SagaUnixPort {
+    pub fn connect(
+        path: impl AsRef<Path>,
+        limits: SagaClientLimitsV1,
+    ) -> Result<Self, SagaClientErrorV1> {
+        let endpoint = path.as_ref().to_path_buf();
+        let negotiated = connect(&endpoint, limits)?;
+        Ok(Self {
+            endpoint,
+            client_limits: limits,
+            stream: Some(negotiated.stream),
+            wire_limits: negotiated.wire_limits,
+            requests_left: limits.max_requests,
+            connection_requests_left: negotiated.requests_left,
+        })
+    }
+
+    fn ensure_connected(&mut self) -> Result<(), SagaClientErrorV1> {
+        if self.stream.is_some() && self.connection_requests_left > 0 {
+            return Ok(());
+        }
+        let negotiated = connect(&self.endpoint, self.client_limits)?;
+        self.stream = Some(negotiated.stream);
+        self.wire_limits = negotiated.wire_limits;
+        self.connection_requests_left = negotiated.requests_left;
+        Ok(())
+    }
+
+    fn invalidate(&mut self) {
+        self.stream = None;
+        self.connection_requests_left = 0;
+    }
+}
+
+impl SagaServicePort for SagaUnixPort {
+    type Error = SagaClientErrorV1;
+
+    fn execute(&mut self, command: SagaCommandV1) -> Result<SagaReplyV1, Self::Error> {
+        if self.requests_left == 0 {
+            return Err(SagaClientErrorV1::RequestLimit);
+        }
+        self.ensure_connected()?;
+        let bytes = encode_saga_request(&command, self.wire_limits)
+            .map_err(|_| SagaClientErrorV1::NotSent(io::ErrorKind::InvalidData))?;
+        // Consume both limits before transmission. A failed write can still
+        // mean that the owner observed the command.
+        self.requests_left -= 1;
+        self.connection_requests_left -= 1;
+        let stream = self.stream.as_mut().expect("connected saga port");
+        if let Err(error) = write_frame(stream, &bytes) {
+            self.invalidate();
+            return Err(SagaClientErrorV1::OutcomeUnknown(error.kind()));
+        }
+        let stream = self.stream.as_mut().expect("connected saga port");
+        let reply = match read_frame(stream, self.wire_limits.max_frame_bytes) {
+            Ok(reply) => reply,
+            Err(error) => {
+                self.invalidate();
+                return Err(SagaClientErrorV1::OutcomeUnknown(error.kind()));
+            }
+        };
+        decode_saga_reply(&reply, self.wire_limits).map_err(|_| {
+            self.invalidate();
+            SagaClientErrorV1::InvalidReply
+        })
+    }
+}
 
 pub struct AgentParticipationUnixPort {
     stream: UnixStream,

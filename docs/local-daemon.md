@@ -2,8 +2,10 @@
 
 Status: qualified bounded Unix connection profiles and selected local OS-account
 authentication for the native legacy, closed saga, provider-neutral agent,
-governed participation, and methodical-deliberation services. Executable
-packaging, supervision, remote identity and deployment grant provisioning remain open.
+governed participation, and methodical-deliberation services. The closed saga
+profile now has a sovereign durable `moira-saga-local` application with direct
+and one-byte-supervised ownership. Executable packaging for the other profiles,
+remote identity and deployment grant provisioning remain open.
 
 `moira-local-daemon` binds only a new filesystem path, creates a mode-`0600` Unix
 socket and refuses replacement of an existing entry. The embedding launcher owns

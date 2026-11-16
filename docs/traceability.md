@@ -259,8 +259,11 @@ Moira client/wire. The UID/GID registry never supplies operator facts; the saga
 adapter delegates that decision through a separate `OperatorAuthorizer`. The
 `moira-aegis` implementation uses explicit time, exact-saga `Administer` scope,
 typed denial and current decision attribution against a real Aegis service.
-Remote identity, deployment grant provisioning, remaining peer processes and
-process supervision remain open.
+The selected closed saga profile is now packaged as `moira-saga-local`; its
+standalone and Workbench-supervised process journeys qualify public-client
+mutation, clean socket drain and durable reopen while explicitly denying
+operator authority. Remote identity, deployment grant provisioning and process
+packaging for the remaining service profiles remain open.
 
 ## Saga and timer profile
 

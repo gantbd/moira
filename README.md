@@ -48,6 +48,15 @@ that service-owned port using explicit time and exact-saga `Administer` checks.
 Remote identity, same-UID hostile-process isolation and remaining peer-client
 ports remain open.
 
+`moira-saga-local` packages that closed saga profile as a sovereign production
+owner. A strict bounded JSON document selects the durable database, private
+socket, exact kernel UID/GID read/mutate mappings and all capacity/deadline
+limits. Standalone signal drain and Workbench's exact one-byte supervised drain
+both remove only the owned socket; durable mutation and reopen are qualified
+through `moira-client::unix::SagaUnixPort`. This selected application explicitly
+denies operator reconciliation rather than inferring Aegis authority from local
+identity or supervision.
+
 `moira-daimon` maps one exact Moira effect/task-attempt execution intent through
 Daimon's public execution client. It carries no Aegis decision, Chronos lease,
 provider receipt or Daimon engine value. A completed public result becomes an
