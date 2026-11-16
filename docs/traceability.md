@@ -166,8 +166,21 @@ message. The isolated `make qualify-agora-local-port` profile now also starts a
 real durable Agora daemon in an independent process, commits one addressed actor
 publication, discards its successful reply at Moira's boundary, and observes the
 exact retained result through a new authenticated public client. This closes the
-Agora independent-process lost-reply federation gate; the combined Vellum and
-every-effect fault matrix remains open.
+Agora independent-process lost-reply federation gate; the combined Agora→Vellum
+and every-effect fault matrix remains open.
+
+## Vellum durable-edit adapter
+
+`moira-vellum` maps a separately allocated Moira effect and trusted document
+route to Vellum's public durable replace-and-save operation. The intent binds the
+exact source revision, retained extent and replacement; lookup is historical only
+and absence never falls through to execution. `make qualify-vellum-process`
+starts an authenticated Vellum daemon in an independent process, establishes a
+normal saved baseline through the public client, discards the accepted durable
+edit reply, and resolves the exact receipt through a fresh public client. The
+source contains the replacement once. This closes the isolated Vellum process
+boundary; composing it with Agora and injecting faults at every effect boundary
+remains open.
 
 ## Chronos task-admission adapter
 

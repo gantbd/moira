@@ -13,6 +13,9 @@ Semantic Versioning once a public distribution contract is selected.
 - Extended the isolated Agora qualification with a durable daemon subprocess:
   Moira discards a committed publication reply and a new authenticated public
   client observes the exact retained result without a second mutation.
+- Added an isolated Vellum process qualification that discards an accepted
+  durable edit reply and reconciles the stable Moira operation through a fresh
+  authenticated public client using historical lookup only.
 - Added a lockfile-bound RustSec advisory attestation and live CI advisory gate.
 - Added `moira-unix-peer`, a bounded exact kernel UID/GID authenticator for both
   local daemon profiles. It maps only ordinary read/mutate facts, refuses unknown

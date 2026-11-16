@@ -73,7 +73,10 @@ bounded output and typed Agora/Vellum proposals. These are not peer receipts.
 `moira-vellum` maps a separately allocated Moira effect to Vellum's public durable
 `ReplaceDocumentAndSave` operation, with deployment-owned document routing and
 source extent. Exact historical lookup reconciles uncertainty without falling
-through to another edit. `moira_core::model_saga` assigns a distinct Moira effect
+through to another edit. `make qualify-vellum-process` proves that behavior
+against an independent authenticated Vellum daemon: the accepted reply is
+discarded and a fresh public client observes the exact durable receipt and one
+replacement. `moira_core::model_saga` assigns a distinct Moira effect
 to every proposal, advances them in order and fences the queued tail on an
 uncertain peer result. Its canonical bounded checkpoint and separate
 `ModelSagaSqliteStore` preserve that exact frontier across reopen; public

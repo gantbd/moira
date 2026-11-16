@@ -1,0 +1,29 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-vellum-process-qualification"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dev-dependencies]
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-vellum = { path = "../../adapters/moira-vellum" }
+vellum-adapter-local-fs = { path = "../../../vellum/adapters/local-fs" }
+vellum-client = { path = "../../../vellum/client/vellum-client" }
+vellum-daemon = { path = "../../../vellum/applications/vellum-daemon" }
+vellum-editor = { path = "../../../vellum/host/vellum-editor" }
+vellum-host = { path = "../../../vellum/host/vellum-host" }
+vellum-protocol = { path = "../../../vellum/protocol/vellum-protocol" }
+vellum-service = { path = "../../../vellum/service/vellum-service" }
+vellum-transport = { path = "../../../vellum/transport/vellum-transport" }
+vellum-wire = { path = "../../../vellum/protocol/vellum-wire" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

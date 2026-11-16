@@ -1,8 +1,8 @@
-.PHONY: check check-peer-profiles check-release-contract check-compatibility-baseline check-physical-integrity check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc soak soak-process soak-hermes-process soak-live-execution performance build-live-execution-helpers qualify-aegis-process qualify-agent-local qualify-agent-reattach-recovery qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-agent-live-provider qualify-methodical-chatbot-live-provider qualify-methodical-chatbot-peers qualify-methodical-peers qualify-methodical-profiles qualify-methodical-tools qualify-methodical-workflow-live-provider qualify-methodical-workflow-peer-live-provider
+.PHONY: check check-peer-profiles check-release-contract check-compatibility-baseline check-physical-integrity check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc soak soak-process soak-hermes-process soak-live-execution performance build-live-execution-helpers qualify-aegis-process qualify-agent-local qualify-agent-reattach-recovery qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-agent-live-provider qualify-methodical-chatbot-live-provider qualify-methodical-chatbot-peers qualify-methodical-peers qualify-methodical-profiles qualify-methodical-tools qualify-methodical-workflow-live-provider qualify-methodical-workflow-peer-live-provider qualify-vellum-process
 
 check: check-release-contract check-compatibility-baseline check-supply-chain check-advisory-attestation check-assurance-mutants check-sdk-boundaries fmt lint test doc
 
-check-peer-profiles: qualify-aegis-process qualify-agent-local qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-peers
+check-peer-profiles: qualify-aegis-process qualify-agent-local qualify-agora-local-port qualify-agora-recovery qualify-chronos-recovery qualify-daimon-process qualify-hermes-process qualify-live-execution-chain qualify-methodical-peers qualify-vellum-process
 
 check-release-contract:
 	bash scripts/check-release-contract.sh
@@ -79,6 +79,11 @@ qualify-agora-recovery:
 	cargo fmt --manifest-path qualification/agora-service-recovery/Cargo.toml -- --check
 	cargo clippy --manifest-path qualification/agora-service-recovery/Cargo.toml --all-targets --locked --offline -- -D warnings
 	cargo test --manifest-path qualification/agora-service-recovery/Cargo.toml --all-targets --locked --offline
+
+qualify-vellum-process:
+	cargo fmt --manifest-path qualification/vellum-process-publication/Cargo.toml -- --check
+	cargo clippy --manifest-path qualification/vellum-process-publication/Cargo.toml --target-dir target/qualification-vellum-process --all-targets --locked --offline -- -D warnings
+	cargo test --manifest-path qualification/vellum-process-publication/Cargo.toml --target-dir target/qualification-vellum-process --all-targets --locked --offline
 
 qualify-chronos-recovery:
 	cargo fmt --manifest-path qualification/chronos-service-recovery/Cargo.toml -- --check

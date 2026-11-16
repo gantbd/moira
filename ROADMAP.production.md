@@ -198,14 +198,16 @@ documented terminal reason why none is safe.
   - [x] Agora actor publication in an independent durable daemon process, with a
     committed reply discarded at Moira's boundary and the exact result observed
     by a new authenticated public client without republishing.
-- [ ] Add Vellum only through its public revisioned publication contract after the
-  message-to-reply path remains green.
+- [x] Add Vellum only through its public revisioned publication contract. The
+  independent-process qualification establishes a saved baseline, discards the
+  accepted durable edit reply, and reconciles the exact stable operation through
+  a fresh authenticated client using historical lookup only.
 - [ ] Restart or lose replies at every process/effect boundary and prove no
   duplicate task, execution, event, edit or response:
   - [x] Live Daimon execution reply loss and process reopen under simultaneous
     Aegis/Chronos composition.
-  - [ ] Complete message admission, event, edit and response boundaries in one
-    process-separated workflow after the Agora/Vellum public profiles settle.
+  - [ ] Compose the now-qualified Agora response and Vellum edit profiles with
+    message admission and event delivery in one process-separated workflow.
 - [x] Qualify stopped single-owner backup/restore for both native SQLite profiles,
   including released ownership, exclusion of persistent lock sentinels,
   byte-exact copy, retained effect identity and exact replay, with an operator
