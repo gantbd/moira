@@ -1,0 +1,25 @@
+[package]
+name = "moira-hermes"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Public-client Hermes workflow-event adapter for Moira"
+
+[dependencies]
+hermes-client = { path = "../../../hermes/crates/hermes-client" }
+hermes-protocol = { path = "../../../hermes/crates/hermes-protocol" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+
+[dev-dependencies]
+hermes-host = { path = "../../../hermes/host/hermes-host" }
+hermes-ledger = { path = "../../../hermes" }
+hermes-service = { path = "../../../hermes/crates/hermes-service" }
+keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

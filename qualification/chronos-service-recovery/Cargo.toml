@@ -1,0 +1,31 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-qualification-chronos-recovery"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Chronos public-client restart and reconciliation qualification for Moira"
+
+[dependencies]
+chronos-adapter-native = { path = "../../../chronos/adapters/native" }
+chronos-client = { path = "../../../chronos/client/chronos-client" }
+chronos-engine = { path = "../../../chronos/engine/chronos-engine" }
+chronos-host = { path = "../../../chronos/host/chronos-host" }
+chronos-local = { path = "../../../chronos/transport/chronos-local" }
+chronos-protocol = { path = "../../../chronos/protocol/chronos-protocol" }
+chronos-service = { path = "../../../chronos/service/chronos-service" }
+chronos-standalone = { path = "../../../chronos/applications/chronos-daemon" }
+chronos-wire = { path = "../../../chronos/protocol/chronos-wire" }
+moira-chronos = { path = "../../adapters/moira-chronos" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

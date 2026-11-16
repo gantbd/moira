@@ -11,8 +11,13 @@ mod recovery_tests;
 pub const PROJECT_STAGE: &str = "deterministic-reference-slice";
 
 pub use keystone_effects::EffectKnowledge as EffectKnowledgeV1;
+pub mod agent_participation;
+pub mod deliberation;
 pub mod instrumentation;
+pub mod model_saga;
 pub mod persistence;
+pub mod saga;
+pub mod tool_continuation;
 
 macro_rules! id {
     ($name:ident) => {
@@ -22,6 +27,10 @@ macro_rules! id {
         impl $name {
             pub const fn new(value: [u8; 16]) -> Self {
                 Self(value)
+            }
+
+            pub const fn into_bytes(self) -> [u8; 16] {
+                self.0
             }
         }
 
@@ -39,14 +48,6 @@ id!(CausationId);
 id!(EffectId);
 id!(ParticipantRefV1);
 
-impl EffectId {
-    /// Adapter correlation bytes. They are not authority and remain redacted
-    /// from `Debug`; adapters may translate them into another engine's profile.
-    pub const fn into_bytes(self) -> [u8; 16] {
-        self.0
-    }
-}
-
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AgoraMessageRefV1 {
     source: [u8; 16],
@@ -61,6 +62,18 @@ impl AgoraMessageRefV1 {
             room_sequence,
             message_sequence,
         }
+    }
+
+    pub const fn source(self) -> [u8; 16] {
+        self.source
+    }
+
+    pub const fn room_sequence(self) -> u64 {
+        self.room_sequence
+    }
+
+    pub const fn message_sequence(self) -> u64 {
+        self.message_sequence
     }
 }
 
@@ -82,6 +95,14 @@ impl ChronosTaskRefV1 {
             external_task_key,
             incarnation,
         }
+    }
+
+    pub const fn external_task_key(self) -> [u8; 16] {
+        self.external_task_key
+    }
+
+    pub const fn incarnation(self) -> u64 {
+        self.incarnation
     }
 }
 
@@ -162,7 +183,26 @@ impl WorkflowSnapshotV1 {
     pub const fn chronos_revision(&self) -> Option<u64> {
         self.chronos_revision
     }
+
+    pub const fn pending_effect(&self) -> Option<EffectId> {
+        self.pending_effect
+    }
+
+    pub const fn chronos_attempt(&self) -> Option<ChronosAttemptReceiptV1> {
+        self.chronos_attempt
+    }
+
+    pub const fn daimon_result(&self) -> Option<DaimonResultReceiptV1> {
+        self.daimon_result
+    }
+
+    pub const fn agora_publication(&self) -> Option<AgoraPublicationReceiptV1> {
+        self.agora_publication
+    }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AttemptReceiptConflict;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Limits {
@@ -203,6 +243,18 @@ impl ChronosAttemptReceiptV1 {
             attempt_number,
             chronos_revision,
         }
+    }
+
+    pub const fn task(self) -> ChronosTaskRefV1 {
+        self.task
+    }
+
+    pub const fn attempt_number(self) -> u32 {
+        self.attempt_number
+    }
+
+    pub const fn chronos_revision(self) -> u64 {
+        self.chronos_revision
     }
 }
 
@@ -253,6 +305,26 @@ impl DaimonResultReceiptV1 {
             disposition,
         }
     }
+
+    pub const fn effect_id(self) -> EffectId {
+        self.effect_id
+    }
+
+    pub const fn execution_id(self) -> [u8; 16] {
+        self.execution_id
+    }
+
+    pub const fn task(self) -> ChronosTaskRefV1 {
+        self.task
+    }
+
+    pub const fn attempt_number(self) -> u32 {
+        self.attempt_number
+    }
+
+    pub const fn disposition(self) -> DaimonDispositionV1 {
+        self.disposition
+    }
 }
 
 impl ChronosAdmissionReceiptV1 {
@@ -262,6 +334,18 @@ impl ChronosAdmissionReceiptV1 {
             task,
             chronos_revision,
         }
+    }
+
+    pub const fn effect_id(self) -> EffectId {
+        self.effect_id
+    }
+
+    pub const fn task(self) -> ChronosTaskRefV1 {
+        self.task
+    }
+
+    pub const fn chronos_revision(self) -> u64 {
+        self.chronos_revision
     }
 }
 
@@ -279,6 +363,18 @@ impl AgoraPublicationReceiptV1 {
             message,
             agora_revision,
         }
+    }
+
+    pub const fn effect_id(self) -> EffectId {
+        self.effect_id
+    }
+
+    pub const fn message(self) -> AgoraMessageRefV1 {
+        self.message
+    }
+
+    pub const fn agora_revision(self) -> u64 {
+        self.agora_revision
     }
 }
 
@@ -427,6 +523,25 @@ impl Engine {
 
     pub fn workflow(&self, workflow: &WorkflowId) -> Option<&WorkflowSnapshotV1> {
         self.workflows.get(workflow)
+    }
+
+    /// Find a unique retained workflow for the host-bound task and attempt.
+    /// Duplicate evidence is unresolved even if one workflow appears newer.
+    pub fn workflow_for_attempt(
+        &self,
+        task: ChronosTaskRefV1,
+        attempt: u32,
+    ) -> Result<Option<WorkflowSnapshotV1>, AttemptReceiptConflict> {
+        let mut matches = self.workflows.values().filter(|workflow| {
+            workflow.chronos_attempt().is_some_and(|receipt| {
+                receipt.task() == task && receipt.attempt_number() == attempt
+            })
+        });
+        let first = matches.next().copied();
+        if matches.next().is_some() {
+            return Err(AttemptReceiptConflict);
+        }
+        Ok(first)
     }
 
     pub fn pending_effect(&self, workflow: &WorkflowId) -> Option<EffectId> {

@@ -1,0 +1,31 @@
+[package]
+name = "moira-aegis"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Public-client Aegis authorization adapter for Moira reconciliation"
+
+[dependencies]
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+moira-core = { path = "../.." }
+moira-host = { path = "../../crates/moira-host" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-service = { path = "../../crates/moira-service" }
+sha2 = "0.10"
+
+[dev-dependencies]
+aegis-authority = { path = "../../../aegis" }
+aegis-host = { path = "../../../aegis/host/aegis-host" }
+aegis-service = { path = "../../../aegis/crates/aegis-service" }
+keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
+moira-sqlite = { path = "../moira-sqlite" }
+moira-local-harness = { path = "../../crates/moira-local-harness" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

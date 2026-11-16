@@ -1,0 +1,59 @@
+name: Opt-in qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  soak-and-performance:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out Moira
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: moira
+      - name: Check out Keystone
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { repository: gantbd/keystone, path: keystone }
+      - name: Check out Aegis
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { repository: gantbd/aegis, path: aegis }
+      - name: Check out Agora
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { repository: gantbd/agora, path: agora }
+      - name: Check out Chronos
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { repository: gantbd/chronos, path: chronos }
+      - name: Check out Daimon
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { repository: gantbd/daimon, path: daimon }
+      - name: Check out Hermes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: { repository: gantbd/hermes, path: hermes }
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+      - name: Run deterministic service soak
+        working-directory: moira
+        run: make soak
+      - name: Run Aegis-Moira process soak
+        working-directory: moira
+        run: make soak-process
+      - name: Run Moira-Hermes delivery process soak
+        working-directory: moira
+        run: make soak-hermes-process
+      - name: Run live execution process soak
+        working-directory: moira
+        run: make soak-live-execution
+      - name: Run SQLite physical integrity gate
+        working-directory: moira
+        run: make check-physical-integrity
+      - name: Run optimized performance gate
+        working-directory: moira
+        run: make performance

@@ -1,0 +1,29 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-qualification-hermes-process"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Process-separated Hermes delivery qualification for Moira"
+
+[dependencies]
+hermes-client = { path = "../../../hermes/crates/hermes-client" }
+hermes-ledger = { path = "../../../hermes" }
+hermes-local = { path = "../../../hermes/adapters/hermes-local" }
+hermes-local-daemon = { path = "../../../hermes/crates/hermes-local-daemon" }
+hermes-protocol = { path = "../../../hermes/crates/hermes-protocol" }
+hermes-service = { path = "../../../hermes/crates/hermes-service" }
+hermes-wire = { path = "../../../hermes/crates/hermes-wire" }
+moira-hermes = { path = "../../adapters/moira-hermes" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

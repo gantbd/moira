@@ -1,0 +1,31 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-qualification-daimon-process"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Process-separated Daimon execution qualification for Moira"
+
+[dependencies]
+daimon-checkpoint = { path = "../../../daimon/adapters/daimon-checkpoint" }
+daimon-client = { path = "../../../daimon/crates/daimon-client" }
+daimon-harness = { path = "../../../daimon" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-local = { path = "../../../daimon/adapters/daimon-local" }
+daimon-local-daemon = { path = "../../../daimon/crates/daimon-local-daemon" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+daimon-service = { path = "../../../daimon/crates/daimon-service" }
+daimon-wire = { path = "../../../daimon/crates/daimon-wire" }
+moira-daimon = { path = "../../adapters/moira-daimon" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

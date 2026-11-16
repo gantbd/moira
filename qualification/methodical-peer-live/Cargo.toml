@@ -1,0 +1,55 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-methodical-peer-live-qualification"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dev-dependencies]
+aegis-authority = { path = "../../../aegis" }
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-host = { path = "../../../aegis/host/aegis-host" }
+aegis-local-daemon = { path = "../../../aegis/crates/aegis-local-daemon" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+aegis-service = { path = "../../../aegis/crates/aegis-service" }
+aegis-wire = { path = "../../../aegis/crates/aegis-wire" }
+agora-aegis-verifier = { path = "../../../agora/adapters/agora-aegis-verifier" }
+agora-client = { path = "../../../agora/client/agora-client" }
+agora-engine = { path = "../../../agora/engine/agora-engine" }
+agora-host = { path = "../../../agora/host/agora-host" }
+agora-local-daemon = { path = "../../../agora/applications/agora-local-daemon" }
+agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
+agora-service = { path = "../../../agora/service/agora-service" }
+agora-wire = { path = "../../../agora/protocol/agora-wire" }
+chronos-local = { path = "../../../chronos/transport/chronos-local" }
+chronos-wire = { path = "../../../chronos/protocol/chronos-wire" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-local-daemon = { path = "../../../daimon/crates/daimon-local-daemon" }
+daimon-openai-local = { path = "../../../daimon/adapters/daimon-openai-local" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+daimon-wire = { path = "../../../daimon/crates/daimon-wire" }
+keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
+moira-core = { path = "../.." }
+moira-daimon = { path = "../../adapters/moira-daimon" }
+moira-methodical-local = { path = "../../apps/moira-methodical-local" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+sha2 = "0.10"
+serde_json = "1"
+vellum-adapter-local-fs = { path = "../../../vellum/adapters/local-fs" }
+vellum-client = { path = "../../../vellum/client/vellum-client" }
+vellum-daemon = { path = "../../../vellum/applications/vellum-daemon" }
+vellum-editor = { path = "../../../vellum/host/vellum-editor" }
+vellum-host = { path = "../../../vellum/host/vellum-host" }
+vellum-protocol = { path = "../../../vellum/protocol/vellum-protocol" }
+vellum-service = { path = "../../../vellum/service/vellum-service" }
+vellum-transport = { path = "../../../vellum/transport/vellum-transport" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

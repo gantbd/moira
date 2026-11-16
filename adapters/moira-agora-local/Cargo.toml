@@ -1,0 +1,19 @@
+[package]
+name = "moira-agora-local"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Private Unix transport port for Agora V2 public clients"
+
+[dependencies]
+agora-client = { path = "../../../agora/client/agora-client" }
+agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
+agora-wire = { path = "../../../agora/protocol/agora-wire" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

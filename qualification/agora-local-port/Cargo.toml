@@ -1,0 +1,29 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-agora-local-qualification"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dev-dependencies]
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+agora-aegis-verifier = { path = "../../../agora/adapters/agora-aegis-verifier" }
+agora-client = { path = "../../../agora/client/agora-client" }
+agora-engine = { path = "../../../agora/engine/agora-engine" }
+agora-host = { path = "../../../agora/host/agora-host" }
+agora-local-daemon = { path = "../../../agora/applications/agora-local-daemon" }
+agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
+agora-service = { path = "../../../agora/service/agora-service" }
+agora-wire = { path = "../../../agora/protocol/agora-wire" }
+moira-agora-local = { path = "../../adapters/moira-agora-local" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

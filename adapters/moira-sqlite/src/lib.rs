@@ -2,17 +2,24 @@
 #![forbid(unsafe_code)]
 #![cfg(unix)]
 
-pub mod agora;
-pub mod chronos;
-pub mod daimon;
-mod daimon_codec;
+pub mod agent_participation;
+mod backup;
+pub mod deliberation;
+pub mod model_saga;
 mod resource;
-use resource::OwnedResource;
+pub mod saga;
+pub mod tool_continuation;
+pub mod tool_output;
+pub use backup::{OnlineBackupLimitsV1, OnlineBackupReceiptV1};
+#[doc(hidden)]
+pub use resource::OwnedResource;
 
 use moira_core::persistence::{CodecError, CodecLimits, decode_checkpoint, encode_checkpoint};
+use moira_core::saga::{SagaRefusalV1, persistence::SagaCodecErrorV1};
 use moira_core::{
     CheckpointV1, CommandV1, Engine, Limits, RefusalV1, TransitionV1, WorkflowRevision,
 };
+use moira_host::{ApplyErrorV1, ApplyReceiptV1, CoordinatorStore};
 use rusqlite::{
     Connection, ErrorCode, OpenFlags, OptionalExtension, TransactionBehavior, limits::Limit, params,
 };
@@ -52,13 +59,18 @@ pub enum StoreError {
     Io(ErrorKind),
     Sqlite(ErrorCode),
     Codec(CodecError),
+    SagaCodec(SagaCodecErrorV1),
     Refusal(RefusalV1),
+    SagaRefusal(SagaRefusalV1),
     Conflict {
         expected: Option<StoreRevision>,
         actual: Option<StoreRevision>,
     },
     RevisionExhausted,
     Indeterminate,
+    BackupExists,
+    BackupIncomplete,
+    BackupPublicationUncertain,
 }
 impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,8 +93,25 @@ impl From<CodecError> for StoreError {
         Self::Codec(e)
     }
 }
+impl From<SagaCodecErrorV1> for StoreError {
+    fn from(error: SagaCodecErrorV1) -> Self {
+        Self::SagaCodec(error)
+    }
+}
 fn io(error: std::io::Error) -> StoreError {
     StoreError::Io(error.kind())
+}
+
+/// Selected reopen integrity profile: SQLite's bounded quick check must report
+/// exactly `ok` before any existing domain state is trusted or persistent
+/// connection pragmas are changed. This detects structural page/index damage;
+/// it is not an arbitrary-bit corruption or storage-device certification.
+pub fn validate_sqlite_integrity(connection: &Connection) -> Result<(), StoreError> {
+    let result: String = connection.query_row("PRAGMA quick_check(1)", [], |row| row.get(0))?;
+    if result != "ok" {
+        return Err(StoreError::Schema);
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -114,7 +143,8 @@ pub struct Usage {
     pub max_commit_service: Option<Duration>,
     pub overflowed: bool,
 }
-fn count(value: &mut u64, overflow: &mut bool) {
+#[doc(hidden)]
+pub fn count(value: &mut u64, overflow: &mut bool) {
     if let Some(next) = value.checked_add(1) {
         *value = next;
     } else {
@@ -172,6 +202,7 @@ impl SqliteStore {
         connection.busy_timeout(Duration::ZERO)?;
         connection.set_limit(Limit::SQLITE_LIMIT_LENGTH, record_limit)?;
         connection.execute_batch("PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON;")?;
+        validate_sqlite_integrity(&connection)?;
         let app: i64 = connection.pragma_query_value(None, "application_id", |r| r.get(0))?;
         let version: i64 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
         let names = {
@@ -250,6 +281,30 @@ impl SqliteStore {
     }
     pub fn usage(&self) -> Usage {
         self.usage
+    }
+    /// Publishes a bounded integrity-checked SQLite online snapshot while this
+    /// single owner remains open. The destination must not already exist.
+    pub fn backup_online(
+        &mut self,
+        destination: impl AsRef<Path>,
+        limits: OnlineBackupLimitsV1,
+    ) -> Result<OnlineBackupReceiptV1, StoreError> {
+        self.guard()?;
+        let result = backup::publish_online_backup(
+            &self.connection,
+            &self.resource,
+            destination.as_ref(),
+            self.limits.max_database_pages,
+            limits,
+        );
+        if let Err(error) = self.check_identity() {
+            self.healthy = false;
+            return Err(error);
+        }
+        Ok(OnlineBackupReceiptV1 {
+            storage_revision: self.store_revision,
+            page_count: result?,
+        })
     }
     fn check_identity(&self) -> Result<(), StoreError> {
         self.resource.check()
@@ -400,6 +455,48 @@ impl SqliteStore {
     }
 }
 
+impl CoordinatorStore for SqliteStore {
+    type Error = StoreError;
+
+    fn revision(&self) -> WorkflowRevision {
+        self.revision()
+    }
+
+    fn needs_reopen(&self) -> bool {
+        self.needs_reopen()
+    }
+
+    fn workflow(&self, workflow: moira_core::WorkflowId) -> Option<moira_core::WorkflowSnapshotV1> {
+        self.engine.workflow(&workflow).copied()
+    }
+
+    fn apply(
+        &mut self,
+        expected: WorkflowRevision,
+        command: CommandV1,
+    ) -> Result<ApplyReceiptV1, ApplyErrorV1<Self::Error>> {
+        match SqliteStore::apply(self, expected, command) {
+            Ok(applied) => Ok(ApplyReceiptV1 {
+                storage_revision: applied.revision.0,
+                transition: applied.transition,
+                replayed: applied.replayed,
+            }),
+            Err(StoreError::Refusal(refusal)) => Err(ApplyErrorV1::Domain(refusal)),
+            Err(error) => Err(ApplyErrorV1::Backend(error)),
+        }
+    }
+}
+
+impl moira_host::AttemptReceiptStore for SqliteStore {
+    fn workflow_for_attempt(
+        &self,
+        task: moira_core::ChronosTaskRefV1,
+        attempt: u32,
+    ) -> Result<Option<moira_core::WorkflowSnapshotV1>, moira_core::AttemptReceiptConflict> {
+        self.engine.workflow_for_attempt(task, attempt)
+    }
+}
+
 fn read_revision(connection: &Connection) -> Result<Option<StoreRevision>, StoreError> {
     let bytes: Option<Vec<u8>> = connection
         .query_row("SELECT revision FROM moira_state WHERE slot=1", [], |r| {
@@ -444,7 +541,8 @@ fn read_state(
         checkpoint,
     }))
 }
-fn record_timing(usage: &mut Usage, started: Option<Instant>) {
+#[doc(hidden)]
+pub fn record_timing(usage: &mut Usage, started: Option<Instant>) {
     let elapsed = started.and_then(|start| {
         std::panic::catch_unwind(Instant::now)
             .ok()?

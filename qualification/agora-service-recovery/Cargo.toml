@@ -1,0 +1,28 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-qualification-agora-recovery"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Isolated durable Agora service recovery qualification for Moira"
+
+[dependencies]
+agora-client = { path = "../../../agora/crates/agora-client" }
+agora-durable = { path = "../../../agora/crates/agora-durable" }
+agora-engine = { path = "../../../agora" }
+agora-protocol = { path = "../../../agora/crates/agora-protocol" }
+agora-service = { path = "../../../agora/crates/agora-service" }
+keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
+moira-agora = { path = "../../adapters/moira-agora" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

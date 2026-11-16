@@ -1,0 +1,173 @@
+{
+  "product": "workflow",
+  "dendrite": {
+    "port": 4499,
+    "bearer_token_env": "MOIRA_DENDRITE_BEARER",
+    "timeout_ms": 5000
+  },
+  "daimon": {
+    "socket": ".dev/daimon-model.sock",
+    "timeout_ms": 5000
+  },
+  "store": {
+    "path": ".dev/moira-methodical.db",
+    "owner": "01010101010101010101010101010101",
+    "max_database_pages": 4096
+  },
+  "plan": {
+    "id": "02020202020202020202020202020202",
+    "question": "Which architecture boundary should be reviewed?",
+    "method_load": "rune/fsm/behavior-driven-development",
+    "method_state": "discovery",
+    "fold_load": "rune/sme/triggers",
+    "fold_tags": [
+      "architecture-flow-review"
+    ],
+    "orthogonality_load": "axon/sme/axon-concerns",
+    "claims": [
+      "empirical"
+    ],
+    "criteria": [
+      {
+        "id": "03030303030303030303030303030303",
+        "direction": "maximize"
+      }
+    ],
+    "candidates": [
+      {
+        "id": "04040404040404040404040404040404",
+        "scores": [1]
+      }
+    ],
+    "members": [
+      {
+        "id": "05050505050505050505050505050505",
+        "lens": "theorist",
+        "fold_target": "rune:architecture",
+        "orthogonality_role": "rune:architecture",
+        "depth": "ambient"
+      },
+      {
+        "id": "06060606060606060606060606060606",
+        "lens": "rigor_reviewer",
+        "fold_target": "rune:network",
+        "orthogonality_role": "rune:network",
+        "depth": "ambient"
+      },
+      {
+        "id": "07070707070707070707070707070707",
+        "lens": "researcher",
+        "fold_target": "rune:identity",
+        "orthogonality_role": "rune:identity",
+        "depth": "ambient"
+      },
+      {
+        "id": "08080808080808080808080808080808",
+        "lens": "historian",
+        "fold_target": "rune:data",
+        "orthogonality_role": "rune:data",
+        "depth": "ambient"
+      }
+    ],
+    "fuel": 5
+  },
+  "runs": [
+    {
+      "member": "05050505050505050505050505050505",
+      "report": "20202020202020202020202020202020",
+      "effect": "21212121212121212121212121212121",
+      "execution": "22222222222222222222222222222222",
+      "task_key": "23232323232323232323232323232323",
+      "task_incarnation": 1,
+      "attempt_number": 1,
+      "principal": "40404040404040404040404040404040",
+      "profile": "41414141414141414141414141414141",
+      "idempotency_key": "24242424242424242424242424242424",
+      "context": [
+        "25252525252525252525252525252525"
+      ],
+      "tools": [],
+      "budget": {
+        "max_elapsed_millis": 30000,
+        "max_input_tokens": 8192,
+        "max_output_tokens": 2048,
+        "max_tool_calls": 0,
+        "max_context_bytes": 262144,
+        "max_output_bytes": 131072
+      }
+    },
+    {
+      "member": "06060606060606060606060606060606",
+      "report": "30303030303030303030303030303030",
+      "effect": "31313131313131313131313131313131",
+      "execution": "32323232323232323232323232323232",
+      "task_key": "33333333333333333333333333333333",
+      "task_incarnation": 1,
+      "attempt_number": 1,
+      "principal": "40404040404040404040404040404040",
+      "profile": "41414141414141414141414141414141",
+      "idempotency_key": "34343434343434343434343434343434",
+      "context": [
+        "35353535353535353535353535353535"
+      ],
+      "tools": [],
+      "budget": {
+        "max_elapsed_millis": 30000,
+        "max_input_tokens": 8192,
+        "max_output_tokens": 2048,
+        "max_tool_calls": 0,
+        "max_context_bytes": 262144,
+        "max_output_bytes": 131072
+      }
+    },
+    {
+      "member": "07070707070707070707070707070707",
+      "report": "50505050505050505050505050505050",
+      "effect": "51515151515151515151515151515151",
+      "execution": "52525252525252525252525252525252",
+      "task_key": "53535353535353535353535353535353",
+      "task_incarnation": 1,
+      "attempt_number": 1,
+      "principal": "40404040404040404040404040404040",
+      "profile": "41414141414141414141414141414141",
+      "idempotency_key": "54545454545454545454545454545454",
+      "context": [
+        "55555555555555555555555555555555"
+      ],
+      "tools": [],
+      "budget": {
+        "max_elapsed_millis": 30000,
+        "max_input_tokens": 8192,
+        "max_output_tokens": 2048,
+        "max_tool_calls": 0,
+        "max_context_bytes": 262144,
+        "max_output_bytes": 131072
+      }
+    },
+    {
+      "member": "08080808080808080808080808080808",
+      "report": "60606060606060606060606060606060",
+      "effect": "61616161616161616161616161616161",
+      "execution": "62626262626262626262626262626262",
+      "task_key": "63636363636363636363636363636363",
+      "task_incarnation": 1,
+      "attempt_number": 1,
+      "principal": "40404040404040404040404040404040",
+      "profile": "41414141414141414141414141414141",
+      "idempotency_key": "64646464646464646464646464646464",
+      "context": [
+        "65656565656565656565656565656565"
+      ],
+      "tools": [],
+      "budget": {
+        "max_elapsed_millis": 30000,
+        "max_input_tokens": 8192,
+        "max_output_tokens": 2048,
+        "max_tool_calls": 0,
+        "max_context_bytes": 262144,
+        "max_output_bytes": 131072
+      }
+    }
+  ],
+  "now": 10
+}

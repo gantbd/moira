@@ -1,0 +1,53 @@
+[package]
+name = "moira-methodical-local"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "One-shot local composition for governed methodical deliberation"
+
+[dependencies]
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-local-daemon = { path = "../../../aegis/crates/aegis-local-daemon" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+aegis-wire = { path = "../../../aegis/crates/aegis-wire" }
+chronos-local = { path = "../../../chronos/transport/chronos-local" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+daimon-wire = { path = "../../../daimon/crates/daimon-wire" }
+moira-aegis = { path = "../../adapters/moira-aegis" }
+moira-agora = { path = "../../adapters/moira-agora" }
+moira-agora-local = { path = "../../adapters/moira-agora-local" }
+moira-agora-publisher-sqlite = { path = "../../adapters/moira-agora-publisher-sqlite" }
+moira-chronos = { path = "../../adapters/moira-chronos" }
+moira-client = { path = "../../crates/moira-client" }
+moira-core = { path = "../.." }
+moira-daimon = { path = "../../adapters/moira-daimon" }
+moira-dendrite = { path = "../../adapters/moira-dendrite" }
+moira-host = { path = "../../crates/moira-host" }
+moira-local-harness = { path = "../../crates/moira-local-harness" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-rune-validator = { path = "../../adapters/moira-rune-validator" }
+moira-service = { path = "../../crates/moira-service" }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+moira-vellum = { path = "../../adapters/moira-vellum" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+vellum-protocol = { path = "../../../vellum/protocol/vellum-protocol" }
+vellum-transport = { path = "../../../vellum/transport/vellum-transport" }
+
+[dev-dependencies]
+aegis-authority = { path = "../../../aegis" }
+aegis-host = { path = "../../../aegis/host/aegis-host" }
+aegis-service = { path = "../../../aegis/crates/aegis-service" }
+chronos-wire = { path = "../../../chronos/protocol/chronos-wire" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-local-daemon = { path = "../../../daimon/crates/daimon-local-daemon" }
+keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

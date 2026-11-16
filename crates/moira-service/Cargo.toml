@@ -1,0 +1,22 @@
+[package]
+name = "moira-service"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Native Moira application service"
+
+[dependencies]
+moira-core = { path = "../.." }
+moira-host = { path = "../moira-host" }
+moira-protocol = { path = "../moira-protocol" }
+
+[dev-dependencies]
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

@@ -1,0 +1,26 @@
+[package]
+name = "moira-local-daemon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Private bounded Unix daemon for the native Moira service"
+
+[dependencies]
+keystone-framing = { path = "../../../keystone/crates/keystone-framing" }
+keystone-unix-listener = { path = "../../../keystone/crates/keystone-unix-listener" }
+moira-host = { path = "../moira-host" }
+moira-protocol = { path = "../moira-protocol" }
+moira-service = { path = "../moira-service" }
+moira-wire = { path = "../moira-wire" }
+
+[dev-dependencies]
+moira-core = { path = "../.." }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

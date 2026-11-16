@@ -1,0 +1,20 @@
+[package]
+name = "moira-agora-sqlite"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "SQLite-backed local Agora receiver owned by Moira deployment wiring"
+
+[dependencies]
+agora-engine = { path = "../../../agora/engine/agora-engine" }
+moira-core = { path = "../.." }
+moira-sqlite = { path = "../moira-sqlite" }
+rusqlite = { version = "=0.41.1", features = ["bundled", "limits"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

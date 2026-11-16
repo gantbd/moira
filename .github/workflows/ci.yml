@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out Moira
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: moira
+      - name: Check out qualified sibling sources
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/gantbd/keystone keystone
+          git clone --depth 1 https://github.com/gantbd/aegis aegis
+          git clone --depth 1 https://github.com/gantbd/agora agora
+          git clone --depth 1 https://github.com/gantbd/chronos chronos
+          git clone --depth 1 https://github.com/gantbd/daimon daimon
+          git clone --depth 1 https://github.com/gantbd/hermes hermes
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+      - name: Audit current RustSec advisories
+        working-directory: moira
+        run: |
+          cargo install cargo-audit --version 0.23.0 --locked
+          cargo audit --deny warnings
+      - name: Verify workspace
+        working-directory: moira
+        run: make check
+      - name: Verify isolated peer profiles
+        working-directory: moira
+        run: make check-peer-profiles
+

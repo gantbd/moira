@@ -1,0 +1,17 @@
+[package]
+name = "moira-wire"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Canonical bounded codec for the native Moira protocol"
+
+[dependencies]
+moira-protocol = { path = "../moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

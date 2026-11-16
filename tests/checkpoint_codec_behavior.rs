@@ -1,6 +1,19 @@
 use moira_core::persistence::{CodecLimits, decode_checkpoint, encode_checkpoint};
 use moira_core::*;
 
+fn decode_fixture(source: &str) -> Vec<u8> {
+    let source = source.trim();
+    assert_eq!(source.len() % 2, 0);
+    source
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let text = std::str::from_utf8(pair).unwrap();
+            u8::from_str_radix(text, 16).unwrap()
+        })
+        .collect()
+}
+
 #[test]
 fn canonical_checkpoint_bytes_round_trip_and_preserve_original_replay() {
     let limits = CodecLimits {
@@ -14,6 +27,10 @@ fn canonical_checkpoint_bytes_round_trip_and_preserve_original_replay() {
     };
     let first = engine.apply(engine.revision(), command).unwrap();
     let bytes = encode_checkpoint(&engine.checkpoint(), limits).unwrap();
+    assert_eq!(
+        bytes.as_bytes(),
+        decode_fixture(include_str!("fixtures/checkpoint-v1-live.hex"))
+    );
     assert!(!format!("{bytes:?}").contains("[1, 1"));
     let checkpoint = decode_checkpoint(bytes.as_bytes(), limits).unwrap();
     assert_eq!(

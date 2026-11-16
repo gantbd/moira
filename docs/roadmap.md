@@ -16,15 +16,26 @@
 - [In progress] Add stale revision, saturation, and timeout scenarios. Semantic
   checkpoint/reconstruction replay is covered; local encoded durable restart is
   now covered in Phase 2, including the local fake-provider cross-engine path.
-- Build an independent reference model and bounded state explorer.
+- [Complete for closed saga family] Build an independent reference model and
+  bounded state explorer across restart/lost reply, retry, timeout, cancellation
+  and compensation. Canonical SQLite, native service/client, reconciliation
+  inspection, durable operator causation, content-safe export, public-client
+  Aegis authorization and a private saga wire/daemon profile are implemented.
 
 ## Phase 2 — recovery
 
+- [Implemented architectural split] `moira-sqlite` owns coordinator/saga storage
+  and reusable local SQLite mechanisms only; Agora projection lives in
+  `moira-agora-sqlite`, while the settlement-coupled Chronos/Daimon projection
+  lives in `moira-execution-sqlite`. CI freezes their production dependency
+  closures so the base adapter cannot regress into a universal composition root.
 - [Implemented for local coordinator state] Bounded canonical V1 checkpoint codec
   over Keystone's decoder and a separate SQLite command adapter with one active
   owner, commit-before-result, replay distinction and uncertain-commit fencing.
   Actual database tests cover every phase/disposition, before/after-commit faults,
-  abrupt process exit and an abandoned uncommitted write. No power-loss claim.
+  abrupt process exit, an abandoned uncommitted write and bounded structural-page
+  refusal before existing state is trusted. No power-loss or arbitrary-corruption
+  claim.
 - Add durable peer-side canonical intent/receipt mappings; the coordinator's
   checkpoint alone cannot prevent duplicate peer effects after a lost reply.
 - [Implemented for Chronos admission] A separate receiver commits the actual
@@ -56,13 +67,60 @@
 
 ## Phase 3 — real adapters
 
-- [Qualified against volatile cores] Hermes append, Chronos task admission,
-  Aegis-authorized Daimon results, and Agora publication.
+- [Public-client adapter qualified] Hermes workflow-event append owns its schema
+  in Moira and proves lost-reply replay against the real Hermes service without a
+  production dependency on Hermes internals.
+- [Public-client and durable-service recovery qualified]
+  Agora response publication retains both
+  Agora's exact request fence and Moira's effect/source/room correspondence
+  through lost-reply replay. Exported publisher/client state restores only an
+  exact pending tail; isolated real-service recovery proves one commit and one
+  message after both owners restart. Agora's local daemon now supports clean
+  durable-state restart, but authenticated reconnect still retires the old
+  service-client receipt namespace, so process-level lost-reply replay remains
+  open.
+- [Public-client adapter qualified] Chronos task admission exports prepared
+  invocation identity and closes a lost execute reply through V3 invocation plus
+  V4 original-allocation lookup after service reopen, never automatic mutation
+  replay or current-name snapshot fallback. Process qualification retires the
+  original task, reuses its name and still returns the original receipt.
+- [Public-client process profile qualified] Daimon execution discards the first
+  reply, exits, reopens its durable daemon and returns the exact Moira receipt
+  without provider redispatch. The live composition now repeats this under a
+  still-running Aegis authority after exact Chronos validation, reauthorizing
+  retained delivery without another Chronos lookup or provider call.
 - [Qualified for local durable ingress] Participant-neutral addressed Agora
   events project as passive facts; explicit Moira admission and host-owned
   participant mapping survive restart/lost reply without duplicate workflow or
   task-submission identity.
 - Implement production adapters only after the Phase 2 store protocol closes
   crash/reply ambiguity.
-- Add Vellum only after the message-to-reply path is recoverable.
+- [Public-client adapter implemented] Model execution retains the originating
+  Moira effect and exact Chronos attempt while projecting bounded typed Agora and
+  Vellum proposals. Vellum submission maps a separate Moira effect to Vellum's
+  restart-stable durable operation and supports lookup-only reconciliation without
+  falling through to execution. The ordered proposal set now has a deterministic
+  saga, canonical bounded checkpoint and separately owned SQLite store with exact
+  replay/reopen behavior. A representation-independent public service/client
+  contract now exposes admission, effect evidence and typed revision conflicts.
+  A selected local federation journey loses Agora and Vellum replies, reopens the
+  proposal store, reconciles Vellum through historical lookup and proves one
+  Chronos validation, provider call, message and document mutation. Private
+  wire/daemon transport and the multi-process kill matrix remain open.
+
+## Phase 4 — reusable operator surface and standalone CLI
+
+- Define `moira-tui` as a composable presentation over Moira's public client.
+  It owns bounded workflow/saga projection, local input, confirmations, and
+  lifecycle requests, but not terminal setup, argument parsing, daemon startup,
+  global shortcuts, or process exit.
+- Provide a separate Moira CLI/application composition root. It selects embedded
+  or remote service access and can run the TUI or bounded headless workflow and
+  reconciliation commands without fabricating presentation state.
+- Let Workbench reuse the same TUI component and optionally host Moira's service
+  runtime under one executable and lifecycle. Moira keeps workflow authority,
+  receipt interpretation, authorization, and uncertainty semantics.
+- Qualify the four parity paths: standalone interactive, standalone headless,
+  Workbench interactive, and Workbench headless. A close request removes a pane
+  in Workbench and exits only when the standalone CLI chooses that policy.
 

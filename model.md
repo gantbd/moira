@@ -24,6 +24,17 @@ Policy may terminate the workflow as Failed or Cancelled.
 This sequence is a first scenario, not a universal workflow language. General
 DAG execution belongs to Chronos; arbitrary user-authored code is outside Moira.
 
+The closed saga kernel refines this with explicit forward, terminal and
+compensation effects; typed failed/pending/uncertain phases; caller-supplied
+deadline/timer evidence; and finite explicit retry. Compensation is new work with
+new causation, never state erasure. See `docs/saga-v1.md`.
+
+An uncertainty fence has an inspectable effect- or deadline-origin. Operator
+disposition is a separate Aegis-authorized transition family with bounded durable
+causation and exact action replay. It may adjudicate named evidence, retain the
+fence, allocate fresh retry/compensation work, cancel or fail; it cannot erase
+evidence or assert generic success.
+
 ## Effects
 
 An effect intent is an immutable bounded value. A connector returns attributed

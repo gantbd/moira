@@ -1,0 +1,45 @@
+[package]
+name = "moira-local-harness"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Local application composition for methodical Moira deliberations"
+
+[dependencies]
+daimon-client = { path = "../../../daimon/crates/daimon-client", features = ["unix"] }
+daimon-wire = { path = "../../../daimon/crates/daimon-wire" }
+agora-client = { path = "../../../agora/client/agora-client" }
+moira-core = { path = "../.." }
+moira-agora = { path = "../../adapters/moira-agora" }
+moira-daimon = { path = "../../adapters/moira-daimon" }
+moira-client = { path = "../moira-client" }
+moira-host = { path = "../moira-host" }
+moira-protocol = { path = "../moira-protocol" }
+moira-vellum = { path = "../../adapters/moira-vellum" }
+sha2 = "0.10"
+vellum-protocol = { path = "../../../vellum/protocol/vellum-protocol" }
+
+[dev-dependencies]
+aegis-authority = { path = "../../../aegis" }
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-host = { path = "../../../aegis/host/aegis-host" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+aegis-service = { path = "../../../aegis/crates/aegis-service" }
+agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-local-daemon = { path = "../../../daimon/crates/daimon-local-daemon" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+moira-rune-validator = { path = "../../adapters/moira-rune-validator" }
+moira-agora-publisher-sqlite = { path = "../../adapters/moira-agora-publisher-sqlite" }
+moira-aegis = { path = "../../adapters/moira-aegis" }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+moira-service = { path = "../moira-service" }
+keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

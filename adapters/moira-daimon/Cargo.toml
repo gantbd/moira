@@ -1,0 +1,30 @@
+[package]
+name = "moira-daimon"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Public-client Daimon execution adapter for Moira"
+
+[dependencies]
+daimon-client = { path = "../../../daimon/crates/daimon-client" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+moira-core = { path = "../.." }
+moira-client = { path = "../../crates/moira-client" }
+moira-host = { path = "../../crates/moira-host" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+
+[dev-dependencies]
+daimon-harness = { path = "../../../daimon" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-service = { path = "../../../daimon/crates/daimon-service" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

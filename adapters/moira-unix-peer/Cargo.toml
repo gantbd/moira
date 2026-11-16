@@ -1,0 +1,25 @@
+[package]
+name = "moira-unix-peer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "OS-backed peer authentication for Moira's local Unix daemon"
+
+[dependencies]
+moira-local-daemon = { path = "../../crates/moira-local-daemon" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-service = { path = "../../crates/moira-service" }
+nix = { version = "=0.29.0", features = ["socket", "user"] }
+
+[dev-dependencies]
+moira-core = { path = "../.." }
+moira-sqlite = { path = "../moira-sqlite" }
+moira-wire = { path = "../../crates/moira-wire" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

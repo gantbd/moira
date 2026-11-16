@@ -1,0 +1,27 @@
+[package]
+name = "moira-execution-sqlite"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "SQLite-backed local Chronos and Daimon execution receivers"
+
+[dependencies]
+aegis-authority = { path = "../../../aegis" }
+chronos-engine = { path = "../../../chronos/engine/chronos-engine" }
+daimon-harness = { path = "../../../daimon" }
+keystone-codec = { path = "../../../keystone/crates/keystone-codec" }
+moira-core = { path = "../.." }
+moira-sqlite = { path = "../moira-sqlite" }
+rusqlite = { version = "=0.41.1", features = ["bundled", "limits"] }
+
+[dev-dependencies]
+agora-engine = { path = "../../../agora/engine/agora-engine" }
+moira-agora-sqlite = { path = "../moira-agora-sqlite" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

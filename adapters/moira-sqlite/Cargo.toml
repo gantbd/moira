@@ -9,12 +9,29 @@ description = "Single-host SQLite checkpoint adapter outside Moira's determinist
 
 [dependencies]
 moira-core = { path = "../.." }
-chronos-engine = { path = "../../../chronos" }
-daimon-harness = { path = "../../../daimon" }
-aegis-authority = { path = "../../../aegis" }
-agora-engine = { path = "../../../agora" }
+moira-host = { path = "../../crates/moira-host" }
 keystone-codec = { path = "../../../keystone/crates/keystone-codec" }
-rusqlite = { version = "=0.41.1", features = ["bundled", "limits"] }
+rusqlite = { version = "=0.41.1", features = ["backup", "bundled", "limits"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+agora-client = { path = "../../../agora/client/agora-client" }
+agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
+chronos-client = { path = "../../../chronos/client/chronos-client" }
+chronos-protocol = { path = "../../../chronos/protocol/chronos-protocol" }
+daimon-chronos = { path = "../../../daimon/adapters/daimon-chronos" }
+daimon-client = { path = "../../../daimon/crates/daimon-client" }
+daimon-harness = { path = "../../../daimon" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+daimon-service = { path = "../../../daimon/crates/daimon-service" }
+moira-client = { path = "../../crates/moira-client" }
+moira-agora = { path = "../moira-agora" }
+moira-daimon = { path = "../moira-daimon" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-service = { path = "../../crates/moira-service" }
+moira-vellum = { path = "../moira-vellum" }
+vellum-protocol = { path = "../../../vellum/protocol/vellum-protocol" }
 
 [lints.rust]
 unsafe_code = "forbid"

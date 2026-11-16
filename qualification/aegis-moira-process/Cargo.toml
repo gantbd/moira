@@ -1,0 +1,35 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-qualification-aegis-process"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Process-separated Aegis to Moira public-contract qualification"
+
+[dependencies]
+aegis-authority = { path = "../../../aegis" }
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-local = { path = "../../../aegis/adapters/aegis-local" }
+aegis-local-daemon = { path = "../../../aegis/crates/aegis-local-daemon" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+aegis-service = { path = "../../../aegis/crates/aegis-service" }
+aegis-wire = { path = "../../../aegis/crates/aegis-wire" }
+moira-aegis = { path = "../../adapters/moira-aegis" }
+moira-client = { path = "../../crates/moira-client" }
+moira-core = { path = "../.." }
+moira-local-daemon = { path = "../../crates/moira-local-daemon" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-service = { path = "../../crates/moira-service" }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+moira-wire = { path = "../../crates/moira-wire" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

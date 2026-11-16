@@ -1,0 +1,19 @@
+[package]
+name = "moira-chronos"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Public-client Chronos task-admission adapter for Moira"
+
+[dependencies]
+chronos-client = { path = "../../../chronos/client/chronos-client" }
+chronos-protocol = { path = "../../../chronos/protocol/chronos-protocol" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

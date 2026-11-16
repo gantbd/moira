@@ -1,0 +1,18 @@
+[package]
+name = "moira-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Trusted persistence port for Moira services"
+
+[dependencies]
+moira-core = { path = "../.." }
+moira-protocol = { path = "../moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

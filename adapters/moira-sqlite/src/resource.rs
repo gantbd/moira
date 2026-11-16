@@ -6,16 +6,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(crate) struct OwnedResource {
+#[doc(hidden)]
+pub struct OwnedResource {
     owner_file: File,
     resource_file: File,
-    pub(crate) lock_path: PathBuf,
+    pub lock_path: PathBuf,
     lock_identity: (u64, u64),
     path: PathBuf,
     identity: (u64, u64),
 }
 impl OwnedResource {
-    pub(crate) fn open(path: impl AsRef<Path>, max_pages: u32) -> Result<Self, StoreError> {
+    pub fn open(path: impl AsRef<Path>, max_pages: u32) -> Result<Self, StoreError> {
         if max_pages < 4 || max_pages == u32::MAX {
             return Err(StoreError::InvalidConfig);
         }
@@ -68,16 +69,16 @@ impl OwnedResource {
         result.check()?;
         Ok(result)
     }
-    pub(crate) fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         &self.path
     }
-    pub(crate) fn sync_parent(&self) -> Result<(), StoreError> {
+    pub fn sync_parent(&self) -> Result<(), StoreError> {
         File::open(self.path.parent().ok_or(StoreError::InvalidConfig)?)
             .map_err(io)?
             .sync_all()
             .map_err(io)
     }
-    pub(crate) fn check(&self) -> Result<(), StoreError> {
+    pub fn check(&self) -> Result<(), StoreError> {
         let path = fs::metadata(&self.path).map_err(io)?;
         let file = self.resource_file.metadata().map_err(io)?;
         let lock_path = fs::metadata(&self.lock_path).map_err(io)?;

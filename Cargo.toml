@@ -8,8 +8,68 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace]
-members = [".", "adapters/moira-sqlite", "sdk/embedded"]
-default-members = [".", "adapters/moira-sqlite", "sdk/embedded"]
+exclude = [
+  "qualification/aegis-moira-process",
+  "qualification/agora-service-recovery",
+  "qualification/agora-local-port",
+  "qualification/chronos-service-recovery",
+  "qualification/daimon-process-execution",
+  "qualification/hermes-process-delivery",
+  "qualification/live-execution-chain",
+  "qualification/methodical-peer-live",
+]
+members = [
+  ".",
+  "apps/moira-methodical-local",
+  "adapters/moira-sqlite",
+  "adapters/moira-agora-sqlite",
+  "adapters/moira-agora-publisher-sqlite",
+  "adapters/moira-execution-sqlite",
+  "adapters/moira-aegis",
+  "adapters/moira-agora",
+  "adapters/moira-agora-local",
+  "adapters/moira-chronos",
+  "adapters/moira-daimon",
+  "adapters/moira-dendrite",
+  "adapters/moira-hermes",
+  "adapters/moira-rune-validator",
+  "adapters/moira-unix-peer",
+  "adapters/moira-vellum",
+  "crates/moira-client",
+  "crates/moira-host",
+  "crates/moira-local-daemon",
+  "crates/moira-local-harness",
+  "crates/moira-protocol",
+  "crates/moira-service",
+  "crates/moira-wire",
+  "sdk/embedded",
+]
+default-members = [
+  ".",
+  "apps/moira-methodical-local",
+  "adapters/moira-sqlite",
+  "adapters/moira-agora-sqlite",
+  "adapters/moira-agora-publisher-sqlite",
+  "adapters/moira-execution-sqlite",
+  "adapters/moira-aegis",
+  "adapters/moira-agora",
+  "adapters/moira-agora-local",
+  "adapters/moira-chronos",
+  "adapters/moira-daimon",
+  "adapters/moira-dendrite",
+  "adapters/moira-hermes",
+  "adapters/moira-rune-validator",
+  "adapters/moira-unix-peer",
+  "adapters/moira-vellum",
+  "crates/moira-client",
+  "crates/moira-host",
+  "crates/moira-local-daemon",
+  "crates/moira-local-harness",
+  "crates/moira-protocol",
+  "crates/moira-service",
+  "crates/moira-wire",
+  "sdk/embedded",
+]
 resolver = "3"
 
 [lib]
@@ -22,8 +82,8 @@ keystone-codec = { path = "../keystone/crates/keystone-codec" }
 
 [dev-dependencies]
 aegis-authority = { path = "../aegis" }
-agora-engine = { path = "../agora" }
-chronos-engine = { path = "../chronos" }
+agora-engine = { path = "../agora/engine/agora-engine" }
+chronos-engine = { path = "../chronos/engine/chronos-engine" }
 daimon-harness = { path = "../daimon" }
 hermes-ledger = { path = "../hermes" }
 

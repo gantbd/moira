@@ -1,0 +1,55 @@
+[workspace]
+members = ["."]
+resolver = "3"
+
+[package]
+name = "moira-qualification-live-execution-chain"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Process-separated Aegis Chronos Daimon Hermes qualification for Moira"
+
+[dependencies]
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-local-daemon = { path = "../../../aegis/crates/aegis-local-daemon" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+aegis-wire = { path = "../../../aegis/crates/aegis-wire" }
+chronos-client = { path = "../../../chronos/client/chronos-client" }
+chronos-protocol = { path = "../../../chronos/protocol/chronos-protocol" }
+chronos-wire = { path = "../../../chronos/protocol/chronos-wire" }
+daimon-aegis = { path = "../../../daimon/adapters/daimon-aegis" }
+daimon-checkpoint = { path = "../../../daimon/adapters/daimon-checkpoint" }
+daimon-chronos = { path = "../../../daimon/adapters/daimon-chronos" }
+daimon-client = { path = "../../../daimon/crates/daimon-client" }
+daimon-harness = { path = "../../../daimon" }
+daimon-host = { path = "../../../daimon/crates/daimon-host" }
+daimon-local = { path = "../../../daimon/adapters/daimon-local" }
+daimon-local-daemon = { path = "../../../daimon/crates/daimon-local-daemon" }
+daimon-protocol = { path = "../../../daimon/crates/daimon-protocol" }
+daimon-service = { path = "../../../daimon/crates/daimon-service" }
+daimon-wire = { path = "../../../daimon/crates/daimon-wire" }
+hermes-client = { path = "../../../hermes/crates/hermes-client" }
+hermes-aegis = { path = "../../../hermes/adapters/hermes-aegis" }
+hermes-ledger = { path = "../../../hermes" }
+hermes-local = { path = "../../../hermes/adapters/hermes-local" }
+hermes-local-daemon = { path = "../../../hermes/crates/hermes-local-daemon" }
+hermes-protocol = { path = "../../../hermes/crates/hermes-protocol" }
+hermes-service = { path = "../../../hermes/crates/hermes-service" }
+hermes-wire = { path = "../../../hermes/crates/hermes-wire" }
+moira-daimon = { path = "../../adapters/moira-daimon" }
+moira-hermes = { path = "../../adapters/moira-hermes" }
+moira-client = { path = "../../crates/moira-client" }
+moira-core = { path = "../.." }
+moira-local-daemon = { path = "../../crates/moira-local-daemon" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+moira-service = { path = "../../crates/moira-service" }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
+moira-wire = { path = "../../crates/moira-wire" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

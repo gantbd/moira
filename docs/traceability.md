@@ -1,18 +1,294 @@
 # Traceability ledger
 
-The deterministic volatile workflow slice is implemented. Encoded durable
-recovery and production connectors remain open; reconstruction from an in-memory
-checkpoint is not crash-recovery evidence. Open is not a pass.
+The deterministic workflow slice and selected local SQLite coordinator/receiver
+profiles are implemented. The host/protocol/service/client and canonical bounded
+wire boundaries and the deterministic saga/timer profile are implemented; the
+public Aegis operator adapter, public-client Hermes workflow-event, Agora
+response-publication, Chronos task-admission and Daimon execution adapters, and private saga
+wire/daemon profile are
+implemented. The model-proposal coordinator now has typed effect separation,
+canonical bounded persistence and a separately owned SQLite profile. Other
+production connectors remain open. In-memory
+reconstruction is not crash-recovery evidence, and local SQLite evidence is not
+a remote, distributed-transaction or physical-power-loss claim. Open is not a
+pass.
 
 | Requirement | Planned implementation | Current evidence | Status |
 | --- | --- | --- | --- |
-| M1–M2 authority/correlation | non-cloneable workflow engine, optimistic revision, fixed-width opaque workflow/effect/source references | Chronos admission/attempt, Daimon result, and Agora publication behavior plus strict lint | Partial; persistence correlations open |
-| M3 recovery | validated semantic checkpoint plus future canonical codec/store protocol | reconstruction at Chronos, Daimon, Agora-pending, and terminal boundaries preserves effect/replay identity; Hermes append lost-reply qualification | Partial; encoding and atomic persistence open |
-| M4 idempotency | admitted-message index and retained Chronos/Daimon/Agora effect-receipt mappings | matching identity replay, conflicting input/effect refusal, Daimon qualification, and Agora lost-reply qualification | Satisfied for volatile reference path; restart durability open |
-| M5 effect knowledge | qualified Keystone lattice plus attributed external evidence | exhaustive Chronos/Keystone/Moira correspondence, Daimon `Uncertain` fencing, and exact Agora publication receipt | Partial; durable evidence open |
-| M6 saga semantics | explicit step transitions | model document | Open |
-| M7 bounds | explicit workflow-count limit and checked revision/identity counters | constructor/capacity expansion still needed | Partial |
-| M8 authority | Aegis validated decision adapted into Daimon authority evidence | Moira→Aegis→Daimon qualification uses scoped execute grant and attributed decision | Partial; production credential/adapter binding open |
+| M1–M2 authority/correlation | non-cloneable workflow engine, optimistic revision, fixed-width opaque workflow/effect/source references | canonical coordinator checkpoint, durable peer mappings, and native service/SQLite reopen journey | Satisfied for selected local vertical slice; authenticated service identity binding open |
+| M3 recovery | validated semantic checkpoint and SQLite command/receiver protocols | actual database restart, before/after-commit faults, subprocess exit, phase-by-phase reopen, four-store recovery, authorized operator replay and bounded atomically published online snapshots for both native profiles | Satisfied for selected local fake-provider and saga/operator profiles; remaining production peers open |
+| M4 idempotency | admitted-message index and retained Chronos/Daimon/Agora effect-receipt mappings | matching replay/conflict plus lost admission, result and publication reply recovery without duplicate effects | Satisfied for selected local fake-provider slice |
+| M5 effect knowledge | qualified Keystone lattice plus attributed external evidence | exhaustive lattice correspondence, durable retained peer evidence, uncertainty and persistent conflict fences | Satisfied for selected local fake-provider slice; real-provider evidence open |
+| M6 saga semantics | explicit forward/terminal/compensation commands, evidence and precedence | closed saga kernel, focused laws, 36-program independent recovery/lost-reply model, exact SQLite reopen/replay, native service and private wire mapping, Aegis-authorized dispositions and content-safe receipt export | Satisfied through authorized private local saga service; production peer slice open |
+| M7 bounds | explicit workflow, identity, payload, retry, timer, retained-entry and database-page limits | core capacity, bounded codecs, bounded ordered saga inspection/census, saga retry/identity tests, allocation-adversarial wire tests and SQLite/service limits | Satisfied through native private saga daemon; production capacity qualification open |
+| M8 authority | Aegis validated decisions adapted into bounded authority evidence | six-process execution-to-event chain obtains live profile and distinct-tool `Daimon/Execute` plus exact-stream Hermes `Submit`/`Observe`; `moira-aegis` uses the public client for exact saga `Administer`, deny-without-mutation and reauthorized replay | Satisfied for selected live execution and operator profiles; remaining production peer actions open |
 | M9 isolation | deterministic core with explicit commands/receipts; Keystone effect lattice is the sole mechanism dependency | source boundary, behavior tests, strict lint | Satisfied for implemented volatile slice |
 | M10 passive conversation ingress | durable Agora pending-event projection plus explicit core `AdmitMessage` | passive-before-admit, restart-stable fact, human/agent symmetry, mapping conflict, acknowledgement removal, and lost-admission-reply replay scenarios | Satisfied for the local Agora receiver profile |
+| M11 public peer isolation | production adapters depend on peer client/protocol contracts, not peer engines | dependency-closure gates; Aegis/Hermes/Chronos/Daimon service journeys and process profiles; independent Agora public-contract conformance plus isolated durable-service recovery | Adapter boundary satisfied for Aegis, Hermes, Agora, Chronos and Daimon; Agora clean durable-daemon restart exists, but authenticated reconnect preserving the replay namespace remains open |
+| M12 process-separated federation | independently owned local service processes connected only by public contracts | a SQLite-backed Moira daemon admits and prepares the workflow, exits, then reopens to accept the recovered Daimon result; Aegis authorizes profile/tools and exact Hermes stream actions; Chronos validates the running attempt; Daimon discards its result reply, reopens and returns one execution without redispatch; Hermes publishes and reads one canonical Moira event; separate Hermes reply-loss/restart evidence includes a 16-cycle fresh-process campaign | Satisfied through the integrated durable Moira→Aegis/Chronos-gated Daimon→Hermes execution-to-event segment plus the Aegis→Moira operator and Moira→Chronos admission segments; Agora and the complete message-to-reply workflow remain open |
+| M13 storage integrity | bounded SQLite structural validation before existing state is trusted, with no repair/reset fallback | all current SQLite owners call `quick_check(1)` pre-trust; deterministic legacy/saga non-header page corruption refuses and leaves exact corrupted bytes unchanged | Satisfied for the selected structural-page profile; arbitrary corruption, rollback, torn writes and device certification remain open |
+| M14 composition boundaries | separate coordinator/saga, Agora and execution-projection packages with explicit closures | Agora and Chronos/Daimon sources and tests reside in distinct crates; `check-sdk-boundaries.sh` freezes every direct production dependency set | Satisfied for the selected local SQLite architecture; full remote composition remains open |
+| M15 proposal/effect separation | typed model proposals admitted into a Moira-owned ordered saga; one Moira effect per Agora/Vellum action; peer receipts never inferred from model output | deterministic proposal allocation, uncertainty fencing and historical reconciliation; canonical bounded checkpoint tests; separate SQLite reopen; representation-independent service/client; composed Chronos-gated Daimon replay, Agora lost-reply replay and Vellum lookup-only recovery proving one provider call/message/edit; the grounded chatbot operator now carries both proposal families from Daimon's private wire through actual Agora and authenticated Vellum daemons | Satisfied for the selected local public-client and private-daemon federation; the combined multi-process kill matrix remains open |
+| M16 epistemic honesty | proof, authorized choice, four-valued maybe and reasoned mu remain distinct; Pareto removes only dominated candidates | bounded plan/report workflow with exact question/method/grounding digests, retained affirmative orthogonality evidence and dissent, correlated-ensemble refusal, exact fold/surface/orthogonality cohort assembly with authority-digest matching, bounded loopback MCP/session client, ordered surface-digest recomputation, authored method-tag validation, stable method/fold/lattice identity checks, content-bound concern identities, authenticated real-corpus complete plan-grounding qualification, distinct-identity Daimon cohort execution with attributed partial outcomes and provider evidence, closed claim/evidence/dissent envelope admission, predispatch cohort validation, governed report commit, authenticated private model-socket execution, SQLite report/dissent reopen, strict offline-checked operator configuration, real-corpus four-member executable-to-SQLite journey, repeated native tool turns retaining one member/report identity while withholding intermediate reports, deterministic frontier, replay-safe reports, fuel-to-mu, exact checkpoint-bound validator-witness and choice-authority ports, live bounded Rune T6 prover resolution, attributed exact-scope Aegis choice authority with SQLite reopen, optimistic multi-deliberation ownership, accepted-transition census recovery, mutation-tested canonical `MOIRADL2`/`MOIRADR2` bytes with prototype-codec refusal, independent public DTOs, host store port, authorization/revision/replay service conformance and capability-shaped clients; Daimon's selected OpenAI-compatible adapter now has one actual Ollama `gemma3:27b` completion with provider-reported usage and exact profile attribution, the grounded chatbot carries that adapter through its private model wire and actual Agora/Vellum peers under digest-bound zero-temperature sampling, the actual provider supplies four distinct closed reports for the unresolved Dendrite-grounded architecture ensemble, the resolved workflow removes two dominated alternatives, preserves two incomparable frontier survivors and requires distinct actual Aegis decisions for candidate choice and report action before peer effects, and an actual tool-capable provider turn remains intermediate until its authorized durable continuation returns a terminal closed report | Core semantic, authenticated Rune/Dendrite grounding, independent multi-turn model-member execution, closed model-report admission, governed local/operator composition, registry, checkpoint-codec, transport-neutral service/client, real theorem-validator adapter, Aegis choice authorization, local durable-store slices, live provider-adapter smoke, combined chatbot first execution, unresolved and authorized live-provider workflow journeys, and actual-provider agent continuation satisfied; agent live-provider peer action and combined fault qualification remain open |
+| M17 native tool continuation | only structured calls become effects; every call has separate authority, attempt, budget and receipt; uncertainty fences the tail | deterministic kernel allocates distinct call effects, retains the originating task key/incarnation/attempt and bounded provider-native call correlation, requires capability-bound Aegis-decision and an exactly matching current Chronos attempt before dispatch, binds capability/execution success and failure receipts including bounded output length, rejects duplicate model request identities before allocation, fences subsequent calls on unknown outcome, semantically validates recovery, roundtrips mutation-tested canonical bounded `MOIRATC3` bytes while refusing earlier reinterpretation, preserves in-flight and completed evidence through separately owned SQLite reopen, and exposes independent DTOs through an authorization-first service plus disjoint clients; live Aegis and Chronos public-client adapters produce the two independent gate facts; Daimon parses only provider-native calls, binds them to requested capabilities, preserves the opaque native identifier and exact continuation in additive wire and `DAIMONM4` checkpoint formats, and the Moira adapter projects calls with policy-owned budgets while withholding incomplete ensemble reports; the local runtime commits dispatch before one invocation, durably stores content-addressed output before success, reconciles lost store replies read-only, fences ambiguity, resolves all completed results in provider order, and submits them through Daimon's private native resume command; Daimon proves an exact call/result bijection and the OpenAI-compatible adapter emits matching assistant/tool messages; an ensemble continuation binds member, report and source execution across repeated native turns, and governed composition commits only the terminal closed response; the selected production process executor freezes a capability to canonical executable digest/fixed argv/cwd, invokes without a shell or inherited environment, concurrently drains bounded streams, enforces elapsed/input/output limits, attributes known failures and fences ambiguous post-spawn state; its real-process output is proven through durable dispatch and content-addressed storage; the bounded turn driver replay-admits multiple calls, obtains independent authority/current-attempt evidence per effect, advances strictly in provider order with restart-stable derived execution identities, reconciles in-flight output without reinvocation, and releases exact resume inputs only after completed durable state; the strict operator validates exact capability/profile/task/store topology without peer contact and runs a lazy-authority bounded resume loop through terminal report, failure, uncertainty or fuel exhaustion; the named live journey grounds the real Dendrite cohort, crosses authenticated Aegis, Chronos local wire and Daimon private sockets, executes the selected process, commits both tool stores and admits the terminal fourth report; an actual `qwen3:32b` profile now originates the native call, retains Ollama's additive call index safely, crosses those same authority/attempt/process/store boundaries and consumes the durable result through provider-native resume before terminal report admission | Core, canonical codecs, durable continuation/output stores, public service/client, native provider parsing and resume, live authority/attempt evidence, cross-engine admission/authorization, local dispatch, selected production process execution, private wire/daemon delivery, repeated result-to-model continuation, terminal report promotion, methodical operator turn-loop composition, live local tool journey and actual-provider native tool continuation satisfied; multi-process kill qualification and dynamic/secret-bearing tool profiles remain open |
+| M18 selected peer-effect turn | only a policy-selected terminal result may project Agora/Vellum actions; deployment facts remain trusted inputs; uncertainty never falls through to fresh execution | the harness binds the exact retained checkpoint/member/report/output/Daimon effect to either a nonzero one-member chatbot policy or, only after `AuthorizedChoice`, a separate exact action-authority decision; proof/maybe/mu cannot authorize a member report to act; the Aegis public-client selector authorizes `Administer` on that deliberation and echoes the full selection subject, distinct from Pareto candidate choice; model-saga admission requires the derived nonzero digest, replay conflicts on selection drift, and canonical `MOIRAMP2` retains it while refusing the prior unbound identity; the selected-turn driver filters tool calls into their separate saga, requires a trusted Vellum extent resolver, executes in provider order, accepts only peer receipts, fences unknown outcomes and routes retained uncertainty solely to reconciliation; post-admission recovery reads the storage revision and retained saga directly from the service after SQLite reopen, never accepts a caller-provided view or reauthorizes, and performs no peer call when the saga is absent; the trusted router maps opaque conversation references to deployment-owned Agora room/revision/time/source/audience and opaque document references through Vellum's route catalogue, replays Agora's prepared request but uses lookup-only Vellum reconciliation; SQLite journeys prove digest retention, no re-execution after uncertainty and side-effect-free completed replay; Agora's durable publisher runtime and separately owned SQLite store prepare exact requests, retain outcomes, refuse owner/client/profile drift, and recover across reopens with one message; a one-member chatbot journey crosses policy selection, `MOIRAMP2`, both SQLite stores, lost Agora reply recovery and quiet completed replay with one message; a multi-member journey begins unresolved, commits both reports, computes the Pareto frontier, obtains distinct real Aegis public-client/service decisions for candidate choice and retained-report action selection, then crosses trusted Vellum routing, lost execute reply and lookup-only recovery before replaying without another operation; the strict methodical operator now retains exact terminal outcomes through tool loops and composes an optional authorized member, model-saga/publisher stores, local Agora V2 and authenticated Vellum transports, and closed route/extent catalogues; existing pending sagas resume without reselection and completed replay returns before authority, secret or peer access; the isolated live gate crosses actual local Aegis, Agora and authenticated Vellum daemons with a selected two-member result, proves one publication plus exactly one durable edit/save, removes every daemon, and completes matching replay from SQLite with no outcome reconstruction; the top-level grounded chatbot gate additionally carries its live Daimon result and both proposal families through policy selection and the actual Agora/Vellum daemons, with exactly one durable Vellum effect; the actual-provider workflow retains four reports, obtains distinct live Aegis decisions for Pareto choice and exact-report action, and only then crosses actual Agora/Vellum with one durable edit; a fresh Aegis decision changes action identity and cannot masquerade as replay | Action-selection contract, Aegis adapter, trusted Agora/Vellum routing, durable coordinator/driver, local publisher-state owner, selected chatbot path, controlled and actual-provider multi-member Vellum paths, strict operator composition, simultaneous actual Agora/Vellum qualification, full grounded-chatbot first execution and authorized actual-provider workflow first execution satisfied; combined multi-process fault qualification remains open |
+| M19 product capability profiles | one engine core admits chatbots, workflows and agents without conflating participation shape, epistemic result, action permission or tool authority | the strict operator's closed product profile requires exactly one grounded member for a chatbot, at least two for a workflow, and at least two plus an advertised tool for an agent; chatbot peer action accepts only a nonzero single-member policy digest with no Aegis selector, while workflow/agent peer action accepts only `AuthorizedChoice` plus a distinct Aegis action selector; singleton orthogonality is the vacuous pairwise theorem pinned to Dendrite's live lattice identity rather than a fabricated lattice-check verdict; focused configuration tests cover valid and mismatched combinations; `qualify-methodical-profiles` runs the real Rune/Dendrite singleton chatbot, four-member workflow and Aegis/Chronos-gated durable tool agent through the same operator; `qualify-methodical-chatbot-peers` continues the top-level chatbot through actual Daimon, Agora and Vellum daemons; `qualify-methodical-chatbot-live-provider` substitutes an actual digest-bound `gemma3:27b` provider completion for the controlled chatbot service; `qualify-methodical-workflow-live-provider` obtains four distinct actual-provider reports but deliberately stops unresolved; `qualify-methodical-workflow-peer-live-provider` obtains distinct actual Aegis choice/action decisions before the selected actual-provider report crosses Agora/Vellum; `qualify-methodical-agent-live-provider` adds an actual tool-capable provider call and authorized durable continuation before the four-report unresolved state; the authorized ensemble peer journey supplies complementary offline-replay evidence | Explicit operator profiles, boundary validation, live grounded profile matrix, top-level chatbot peer execution, combined chatbot live-provider first execution, unresolved and authorized live-provider workflow journeys, and actual-provider agent continuation satisfied; agent live-provider peer action and combined top-level fault/replay injection remain open |
+| M20 governed interactive agents | provider sessions, prompts, permissions and terminal reports remain subordinate to exact workflow/member, attempt, Rune method, Dendrite grounding, authority, revision and uncertainty evidence | Daimon's provider-neutral session protocol has canonical bounded wire/checkpoint recovery, cursor-ordered typed events, cooperative advance and no-redispatch ambiguity fencing; its ACP v1 adapter has hermetic stream/permission/cancel/context gates plus a genuine Codex no-tool completion; Moira's independent durable participation binds the exact methodical context, commits a one-way dispatch fence before one provider mutation, reconciles only by inspection, retains exact permission option membership and admits terminal reports only from matching completed EndTurn evidence; the public service and Unix profile derive permission execution/idempotency identities from a server-prepared `MOIRAPCF1` challenge, reject stale fingerprints before Aegis, and keep authority credentials adapter-private; the terminal peer correlates stable cursor-complete observations and an end-to-end CLI gate proves view-to-confirm through the real bounded sockets with one authorization call | Core, persistence, public contract, Unix composition, Codex ACP prompt and terminal permission confirmation satisfied; governed prompt/cancel UX, interactive participation UI, Claude/Gemini session qualification, official ACP suite and mixed-provider ensemble remain open |
+
+The strict operator now contributes direct M16 evidence rather than stopping at
+`ready_to_resolve`: its closed optional profile preserves Rune-witnessed proof,
+Aegis-authorized Pareto choice, four-valued maybe and reasoned mu as distinct
+terminal families. Resolution waits for the complete report set. Matching
+SQLite replay is offline; terminal-family, candidate, Aegis subject/epoch or
+explicit-value drift refuses. A local Unix qualification crosses the real Aegis
+client/daemon once and proves matching operator replay does not reconnect.
+
+Local peer-transport composition now has an Agora V2 Unix client port with a
+canonical negotiated handshake, server-incarnation evidence, server-issued
+client identity, bounded frame budget and write-phase `NotSent` versus
+`OutcomeUnknown` classification. It is a separate package from the semantic
+Agora adapter, preserving the public-client dependency boundary. Socket-pair
+wire qualification plus an isolated actual Aegis-authorized Agora-daemon journey
+are complete. The isolated methodical-peer gate additionally composes actual
+Aegis, Agora and Vellum daemons through the operator seam and proves offline
+completed replay; combined fault injection remains open. Agora engine/host/service
+dependencies stay in the qualification lockfile rather than Moira's root graph.
+
+Release assurance additionally binds the exact 112-component root lockfile to a
+clean RustSec audit at the database revision recorded in
+`docs/advisory-attestation.md`. CI audits the then-current database with warnings
+denied. Deliberately separate qualification lockfiles remain outside this result;
+it is known-advisory evidence, not source or legal review.
+
+`make soak` separately runs 5,000 fresh closed-saga service lifecycles through
+failed evidence, explicit fresh-identity retry, terminal completion and exact
+admission replay. It is repeated in-memory service-mapping evidence only; SQLite,
+daemon and peer-process soak remain separate. `make performance` runs 64
+optimized samples for admission, point read, effect acceptance and retry under
+the provisional reference-host p95/p99 budgets in `docs/performance.md`; it is
+not SQLite, provider, peer-process or product-SLO evidence.
+`make soak-process` adds 16 fresh Aegis/Moira daemon pairs with a fresh SQLite
+saga store, public-client exact-saga authorization, attributed reconciliation,
+durable operator-receipt readback and verified process/socket/path cleanup. It is
+operator-segment evidence, not a soak of the complete peer chain.
+`make soak-live-execution` adds 16 fresh six-process sets around the selected
+durable Moira→Aegis/Chronos-gated Daimon→Hermes segment. Each set proves exact live authority
+and running-attempt validation, discarded reply, Daimon daemon reopen, retained
+result reauthorization, one create-once provider marker, one completed Moira
+receipt, Moira daemon/SQLite reopen and result acceptance, one canonical
+Moira-owned Hermes event and clean endpoint teardown. It
+is not Agora/full-workflow or latency evidence.
+
+`make check-physical-integrity` proves both canonical Moira SQLite profiles
+refuse synchronized structural damage to a non-header database page without
+rewriting or reinitializing the file. Every current SQLite receiver runs the same
+bounded `quick_check(1)` before trusting existing state. This is structural-page
+evidence, not arbitrary corruption, rollback, torn-write or device certification.
+
+## Hermes workflow-event adapter
+
+`moira-hermes` owns the bounded canonical `MOIRAWF1` encoding for Moira's closed
+legacy transition family. Callers supply a stable workflow-event identity, exact
+Hermes predecessor and configured producer/schema; the adapter rejects a
+workflow/correlation mismatch before dispatch and maps identity/correlation into
+Hermes without treating either as authority. Its normal dependency closure is
+only `moira-protocol`, `hermes-client` and `hermes-protocol`. A real receipt-gated
+Hermes service test drops the first append reply, retries the same public-client
+request and observes `Replayed` plus exactly one retained event.
+`make qualify-hermes-process` strengthens this across actual Hermes process
+exit/reopen: public wire readback proves exactly one canonical event at the
+original sequence after the discarded reply.
+CI runs this together with the isolated Aegis process and Chronos recovery
+profiles through `make check-peer-profiles`.
+
+## Agora response-publication adapter
+
+`moira-agora` maps a bounded response intent to Agora V2 `SpeakIdentified` through
+the public client. Agora retains the exact client/request replay record; the
+adapter separately retains the Moira effect, source and stable room ordinal while
+the outcome is unknown, refusing a different intent before redispatch. Accepted
+Agora revision/message sequence becomes a Moira `PublicationReceiptV1`, while the
+Agora message ID remains available as peer evidence. An independent public-contract
+port drops the first reply, rejects effect rebinding, replays the exact request and
+observes one identified message without importing Agora engine/service/wire types.
+Explicit abandonment returns both identities without claiming non-publication.
+The client and publisher now export and validate their exact request namespaces
+for restart: only the immediately allocated pending request and its matching
+Moira intent can be restored. The separately locked
+`make qualify-agora-recovery` profile runs against Agora's real durable Service
+V2, discards the first committed reply, recreates both owners, rejects effect
+rebinding and resolves the exact request without another store commit or second
+message. This closes real-service recovery. Agora's local daemon can now reopen
+durable conversation state, but terminal disconnect still reclaims the
+service-client receipt namespace; without authenticated session resumption it
+does not close the independent-process lost-reply federation gate.
+
+## Chronos task-admission adapter
+
+`moira-chronos` prepares one minimized task through Chronos' public V3 atomic
+invocation contract. The server-issued invocation serial is exportable with the
+Moira intent; the invocation key is canonically derived from the effect ID. An
+execute transport failure is explicitly outcome-unknown and can close only by V3
+lookup, followed by V4 original-allocation lookup on the same host-bound service.
+The retained singleton allocation supplies the exact original task incarnation
+and accepted Chronos revision for `AdmissionReceiptV1`; current-name snapshots
+are deliberately not evidence. A receipt-gated AtomicService test drops the
+execute reply, reopens service state, restores the prepared record and proves V3
+lookup plus V4 allocation returns one task with zero mutation replay. A separate
+case proves an applied legacy invocation without captured allocation returns
+`HistoryLost` rather than guessing a receipt.
+That real-service fixture is isolated behind `make qualify-chronos-recovery` so
+Chronos's vendored storage graph is never resolved together with Aegis's shared
+Keystone storage graph in Moira's root lockfile.
+The same isolated profile now also drives Chronos through its owner-only public
+Unix transport in two helper processes: it discards the execute reply, reopens
+the durable service, retires the original task, reuses its descriptive name and
+still reconciles the original incarnation/revision through V3/V4 read-only
+lookups without mutation replay.
+
+## Daimon execution adapter
+
+`moira-daimon` maps a Moira-owned effect and exact Chronos task attempt into
+Daimon's public execute request without importing its harness, host, service,
+provider or storage types in production. Daimon retains current authority and
+attempt validation. Exact completed dispositions map back to the original Moira
+causation; an outcome-unknown fence maps to an attributable uncertain receipt.
+A real in-process Daimon service journey proves matching replay returns the same
+receipt and calls its selected provider once. `make qualify-daimon-process`
+strengthens this over Daimon's public wire and private daemon: the first reply is
+discarded, the daemon exits, a fresh process reopens the canonical local store and
+returns the exact completed Moira receipt. An external create-once marker proves
+the provider was not redispatched.
+`make qualify-live-execution-chain` separately builds sovereign Aegis and Chronos
+helpers, then runs the harness with independent Moira, Daimon, Aegis, Chronos and
+Hermes processes. The Moira daemon durably admits the workflow and prepares the
+execution, exits, then reopens the same SQLite owner to accept the result. Daimon uses
+the live Aegis session for exact profile/tool `Execute` decisions and the public
+Chronos snapshot for the exact running incarnation/attempt before its create-once
+provider marker can be written. Its recovery case discards the reply, exits the
+first Daimon daemon, reopens the store in a fresh daemon and reauthorizes exact
+retained delivery through the same live Aegis authority. Chronos and the provider
+are not called again. The same Aegis daemon grants exact-stream Hermes
+`Submit`/`Observe`; Moira then publishes the completed transition through the
+public Hermes client/wire and reads back exactly one canonical event. Only public
+clients and wire values cross process boundaries.
+
+## Native service separation
+
+`moira-host::CoordinatorStore` isolates durable coordinator ownership from the
+application service. `moira-sqlite` implements it without exporting its engine;
+domain refusals remain typed while storage uncertainty remains a backend failure.
+It also owns the closed saga stores and reusable local ownership, integrity,
+timing and usage mechanisms, but no peer engine dependency. Agora's local durable
+projection is owned by `moira-agora-sqlite`; settlement-coupled Chronos and Daimon
+projection is owned by `moira-execution-sqlite`. Their source and behavioral tests
+live with those packages, and CI freezes all three direct production closures.
+`moira-protocol` owns mutation/status/workflow requests and replies, and the
+client exposes disjoint mutation and read-only facades. Service tests prove exact
+revision refusal and replay; a real SQLite reopen journey proves that recovered
+read models and replay classification survive the new boundary. The protocol
+DTOs are representation-independent and `moira-wire` covers every command,
+transition and read-model shape with truncation, trailing-data, bound and
+redaction tests. Deterministic single-bit flips, deletion at every byte and
+`0xff` insertion at every boundary must either be refused or decode to a value
+whose canonical re-encoding is byte-exact; the corpus covers both protocol
+families and readiness.
+
+## Private local daemon
+
+`moira-local-daemon` authenticates each accepted connection into explicit
+read/mutate facts and refuses unauthorized operations before storage dispatch.
+The selected `moira-unix-peer` adapter obtains effective UID/GID from the kernel,
+performs a bounded exact mapping to those facts and refuses unknown peers before
+readiness. Real-socket tests cover both daemon families and unknown-peer refusal.
+The separate saga profile additionally asks its authentication adapter for
+command-scoped operator facts; denial is a typed reply without store dispatch.
+The canonical ready frame negotiates finite frame/request ceilings; connection
+tests distinguish pre-dispatch failures from reply loss after execution. A real
+mode-`0600` socket journey performs durable admission and inspection, then reopens
+both daemon and SQLite and observes exact replay without another workflow. The
+saga socket journey admits and fences work, authorizes reconciliation, exports
+its subject-free receipt, reopens daemon and SQLite, exactly replays the stale
+request and proves denial leaves revision unchanged. Health and socket cleanup
+are bounded and content-free. A separate two-process journey runs real Aegis and
+Moira daemons: Moira's authenticator obtains an exact saga `Administer` grant over
+the public Aegis client/wire, validates reconciliation live, and persists the
+returned decision and epoch in the operator receipt observed through the public
+Moira client/wire. The UID/GID registry never supplies operator facts; the saga
+adapter delegates that decision through a separate `OperatorAuthorizer`. The
+`moira-aegis` implementation uses explicit time, exact-saga `Administer` scope,
+typed denial and current decision attribution against a real Aegis service.
+Remote identity, deployment grant provisioning, remaining peer processes and
+process supervision remain open.
+
+## Saga and timer profile
+
+`moira_core::saga` closes one bounded forward/terminal/compensation family with
+caller time, stable timer intent, declared misfire behavior, fresh explicit retry
+identities and typed uncertainty. Cancellation or deadline policy after known
+forward success prepares attributable compensation rather than claiming rollback.
+The independent 36-program model reconstructs after every transition and replays
+every accepted command as a lost reply. A distinct saga frame family exhaustively
+covers the closed protocol without accepting legacy workflow frames. Stable
+bounded inspection pages
+and a content-free phase census expose runnable, decision-blocked, fenced and
+terminal populations without embedding scheduling, priority or clock policy.
+Canonical bounded saga checkpoint bytes feed a separately identified SQLite
+profile; exact evidence and census survive reopen, while profile drift and legacy
+coordinator databases are refused rather than silently adopted.
+
+The separate `SagaStore` host port, representation-independent saga DTO family,
+exhaustive service mapping and capability-shaped clients cover mutations, typed
+refusals, point reads, bounded pages and census. Authentication-derived access is
+checked before durable dispatch, and the native service's exact replay/read model
+survives a real SQLite reopen. The canonical saga wire/local-daemon profile uses
+separate frame kinds, bounded page allocation and command-scoped operator
+authorization; it is not implied by or interchangeable with legacy transport.
+
+The saga SQLite profile also has a deterministic logical mutation corpus over
+owner, bound limits, initialization correspondence, domain revision, checkpoint
+payload, application ID, schema version and unexpected schema objects. Every
+altered store refuses reopen instead of creating replacement state. This is not
+a claim that stock SQLite detects every physical page or storage-medium bit
+corruption; selecting such an integrity profile remains open.
+
+Digest-pinned external checkpoint and logical SQL fixtures cover one live legacy
+workflow and one live saga with failed evidence plus explicit retry. The SQLite
+fixtures reconstruct the frozen V1 schemas independently of the active creation
+path; current stores must reopen them and replay their retained histories exactly.
+They intentionally do not freeze SQLite's physical page layout.
+
+The selected local operational profile qualifies both stopped copy/restore and
+bounded online snapshots for both SQLite owners. Online-backup tests retain the
+owner connection, write a private partial database under finite page/step limits,
+verify integrity and source identity, atomically publish, then prove the source
+can progress while the snapshot reopens at its exact earlier revision and replay.
+Post-rename parent-sync failure is a distinct publication-uncertain result that
+requires destination inspection before retry.
+Concurrent writer/load qualification, installation packaging and future-version
+migration remain open.
+
+Saga reconciliation reads expose a bounded snapshot, per-saga last-confirmed
+revision, retained-evidence count and pages, explicit effect/deadline fence cause,
+and whether automatic progress is runnable, awaiting a decision, uncertainty
+blocked or terminal. A real SQLite reopen preserves the uncertain evidence and
+all of those classifications. Inspection alone carries no reconciliation
+authority.
+
+Operator reconciliation receipts have content-safe point and action-ordered
+bounded-page exports. They retain the original Aegis decision/epoch,
+disposition, resulting phase and prepared effect, but omit authenticated subject
+and grant material. Recovery tests cover every disposition and a real SQLite
+reopen preserves the exported receipt without granting reconciliation authority.
+
+The closed operator command family now covers evidence adjudication,
+keep-uncertain, fresh-identity retry, compensation, cancellation and terminal
+failure without a force-success path. Bounded receipts retain opaque action ID,
+subject and Aegis decision/epoch attribution and replay before stale-revision
+refusal after restart. Ordinary mutate access is refused before dispatch; the
+separate service entry point injects verified authority facts. The public-client
+Aegis adapter scopes `Administer` to the stable saga resource, keeps session-local
+grant handles private, and injects only the authorized decision facts. A live
+Aegis service journey proves allow, deny-without-mutation, SQLite reopen and
+reauthorized exact replay.
 
