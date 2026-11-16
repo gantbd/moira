@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+use aegis_client::AuthorityClient;
+use aegis_protocol::{ActionV1, EngineNamespaceV1, OutcomeV1, ReplyV1, ScopeV1};
+use moira_aegis::{AegisOperatorAuthorizerV1, TimeSourceV1, saga_resource};
 use moira_core::saga::{SagaLimitsV1, persistence::SagaCodecLimitsV1};
 use moira_local_daemon::{
     ConnectionErrorV1,
@@ -29,11 +32,12 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 const MAX_MAPPINGS: usize = 256;
+const MAX_OPERATOR_SAGAS: usize = 64;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -51,6 +55,8 @@ pub struct ConfigV1 {
     pub max_retries_per_saga: u8,
     pub max_inspection_page: usize,
     pub max_operator_actions: usize,
+    #[serde(default)]
+    pub operator: OperatorProfileV1,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -62,9 +68,35 @@ pub struct PeerMappingV1 {
     pub mutate: bool,
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OperatorProfileV1 {
+    #[default]
+    Deny,
+    Aegis {
+        socket: PathBuf,
+        expected_epoch: u64,
+        grant_ttl_seconds: u64,
+        subject: String,
+        sagas: Vec<u64>,
+    },
+}
+
 pub struct ValidatedConfigV1 {
     raw: ConfigV1,
     owner: [u8; 16],
+    operator: ValidatedOperatorProfileV1,
+}
+
+enum ValidatedOperatorProfileV1 {
+    Deny,
+    Aegis {
+        socket: PathBuf,
+        expected_epoch: u64,
+        grant_ttl_seconds: u64,
+        subject: [u8; 16],
+        sagas: Vec<u64>,
+    },
 }
 
 pub fn load(path: impl AsRef<Path>) -> Result<ValidatedConfigV1, String> {
@@ -108,7 +140,7 @@ pub fn validate(raw: ConfigV1) -> Result<ValidatedConfigV1, String> {
     if raw.max_inspection_page > raw.max_sagas {
         return Err("inspection page limit cannot exceed saga capacity".into());
     }
-    let owner = parse_owner(&raw.owner)?;
+    let owner = parse_id(&raw.owner, "owner")?;
     let mappings = raw.mappings.iter().map(mapping).collect();
     UnixPeerAuthenticatorV1::new(MAX_MAPPINGS, mappings)
         .map_err(|error| format!("invalid peer mapping registry: {error:?}"))?;
@@ -121,7 +153,49 @@ pub fn validate(raw: ConfigV1) -> Result<ValidatedConfigV1, String> {
     {
         return Err("checkpoint and saga capacities must agree".into());
     }
-    Ok(ValidatedConfigV1 { raw, owner })
+    let operator = match &raw.operator {
+        OperatorProfileV1::Deny => ValidatedOperatorProfileV1::Deny,
+        OperatorProfileV1::Aegis {
+            socket,
+            expected_epoch,
+            grant_ttl_seconds,
+            subject,
+            sagas,
+        } => {
+            if !socket.is_absolute() {
+                return Err("Aegis operator socket must be an absolute path".into());
+            }
+            if *grant_ttl_seconds == 0
+                || sagas.is_empty()
+                || sagas.len() > MAX_OPERATOR_SAGAS
+                || sagas
+                    .iter()
+                    .any(|saga| usize::try_from(*saga).map_or(true, |saga| saga >= raw.max_sagas))
+                || sagas
+                    .iter()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    != sagas.len()
+            {
+                return Err(
+                    "Aegis operator selection requires a positive TTL and 1..64 unique in-capacity saga IDs"
+                        .into(),
+                );
+            }
+            ValidatedOperatorProfileV1::Aegis {
+                socket: socket.clone(),
+                expected_epoch: *expected_epoch,
+                grant_ttl_seconds: *grant_ttl_seconds,
+                subject: parse_id(subject, "Aegis operator subject")?,
+                sagas: sagas.clone(),
+            }
+        }
+    };
+    Ok(ValidatedConfigV1 {
+        raw,
+        owner,
+        operator,
+    })
 }
 
 pub fn run(config: ValidatedConfigV1) -> Result<(), Box<dyn Error>> {
@@ -183,24 +257,70 @@ where
 }
 
 fn run_with_stop(config: ValidatedConfigV1, stop: Arc<AtomicBool>) -> Result<(), Box<dyn Error>> {
-    let mappings = config.raw.mappings.iter().map(mapping).collect();
+    let ValidatedConfigV1 {
+        raw,
+        owner,
+        operator,
+    } = config;
+    match operator {
+        ValidatedOperatorProfileV1::Deny => run_with_operator(raw, owner, stop, DenyOperators),
+        ValidatedOperatorProfileV1::Aegis {
+            socket,
+            expected_epoch,
+            grant_ttl_seconds,
+            subject,
+            sagas,
+        } => {
+            let timeout = Duration::from_millis(raw.io_timeout_ms);
+            let (session, port) =
+                aegis_local_client::connect(socket, aegis_wire::LimitsV1::default(), timeout)
+                    .map_err(|error| format!("Aegis operator connection refused: {error:?}"))?;
+            let mut authority = AuthorityClient::new(session, port);
+            let mut time = SystemUnixTime::new()?;
+            let now = time.now();
+            let expires_at = now
+                .checked_add(grant_ttl_seconds)
+                .ok_or("Aegis operator grant expiry overflow")?;
+            let scopes = sagas
+                .into_iter()
+                .map(|saga| ScopeV1 {
+                    engine: EngineNamespaceV1::Moira,
+                    resource: saga_resource(saga),
+                    actions: 1 << ActionV1::Administer as u8,
+                })
+                .collect();
+            let ReplyV1::Accepted(OutcomeV1::GrantIssued(grant)) = authority
+                .issue(expected_epoch, now, expires_at, scopes)
+                .map_err(|error| format!("Aegis operator grant issue unknown: {error:?}"))?
+            else {
+                return Err("Aegis operator grant issue refused".into());
+            };
+            let operator = AegisOperatorAuthorizerV1::new(authority, grant.handle, subject, time);
+            run_with_operator(raw, owner, stop, operator)
+        }
+    }
+}
+
+fn run_with_operator<O: OperatorAuthorizer>(
+    raw: ConfigV1,
+    owner: [u8; 16],
+    stop: Arc<AtomicBool>,
+    operator: O,
+) -> Result<(), Box<dyn Error>> {
+    let mappings = raw.mappings.iter().map(mapping).collect();
     let peer = UnixPeerAuthenticatorV1::new(MAX_MAPPINGS, mappings)
         .map_err(|error| format!("peer mapping startup refused: {error:?}"))?;
-    let authentication = UnixSagaAuthenticatorV1::new(peer, DenyOperators);
-    let store = SagaSqliteStore::open(
-        &config.raw.database,
-        config.owner,
-        store_limits(&config.raw),
-    )?;
+    let authentication = UnixSagaAuthenticatorV1::new(peer, operator);
+    let store = SagaSqliteStore::open(&raw.database, owner, store_limits(&raw))?;
     let mut daemon = SagaDaemon::bind_new(
-        &config.raw.socket,
+        &raw.socket,
         SagaService::new(store),
         authentication,
         moira_wire::LimitsV1 {
-            max_frame_bytes: config.raw.max_frame_bytes,
+            max_frame_bytes: raw.max_frame_bytes,
         },
-        Duration::from_millis(config.raw.io_timeout_ms),
-        config.raw.max_requests_per_connection,
+        Duration::from_millis(raw.io_timeout_ms),
+        raw.max_requests_per_connection,
     )
     .map_err(|error| format!("private saga socket unavailable: {error}"))?;
     while !stop.load(Ordering::Acquire) {
@@ -254,13 +374,15 @@ fn store_limits(config: &ConfigV1) -> SagaStoreLimitsV1 {
     }
 }
 
-fn parse_owner(value: &str) -> Result<[u8; 16], String> {
+fn parse_id(value: &str, label: &str) -> Result<[u8; 16], String> {
     if value.len() != 32
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
-        return Err("owner must be exactly 32 lowercase hexadecimal digits".into());
+        return Err(format!(
+            "{label} must be exactly 32 lowercase hexadecimal digits"
+        ));
     }
     let mut owner = [0_u8; 16];
     for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
@@ -290,6 +412,32 @@ impl OperatorAuthorizer for DenyOperators {
     }
 }
 
+#[derive(Clone, Copy)]
+struct SystemUnixTime {
+    unix_at_start: u64,
+    started: Instant,
+}
+
+impl SystemUnixTime {
+    fn new() -> Result<Self, Box<dyn Error>> {
+        let unix_at_start = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "system clock precedes the Unix epoch")?
+            .as_secs();
+        Ok(Self {
+            unix_at_start,
+            started: Instant::now(),
+        })
+    }
+}
+
+impl TimeSourceV1 for SystemUnixTime {
+    fn now(&mut self) -> u64 {
+        self.unix_at_start
+            .saturating_add(self.started.elapsed().as_secs())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,6 +462,7 @@ mod tests {
             max_retries_per_saga: 8,
             max_inspection_page: 128,
             max_operator_actions: 1_024,
+            operator: OperatorProfileV1::Deny,
         }
     }
 
@@ -329,5 +478,28 @@ mod tests {
         let mut config = valid();
         config.mappings.push(config.mappings[0]);
         assert!(validate(config).is_err());
+    }
+
+    #[test]
+    fn validation_keeps_operator_authority_explicit_and_exact() {
+        let mut config = valid();
+        config.operator = OperatorProfileV1::Aegis {
+            socket: PathBuf::from("/private/tmp/aegis.sock"),
+            expected_epoch: 0,
+            grant_ttl_seconds: 60,
+            subject: "02020202020202020202020202020202".into(),
+            sagas: vec![0, 1],
+        };
+        assert!(validate(config).is_ok());
+
+        let mut duplicate = valid();
+        duplicate.operator = OperatorProfileV1::Aegis {
+            socket: PathBuf::from("/private/tmp/aegis.sock"),
+            expected_epoch: 0,
+            grant_ttl_seconds: 60,
+            subject: "02020202020202020202020202020202".into(),
+            sagas: vec![0, 0],
+        };
+        assert!(validate(duplicate).is_err());
     }
 }

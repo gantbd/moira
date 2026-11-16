@@ -784,6 +784,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "moira-reconciliation-command"
+version = "0.1.0"
+dependencies = [
+ "moira-client",
+ "moira-protocol",
+]
+
+[[package]]
 name = "moira-rune-validator"
 version = "0.1.0"
 dependencies = [
@@ -798,6 +806,11 @@ dependencies = [
 name = "moira-saga-local"
 version = "0.1.0"
 dependencies = [
+ "aegis-client",
+ "aegis-local-client",
+ "aegis-protocol",
+ "aegis-wire",
+ "moira-aegis",
  "moira-client",
  "moira-core",
  "moira-local-daemon",

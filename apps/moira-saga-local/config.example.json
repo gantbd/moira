@@ -18,5 +18,8 @@
   "max_sagas": 1024,
   "max_retries_per_saga": 8,
   "max_inspection_page": 256,
-  "max_operator_actions": 4096
+  "max_operator_actions": 4096,
+  "operator": {
+    "kind": "deny"
+  }
 }

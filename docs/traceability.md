@@ -261,9 +261,13 @@ adapter delegates that decision through a separate `OperatorAuthorizer`. The
 typed denial and current decision attribution against a real Aegis service.
 The selected closed saga profile is now packaged as `moira-saga-local`; its
 standalone and Workbench-supervised process journeys qualify public-client
-mutation, clean socket drain and durable reopen while explicitly denying
-operator authority. Remote identity, deployment grant provisioning and process
-packaging for the remaining service profiles remain open.
+mutation, clean socket drain and durable reopen. Its default operator profile
+denies authority; the separately selected production Aegis profile owns the
+public-client session, short-lived exact-saga grant and monotonic time. The
+cross-shell process gate qualifies exact confirmation, selected-saga refusal,
+attributed durable receipt recovery and hosted reopen without exporting those
+authority inputs to Workbench. Remote identity and process packaging for the
+remaining service profiles remain open.
 
 ## Saga and timer profile
 

@@ -8,7 +8,12 @@ license = "MIT OR Apache-2.0"
 description = "Sovereign durable local owner for Moira's closed saga service"
 
 [dependencies]
+aegis-client = { path = "../../../aegis/crates/aegis-client" }
+aegis-local-client = { path = "../../../aegis/crates/aegis-local-client" }
+aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
+aegis-wire = { path = "../../../aegis/crates/aegis-wire" }
 moira-core = { path = "../.." }
+moira-aegis = { path = "../../adapters/moira-aegis" }
 moira-local-daemon = { path = "../../crates/moira-local-daemon" }
 moira-protocol = { path = "../../crates/moira-protocol" }
 moira-service = { path = "../../crates/moira-service" }

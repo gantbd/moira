@@ -30,7 +30,11 @@ bounded registry entry only to ordinary read/mutate facts. Its saga composition
 delegates operator authorization to a separate injected component and never
 infers Aegis authority from a local UID. `moira-aegis` supplies the selected
 implementation of that service-owned port through Aegis's public client, an
-explicit time source and exact-saga `Administer` checks.
+explicit time source and exact-saga `Administer` checks. The production
+`moira-saga-local` owner defaults to denial and optionally owns that Aegis
+session, short-lived grant, monotonic trusted time and bounded saga selection;
+its supervising shell receives only the executable, opaque config and public
+Moira socket.
 
 The methodical-deliberation profile uses its own canonical frame kinds and the
 existing `DeliberationService` access check. A terminal peer authenticated with
@@ -56,7 +60,10 @@ The confirmation derives the action identity used for durable
 receipt recovery; it carries no reusable authority. A separate subprocess journey connects a real Aegis daemon to
 the Moira saga authenticator over Aegis's public client/wire, then drives Moira
 over its public client/wire and verifies the live authority decision is retained
-in the operator receipt. Focused connection tests cover both frame families,
+in the operator receipt. A production-owner gate also crosses standalone and
+Workbench prepare/confirm directions, recovers exact receipts after hosted
+reopen, and proves an unselected saga is refused without revision movement.
+Focused connection tests cover both frame families,
 multi-request clean EOF and reply-loss classification. This is not a complete
 peer workflow, network, same-UID hostile-process, launch-supervisor or remote
 credential profile. See [the exact credential boundary](unix-peer-credentials.md).

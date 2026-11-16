@@ -1,0 +1,18 @@
+[package]
+name = "moira-reconciliation-command"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Moira-owned exact server-challenge guard for saga reconciliation"
+
+[dependencies]
+moira-client = { path = "../moira-client" }
+moira-protocol = { path = "../moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
