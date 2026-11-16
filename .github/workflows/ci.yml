@@ -30,7 +30,7 @@ jobs:
         with: { repository: gantbd/aegis, ref: b272106cf6d0093839a7d696c829bf8a408b0306, path: aegis, persist-credentials: false }
       - name: Check out Agora dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { repository: gantbd/agora, ref: 68cead6ab665c9646148f80818a7aeef92994543, path: agora, persist-credentials: false }
+        with: { repository: gantbd/agora, ref: 45b11bcd1e9b7b21e79faf8f1794f8379622f635, path: agora, persist-credentials: false }
       - name: Check out Chronos dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { repository: gantbd/chronos, ref: ebff27188388cd0249d07751b1cc848c6ef1a3f9, path: chronos, persist-credentials: false }
