@@ -175,12 +175,14 @@ and every-effect fault matrix remains open.
 route to Vellum's public durable replace-and-save operation. The intent binds the
 exact source revision, retained extent and replacement; lookup is historical only
 and absence never falls through to execution. `make qualify-vellum-process`
-starts an authenticated Vellum daemon in an independent process, establishes a
-normal saved baseline through the public client, discards the accepted durable
-edit reply, and resolves the exact receipt through a fresh public client. The
-source contains the replacement once. This closes the isolated Vellum process
-boundary; composing it with Agora and injecting faults at every effect boundary
-remains open.
+builds and starts Vellum's exact standalone authenticated daemon binary in an
+independent process, establishes a normal saved baseline through the public
+client, discards the accepted durable edit reply, and resolves the exact receipt
+through a fresh public client. The source contains the replacement once and the
+owner then drains through its public control socket. This closes the isolated
+Vellum process boundary with the same entrypoint used by standalone composition;
+composing it with Agora and injecting faults at every effect boundary remains
+open.
 
 ## Chronos task-admission adapter
 

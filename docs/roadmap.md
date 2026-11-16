@@ -79,9 +79,9 @@
   client observes the exact result without another mutation.
 - [Public-client and independent-process recovery qualified] Vellum publication
   maps a distinct Moira effect to one revision- and extent-bound durable edit.
-  A separate authenticated daemon process commits the edit while its reply is
-  discarded; a fresh client resolves the exact operation through historical
-  lookup only, with no execution fallback.
+  Vellum's exact standalone authenticated daemon commits the edit while its
+  reply is discarded; a fresh client resolves the exact operation through
+  historical lookup only, with no execution fallback, before clean drain.
 - [Public-client adapter qualified] Chronos task admission exports prepared
   invocation identity and closes a lost execute reply through V3 invocation plus
   V4 original-allocation lookup after service reopen, never automatic mutation

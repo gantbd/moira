@@ -12,13 +12,10 @@ publish = false
 [dev-dependencies]
 moira-protocol = { path = "../../crates/moira-protocol" }
 moira-vellum = { path = "../../adapters/moira-vellum" }
-vellum-adapter-local-fs = { path = "../../../vellum/adapters/local-fs" }
+vellum-adapter-local-authentication = { path = "../../../vellum/adapters/local-authentication" }
 vellum-client = { path = "../../../vellum/client/vellum-client" }
 vellum-daemon = { path = "../../../vellum/applications/vellum-daemon" }
-vellum-editor = { path = "../../../vellum/host/vellum-editor" }
-vellum-host = { path = "../../../vellum/host/vellum-host" }
 vellum-protocol = { path = "../../../vellum/protocol/vellum-protocol" }
-vellum-service = { path = "../../../vellum/service/vellum-service" }
 vellum-transport = { path = "../../../vellum/transport/vellum-transport" }
 vellum-wire = { path = "../../../vellum/protocol/vellum-wire" }
 

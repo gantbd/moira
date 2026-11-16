@@ -199,9 +199,10 @@ documented terminal reason why none is safe.
     committed reply discarded at Moira's boundary and the exact result observed
     by a new authenticated public client without republishing.
 - [x] Add Vellum only through its public revisioned publication contract. The
-  independent-process qualification establishes a saved baseline, discards the
-  accepted durable edit reply, and reconciles the exact stable operation through
-  a fresh authenticated client using historical lookup only.
+  independent-process qualification launches Vellum's exact standalone daemon,
+  establishes a saved baseline, discards the accepted durable edit reply, and
+  reconciles the exact stable operation through a fresh authenticated client
+  using historical lookup only before clean control-socket drain.
 - [ ] Restart or lose replies at every process/effect boundary and prove no
   duplicate task, execution, event, edit or response:
   - [x] Live Daimon execution reply loss and process reopen under simultaneous

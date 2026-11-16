@@ -81,9 +81,10 @@ qualify-agora-recovery:
 	cargo test --manifest-path qualification/agora-service-recovery/Cargo.toml --all-targets --locked --offline
 
 qualify-vellum-process:
+	cargo build --manifest-path ../vellum/Cargo.toml -p vellum-daemon --bin vellum-daemon --locked --offline
 	cargo fmt --manifest-path qualification/vellum-process-publication/Cargo.toml -- --check
 	cargo clippy --manifest-path qualification/vellum-process-publication/Cargo.toml --target-dir target/qualification-vellum-process --all-targets --locked --offline -- -D warnings
-	cargo test --manifest-path qualification/vellum-process-publication/Cargo.toml --target-dir target/qualification-vellum-process --all-targets --locked --offline
+	MOIRA_VELLUM_DAEMON_PROGRAM='$(abspath ../vellum/target/debug/vellum-daemon)' cargo test --manifest-path qualification/vellum-process-publication/Cargo.toml --target-dir target/qualification-vellum-process --all-targets --locked --offline
 
 qualify-chronos-recovery:
 	cargo fmt --manifest-path qualification/chronos-service-recovery/Cargo.toml -- --check
