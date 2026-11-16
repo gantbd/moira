@@ -13,14 +13,21 @@ publish = false
 aegis-client = { path = "../../../aegis/crates/aegis-client" }
 aegis-protocol = { path = "../../../aegis/crates/aegis-protocol" }
 agora-aegis-verifier = { path = "../../../agora/adapters/agora-aegis-verifier" }
+agora-actor-publication-port = { path = "../../../agora/ports/agora-actor-publication-port" }
 agora-client = { path = "../../../agora/client/agora-client" }
+agora-durable = { path = "../../../agora/service/agora-durable" }
 agora-engine = { path = "../../../agora/engine/agora-engine" }
 agora-host = { path = "../../../agora/host/agora-host" }
 agora-local-daemon = { path = "../../../agora/applications/agora-local-daemon" }
+agora-local-client = { path = "../../../agora/client/agora-local-client" }
 agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
 agora-service = { path = "../../../agora/service/agora-service" }
+agora-storage-directory = { path = "../../../agora/adapters/agora-storage-directory" }
 agora-wire = { path = "../../../agora/protocol/agora-wire" }
 moira-agora-local = { path = "../../adapters/moira-agora-local" }
+moira-agora = { path = "../../adapters/moira-agora" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
 
 [lints.rust]
 unsafe_code = "forbid"

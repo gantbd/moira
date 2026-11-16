@@ -144,25 +144,30 @@ profiles through `make check-peer-profiles`.
 
 ## Agora response-publication adapter
 
-`moira-agora` maps a bounded response intent to Agora V2 `SpeakIdentified` through
-the public client. Agora retains the exact client/request replay record; the
-adapter separately retains the Moira effect, source and stable room ordinal while
-the outcome is unknown, refusing a different intent before redispatch. Accepted
-Agora revision/message sequence becomes a Moira `PublicationReceiptV1`, while the
+`moira-agora` retains its Agora V2 `SpeakIdentified` compatibility adapter and now
+also maps a bounded response intent to Agora's actor-owned publication profile.
+The actor profile keys the exact room/revision/time/body/audience intent by
+Moira's stable effect identity rather than a connection-issued client namespace.
+Accepted Agora revision/message sequence becomes a Moira `PublicationReceiptV1`, while the
 Agora message ID remains available as peer evidence. An independent public-contract
 port drops the first reply, rejects effect rebinding, replays the exact request and
 observes one identified message without importing Agora engine/service/wire types.
-Explicit abandonment returns both identities without claiming non-publication.
+The actor adapter additionally exposes historical observation where absence never
+falls through to mutation and retains no Agora session or request identity.
+Explicit abandonment on the compatibility adapter returns both identities without
+claiming non-publication.
 The client and publisher now export and validate their exact request namespaces
 for restart: only the immediately allocated pending request and its matching
 Moira intent can be restored. The separately locked
 `make qualify-agora-recovery` profile runs against Agora's real durable Service
 V2, discards the first committed reply, recreates both owners, rejects effect
 rebinding and resolves the exact request without another store commit or second
-message. This closes real-service recovery. Agora's local daemon can now reopen
-durable conversation state, but terminal disconnect still reclaims the
-service-client receipt namespace; without authenticated session resumption it
-does not close the independent-process lost-reply federation gate.
+message. The isolated `make qualify-agora-local-port` profile now also starts a
+real durable Agora daemon in an independent process, commits one addressed actor
+publication, discards its successful reply at Moira's boundary, and observes the
+exact retained result through a new authenticated public client. This closes the
+Agora independent-process lost-reply federation gate; the combined Vellum and
+every-effect fault matrix remains open.
 
 ## Chronos task-admission adapter
 

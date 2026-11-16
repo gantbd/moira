@@ -11,6 +11,7 @@ use agora_protocol::v2::{
 };
 use moira_protocol::{EffectIdV1, MessageRefV1, PublicationReceiptV1};
 
+pub mod actor;
 pub mod durable;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -232,7 +233,7 @@ fn validate_limits<E>(limits: PublicationLimitsV1) -> Result<(), PublishErrorV1<
     Ok(())
 }
 
-fn valid_intent(limits: PublicationLimitsV1, value: &PublicationIntentV1) -> bool {
+pub(crate) fn valid_intent(limits: PublicationLimitsV1, value: &PublicationIntentV1) -> bool {
     !value.room_id.is_empty()
         && value.room_id.len() <= limits.max_room_id_bytes
         && !value.body.is_empty()

@@ -71,10 +71,11 @@ real-provider federation slice or supported release.
   result acceptance.
 - [x] Extend process soak through Hermes with 16 fresh discarded-reply,
   process-reopen and exact one-event replay cycles.
-- [ ] Extend process soak through Agora. Agora now exposes a selectable durable
-  local-daemon owner, but disconnect still reclaims the authenticated
-  service-client receipt namespace; require resumable lost-reply identity before
-  claiming its process segment. Do not turn latency into semantic evidence.
+- [ ] Extend the single-cycle Agora process qualification into a 16-cycle soak.
+  Agora's actor-owned publication profile now retains a stable operation identity
+  independently of authenticated connections, and the isolated qualification
+  proves committed-reply loss followed by historical observation from a fresh
+  public client. Do not turn latency into semantic evidence.
 
 Exit: current claims and limitations are internally consistent and reproducible.
 
@@ -194,9 +195,9 @@ documented terminal reason why none is safe.
     qualifications in CI without merging their sovereign storage graphs into
     Moira's root lock. Agora's current evidence includes direct durable-service
     recovery and a clean durable-daemon state restart.
-  - [ ] Agora publication in an independent process after its daemon gains an
-    authenticated reconnect/session-resume contract that preserves the exact
-    service-client receipt namespace needed for lost-reply replay.
+  - [x] Agora actor publication in an independent durable daemon process, with a
+    committed reply discarded at Moira's boundary and the exact result observed
+    by a new authenticated public client without republishing.
 - [ ] Add Vellum only through its public revisioned publication contract after the
   message-to-reply path remains green.
 - [ ] Restart or lose replies at every process/effect boundary and prove no

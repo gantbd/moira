@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 description = "Public-client Agora response-publication adapter for Moira"
 
 [dependencies]
+agora-actor-publication-port = { path = "../../../agora/ports/agora-actor-publication-port" }
 agora-client = { path = "../../../agora/client/agora-client" }
 agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
 moira-protocol = { path = "../../crates/moira-protocol" }

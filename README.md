@@ -120,8 +120,12 @@ frame/request ceilings and distinguishes pre-send failure from an ambiguous
 post-send outcome. This transport remains separate from the semantic adapter so
 the latter still depends only on Agora's public client/protocol contracts.
 The isolated `qualify-agora-local-port` profile crosses the actual
-Aegis-authorized Agora daemon and cleanly disconnects, without adding Agora
-engine/host/service internals to Moira's root lockfile.
+Aegis-authorized Agora daemon and cleanly disconnects. It also starts a durable
+Agora daemon in an independent process, commits one addressed actor publication,
+discards that successful reply at Moira's boundary and observes the exact result
+through a fresh authenticated public client without republishing. The production
+adapter continues to depend only on Agora's public actor-publication port and
+local client; owner internals remain confined to the qualification workspace.
 
 The local harness now supplies the trusted peer router above those adapters.
 Opaque `(room, reply_to)` model references resolve only through deployment-owned
@@ -562,18 +566,17 @@ production integration: it accepts representation-independent Moira transitions,
 owns a bounded canonical `MOIRAWF1` event schema and publishes through only the
 public Hermes append client. A real Hermes service journey loses the first reply,
 then proves exact replay and one retained event. `moira-agora` publishes response
-intents through Agora's V2
-public client, preserves its exact outcome-unknown request fence, and adds a Moira
-effect/source/room fence so ambiguous publication cannot be rebound to different
-workflow evidence. An independent public-contract conformance journey loses the
-first reply, replays the exact request, and retains one identified message without
-linking Agora internals. `make qualify-agora-recovery` separately recreates both
+intents through Agora's actor-owned public profile, preserving the stable Moira
+effect and exact room/revision/time/body/audience intent independently of
+connection-issued identities. Its compatibility V2 path retains the existing
+outcome-unknown request fence. An independent public-contract conformance journey
+loses the first reply, replays the exact request, and retains one identified
+message without linking Agora internals. `make qualify-agora-recovery` separately recreates both
 the restored publisher namespace and Agora's real durable Service V2 after a
 discarded committed reply, then proves exact replay performs no second commit or
-message. Agora's local daemon can now select its durable Host and reopen retained
-conversation state, but disconnect still retires the authenticated service-client
-receipt namespace. It therefore cannot yet replay Moira's outcome-unknown request
-through a fresh connection, so that M4 boundary remains open. `moira-chronos` uses Chronos V3 and V4 on
+message. `make qualify-agora-local-port` adds the independent-process proof: after
+one committed reply is discarded, a new authenticated client observes the exact
+durable actor result without another publication. `moira-chronos` uses Chronos V3 and V4 on
 the same host-bound service. Enable allocation capture with
 `--atomic-state --allocation-receipts` before admission. Prepared admission
 retains the server-issued serial and derives the invocation key from the Moira

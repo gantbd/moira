@@ -7,6 +7,12 @@ Semantic Versioning once a public distribution contract is selected.
 
 ### Added
 
+- Added an actor-owned Agora response-publication adapter whose stable operation
+  identity survives authenticated reconnects while preserving exact room,
+  revision, logical time, body and addressed recipients.
+- Extended the isolated Agora qualification with a durable daemon subprocess:
+  Moira discards a committed publication reply and a new authenticated public
+  client observes the exact retained result without a second mutation.
 - Added a lockfile-bound RustSec advisory attestation and live CI advisory gate.
 - Added `moira-unix-peer`, a bounded exact kernel UID/GID authenticator for both
   local daemon profiles. It maps only ordinary read/mutate facts, refuses unknown

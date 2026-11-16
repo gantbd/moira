@@ -7,24 +7,43 @@ mod tests {
         CommandV1 as AegisCommandV1, DecisionHandleV1, DecisionSummaryV1, EngineNamespaceV1,
         OutcomeV1 as AegisOutcomeV1, ReplyV1 as AegisReplyV1, SessionHandleV1,
     };
+    use agora_actor_publication_port::{
+        ActorPublicationAcceptedV1, ActorPublicationObservationRefusalV1,
+        ActorPublicationObservationV1, ActorPublicationRefusalV1, ActorPublicationRequestV1,
+        ActorPublicationWireClientV1,
+    };
     use agora_aegis_verifier::{AegisContextV1, AegisVerifierV1};
     use agora_client::v2::ClientV2;
-    use agora_engine::{CommandV2 as EngineCommandV2, Engine, Participant, ParticipantKind};
+    use agora_durable::{DurableHostConfigV2, DurableHostV2};
+    use agora_engine::{
+        AdmissionPolicy, CommandV2 as EngineCommandV2, Engine, Limits, Participant, ParticipantKind,
+    };
     use agora_host::v2::HostV2;
+    use agora_host::v2::persistence::{HostCheckpointScopeV1, HostRecoveryLimitsV2};
     use agora_host::{HostLimits, HostTimeV1, VerifiedSubjectV1};
+    use agora_local_client::{LocalCallErrorV1, ScheduledLocalClientV1};
     use agora_local_daemon::{
         AuthenticatorV1, DaemonCleanupV1, DaemonLimitsV1, DaemonV1, HostClockV1,
         ServerIncarnationV1,
     };
     use agora_protocol::v2::{CommandV2, ReplyV2};
+    use agora_service::v2::persistence::ServiceRecoveryLimitsV2;
     use agora_service::v2::{ServiceLimitsV2, ServiceV2};
+    use agora_storage_directory::{DirectoryCheckpointStoreV1, DirectoryLimitsV1};
     use agora_wire::WireLimits;
+    use moira_agora::{
+        PublicationIntentV1, PublicationLimitsV1,
+        actor::{ActorObservationReplyV1, ActorPublisherErrorV1, ActorResponsePublisher},
+    };
     use moira_agora_local::{AgoraUnixLimitsV1, connect_agora_v2};
+    use moira_protocol::EffectIdV1;
     use std::{
         convert::Infallible,
         fs,
+        io::Read,
         os::unix::{fs::PermissionsExt, net::UnixStream},
-        path::PathBuf,
+        path::{Path, PathBuf},
+        process::{Child, Command, Stdio},
         sync::atomic::{AtomicU64, Ordering},
         thread,
         time::Duration,
@@ -97,6 +116,242 @@ mod tests {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    fn durable_config() -> DurableHostConfigV2 {
+        const MAX_SNAPSHOT_BYTES: usize = 8 * 1_024 * 1_024;
+        let host_limits = HostLimits {
+            max_sessions: 4,
+            max_retired_sessions: 8,
+            wire: wire_limits(),
+        };
+        DurableHostConfigV2::new(
+            "moira-agora-actor-qualification",
+            HostCheckpointScopeV1::new([0x41; 16]),
+            MAX_SNAPSHOT_BYTES,
+            HostRecoveryLimitsV2 {
+                max_snapshot_bytes: MAX_SNAPSHOT_BYTES,
+                max_service_snapshot_bytes: MAX_SNAPSHOT_BYTES,
+                maximum_host_limits: host_limits,
+                service: ServiceRecoveryLimitsV2 {
+                    max_snapshot_bytes: MAX_SNAPSHOT_BYTES,
+                    max_engine_snapshot_bytes: MAX_SNAPSHOT_BYTES,
+                    maximum_service_limits: ServiceLimitsV2::default(),
+                    maximum_engine_limits: Limits::default(),
+                },
+            },
+        )
+    }
+
+    fn actor_host() -> HostV2<AegisVerifierV1<AuthorityPort>> {
+        let mut engine = Engine::new();
+        for (id, name, kind) in [
+            ("human", "Human", ParticipantKind::Human),
+            ("bot", "Bot", ParticipantKind::Agent),
+        ] {
+            engine
+                .apply(EngineCommandV2::RegisterParticipant(Participant::new(
+                    id, name, kind,
+                )))
+                .unwrap();
+        }
+        engine
+            .apply(EngineCommandV2::CreateRoom {
+                room_id: "room".into(),
+                name: "Room".into(),
+                owner: "human".into(),
+                admission: AdmissionPolicy::Open,
+            })
+            .unwrap();
+        engine
+            .apply(EngineCommandV2::Join {
+                room_id: "room".into(),
+                participant: "bot".into(),
+            })
+            .unwrap();
+        HostV2::new(
+            ServiceV2::new(engine, ServiceLimitsV2::default()),
+            AegisVerifierV1::new(AuthorityPort, [5; 16]),
+            HostLimits {
+                max_sessions: 4,
+                max_retired_sessions: 8,
+                wire: wire_limits(),
+            },
+        )
+    }
+
+    #[test]
+    fn agora_actor_process_helper() {
+        if std::env::var_os("MOIRA_AGORA_ACTOR_HELPER").is_none() {
+            return;
+        }
+        let socket = PathBuf::from(std::env::var_os("MOIRA_AGORA_SOCKET").unwrap());
+        let store_path = PathBuf::from(std::env::var_os("MOIRA_AGORA_STORE").unwrap());
+        let store =
+            DirectoryCheckpointStoreV1::create_new(store_path, DirectoryLimitsV1::default())
+                .unwrap();
+        let durable = DurableHostV2::initialize(actor_host(), store, durable_config()).unwrap();
+        let mut daemon = DaemonV1::bind_new_durable_composition(
+            socket,
+            durable,
+            Authentication,
+            Clock(1),
+            ServerIncarnationV1::new([6; 16]),
+            DaemonLimitsV1 {
+                max_frame_bytes: 8_192,
+                max_frames_after_connect: 12,
+                io_timeout: Duration::from_secs(2),
+            },
+        )
+        .unwrap();
+        daemon.serve_next().unwrap();
+        daemon.serve_next().unwrap();
+        assert_eq!(daemon.stop().cleanup, DaemonCleanupV1::Clean);
+    }
+
+    fn wait_for_socket(child: &mut Child, socket: &Path) {
+        for _ in 0..200 {
+            if socket.exists() {
+                return;
+            }
+            if let Some(status) = child.try_wait().unwrap() {
+                let mut stderr = String::new();
+                child
+                    .stderr
+                    .as_mut()
+                    .unwrap()
+                    .read_to_string(&mut stderr)
+                    .unwrap();
+                panic!("Agora helper exited {status}: {stderr}");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("Agora helper did not create its socket");
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum DiscardedReplyErrorV1 {
+        CommittedReplyDiscarded,
+        Transport(LocalCallErrorV1),
+    }
+
+    struct DiscardCommittedReplyV1 {
+        client: ScheduledLocalClientV1,
+        discard_once: bool,
+    }
+
+    impl ActorPublicationWireClientV1 for DiscardCommittedReplyV1 {
+        type Error = DiscardedReplyErrorV1;
+
+        fn publish_actor_wire(
+            &mut self,
+            request: ActorPublicationRequestV1,
+        ) -> Result<Result<ActorPublicationAcceptedV1, ActorPublicationRefusalV1>, Self::Error>
+        {
+            let reply = self
+                .client
+                .publish_actor_wire(request)
+                .map_err(DiscardedReplyErrorV1::Transport)?;
+            if self.discard_once && reply.is_ok() {
+                self.discard_once = false;
+                return Err(DiscardedReplyErrorV1::CommittedReplyDiscarded);
+            }
+            Ok(reply)
+        }
+
+        fn observe_actor_wire(
+            &mut self,
+            request: ActorPublicationRequestV1,
+        ) -> Result<
+            Result<ActorPublicationObservationV1, ActorPublicationObservationRefusalV1>,
+            Self::Error,
+        > {
+            self.client
+                .observe_actor_wire(request)
+                .map_err(DiscardedReplyErrorV1::Transport)
+        }
+    }
+
+    fn actor_intent() -> PublicationIntentV1 {
+        PublicationIntentV1 {
+            effect: EffectIdV1([0x31; 16]),
+            source: [0x32; 16],
+            room_sequence: 5,
+            room_id: "room".into(),
+            expected_agora_revision: 4,
+            logical_time: 23,
+            body: "answer".into(),
+            addressed_to: vec!["human".into()],
+        }
+    }
+
+    #[test]
+    fn lost_response_reply_is_observed_by_a_new_client_in_an_independent_agora_process() {
+        let directory = path();
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = directory.join("agora.sock");
+        let store = directory.join("store");
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .arg("tests::agora_actor_process_helper")
+            .arg("--exact")
+            .arg("--nocapture")
+            .env("MOIRA_AGORA_ACTOR_HELPER", "1")
+            .env("MOIRA_AGORA_SOCKET", &socket)
+            .env("MOIRA_AGORA_STORE", &store)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        wait_for_socket(&mut child, &socket);
+
+        let first =
+            ScheduledLocalClientV1::new(&socket, "bot", wire_limits(), Duration::from_secs(2));
+        let mut publisher = ActorResponsePublisher::new(
+            DiscardCommittedReplyV1 {
+                client: first,
+                discard_once: true,
+            },
+            PublicationLimitsV1::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            publisher.publish(&actor_intent()),
+            Err(ActorPublisherErrorV1::Transport(
+                DiscardedReplyErrorV1::CommittedReplyDiscarded
+            ))
+        );
+        drop(publisher);
+
+        let second =
+            ScheduledLocalClientV1::new(&socket, "bot", wire_limits(), Duration::from_secs(2));
+        let mut publisher =
+            ActorResponsePublisher::new(second, PublicationLimitsV1::default()).unwrap();
+        let ActorObservationReplyV1::Published(observed) =
+            publisher.observe(&actor_intent()).unwrap()
+        else {
+            panic!("durably retained publication expected")
+        };
+        assert_eq!(observed.receipt.effect, actor_intent().effect);
+        assert_eq!(observed.receipt.message.source, actor_intent().source);
+        assert_eq!(observed.receipt.message.room_sequence, 5);
+        assert_eq!(observed.receipt.message.message_sequence, 0);
+        assert_eq!(observed.receipt.agora_revision, 5);
+
+        let status = child.wait().unwrap();
+        if !status.success() {
+            let mut stderr = String::new();
+            child
+                .stderr
+                .as_mut()
+                .unwrap()
+                .read_to_string(&mut stderr)
+                .unwrap();
+            panic!("Agora helper exited {status}: {stderr}");
+        }
+        assert!(!socket.exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

@@ -70,15 +70,13 @@
 - [Public-client adapter qualified] Hermes workflow-event append owns its schema
   in Moira and proves lost-reply replay against the real Hermes service without a
   production dependency on Hermes internals.
-- [Public-client and durable-service recovery qualified]
-  Agora response publication retains both
-  Agora's exact request fence and Moira's effect/source/room correspondence
-  through lost-reply replay. Exported publisher/client state restores only an
-  exact pending tail; isolated real-service recovery proves one commit and one
-  message after both owners restart. Agora's local daemon now supports clean
-  durable-state restart, but authenticated reconnect still retires the old
-  service-client receipt namespace, so process-level lost-reply replay remains
-  open.
+- [Public-client, durable-service and independent-process recovery qualified]
+  Agora response publication has both its compatibility V2 request path and an
+  actor-owned operation path. The actor path preserves Moira's stable effect,
+  exact room/revision/time/body/audience intent and accepted result independently
+  of an authenticated connection. An isolated real daemon process commits the
+  publication, Moira discards the successful reply, and a fresh authenticated
+  client observes the exact result without another mutation.
 - [Public-client adapter qualified] Chronos task admission exports prepared
   invocation identity and closes a lost execute reply through V3 invocation plus
   V4 original-allocation lookup after service reopen, never automatic mutation

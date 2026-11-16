@@ -14,9 +14,10 @@ authorization, Hermes append, future Vellum publication, operator control, each
 SQLite owner and the surrounding operating system.
 
 The current vertical slice trusts its embedding host, kernel-established local
-UID/GID and selected
-SQLite/filesystem behavior. The operator segment exercises separate Aegis and
-Moira processes over private public-contract sockets; other peer journeys remain
+UID/GID and selected SQLite/filesystem behavior. The operator segment exercises
+separate Aegis and Moira processes over private public-contract sockets, and the
+Agora response segment exercises an independent durable daemon with two fresh
+authenticated public clients. Other peer journeys remain separately qualified or
 in-process. It uses a fake Daimon provider and does not qualify authenticated
 remote peers, distributed transactions, physical power loss or production
 remote credential provisioning. The selected Unix mapping is an OS-account
@@ -27,7 +28,7 @@ boundary, not a person, binary, process, container, root or hostile-host boundar
 | Threat | Current control | Residual risk / required gate |
 | --- | --- | --- |
 | Workflow or peer spoofing | Fixed typed identities, exact owner/source bindings, receipt attribution, bounded exact kernel UID/GID mapping before readiness and live Aegis→Moira exact-saga authorization in separate processes | Same-UID hostile processes, remote identity and remaining peer authentication bindings remain open |
-| Effect duplication | Stable effect identities, retained replay, commit-before-result, recovery fences, Hermes append replay and Chronos lookup-only reconciliation across real process restart, plus composed Agora request/effect uncertainty fences | Remaining Agora/Daimon process-chain proof remains open |
+| Effect duplication | Stable effect identities, retained replay, commit-before-result, recovery fences, Hermes append replay and Chronos lookup-only reconciliation across real process restart, plus Agora actor-operation observation after committed-reply loss from a fresh authenticated client | Vellum process qualification and the combined every-effect process fault matrix remain open |
 | Receipt substitution | Exact intent/receipt correspondence and conflicting-evidence fences | Compromised peer/host can fabricate facts before authentication boundary |
 | Unauthorized execution | Current Aegis checks for fake Daimon profile/tools, Chronos attempt validation, public-client `Administer` checks for exact saga operator resources, command-scoped saga-daemon denial before store dispatch, and a Unix peer adapter that cannot manufacture operator facts | Selected peer mappings still require protected launcher configuration; remote identity, same-UID isolation and remaining peer actions need one closed authorization matrix |
 | Repudiation | Retained commands, receipts, revisions, bounded durable operator subject/Aegis-decision causation, and subject-free point/page receipt export | Production audit sink and retention policy remain open |

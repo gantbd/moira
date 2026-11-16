@@ -72,8 +72,8 @@ qualify-agent-reattach-recovery:
 
 qualify-agora-local-port:
 	cargo fmt --manifest-path qualification/agora-local-port/Cargo.toml -- --check
-	cargo clippy --manifest-path qualification/agora-local-port/Cargo.toml --all-targets --locked --offline -- -D warnings
-	cargo test --manifest-path qualification/agora-local-port/Cargo.toml --all-targets --locked --offline
+	cargo clippy --manifest-path qualification/agora-local-port/Cargo.toml --target-dir target/qualification-agora-local-port --all-targets --locked --offline -- -D warnings
+	cargo test --manifest-path qualification/agora-local-port/Cargo.toml --target-dir target/qualification-agora-local-port --all-targets --locked --offline
 
 qualify-agora-recovery:
 	cargo fmt --manifest-path qualification/agora-service-recovery/Cargo.toml -- --check

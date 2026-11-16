@@ -76,12 +76,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "agora-actor-publication-port"
+version = "0.1.0"
+
+[[package]]
 name = "agora-client"
 version = "0.1.0"
 dependencies = [
  "agora-protocol",
  "agora-scheduled-publication-port",
 ]
+
+[[package]]
+name = "agora-delivery-projection-port"
+version = "0.1.0"
 
 [[package]]
 name = "agora-engine"
@@ -99,6 +107,8 @@ version = "0.1.0"
 name = "agora-wire"
 version = "0.1.0"
 dependencies = [
+ "agora-actor-publication-port",
+ "agora-delivery-projection-port",
  "agora-protocol",
  "agora-scheduled-publication-port",
  "keystone-codec 0.0.1",
@@ -554,6 +564,7 @@ dependencies = [
 name = "moira-agora"
 version = "0.1.0"
 dependencies = [
+ "agora-actor-publication-port",
  "agora-client",
  "agora-protocol",
  "moira-protocol",
