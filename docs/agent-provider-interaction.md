@@ -377,8 +377,10 @@ ambient provider authority.
    Moira worker driving that reopened process through governed confirmation to
    Ready, the focused Moira executable mark/confirm/fence/observe path, and the
    bounded terminal confirmation CLI.
-   A genuine upstream-provider restart and simultaneous multi-process crash
-   injection remain open.
+   The genuine pinned Codex 2.6.0 provider restart now also passes after one
+   explicitly authorized no-tool seed turn: a fresh process resumes the same
+   locator with zero history replay. Simultaneous multi-process crash injection
+   remains open.
 
 ## Explicit non-claims
 
