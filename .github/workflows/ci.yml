@@ -30,7 +30,7 @@ jobs:
         with: { repository: gantbd/aegis, ref: b272106cf6d0093839a7d696c829bf8a408b0306, path: aegis, persist-credentials: false }
       - name: Check out Agora dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { repository: gantbd/agora, ref: a86a8a6eba54a5191c245f87f3664f026403f051, path: agora, persist-credentials: false }
+        with: { repository: gantbd/agora, ref: 68cead6ab665c9646148f80818a7aeef92994543, path: agora, persist-credentials: false }
       - name: Check out Chronos dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { repository: gantbd/chronos, ref: ebff27188388cd0249d07751b1cc848c6ef1a3f9, path: chronos, persist-credentials: false }
@@ -42,7 +42,7 @@ jobs:
         with: { repository: gantbd/hermes, ref: 3f60c1c7b00b1a61230508b11422ddfc84b61856, path: hermes, persist-credentials: false }
       - name: Check out Vellum dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { repository: gantbd/vellum, ref: a59d8a343145b31ff5288499903fb002a1b61a84, path: vellum, persist-credentials: false }
+        with: { repository: gantbd/vellum, ref: 898affc1860869ab7fd4d4de369ca3556bc12aaf, path: vellum, persist-credentials: false }
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
       - name: Audit current RustSec advisories
