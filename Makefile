@@ -71,9 +71,11 @@ qualify-agent-reattach-recovery:
 	cargo test --manifest-path ../moira-tui/Cargo.toml -p moira-tui-cli --test permission_confirmation cli_views_then_confirms_only_the_server_prepared_reattach --locked --offline -- --exact --nocapture
 
 qualify-agora-local-port:
+	cargo build --manifest-path ../aegis/Cargo.toml -p aegis-daemon --bin aegis-daemon --locked --offline
+	cargo build --manifest-path ../agora/Cargo.toml -p agora-private-local --bin agora-private-local --locked --offline
 	cargo fmt --manifest-path qualification/agora-local-port/Cargo.toml -- --check
 	cargo clippy --manifest-path qualification/agora-local-port/Cargo.toml --target-dir target/qualification-agora-local-port --all-targets --locked --offline -- -D warnings
-	cargo test --manifest-path qualification/agora-local-port/Cargo.toml --target-dir target/qualification-agora-local-port --all-targets --locked --offline
+	MOIRA_AEGIS_DAEMON_PROGRAM='$(abspath ../aegis/target/debug/aegis-daemon)' MOIRA_AGORA_DAEMON_PROGRAM='$(abspath ../agora/target/debug/agora-private-local)' cargo test --manifest-path qualification/agora-local-port/Cargo.toml --target-dir target/qualification-agora-local-port --all-targets --locked --offline
 
 qualify-agora-recovery:
 	cargo fmt --manifest-path qualification/agora-service-recovery/Cargo.toml -- --check

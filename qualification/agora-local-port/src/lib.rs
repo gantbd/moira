@@ -40,13 +40,13 @@ mod tests {
     use std::{
         convert::Infallible,
         fs,
-        io::Read,
+        io::{Read, Write},
         os::unix::{fs::PermissionsExt, net::UnixStream},
         path::{Path, PathBuf},
         process::{Child, Command, Stdio},
         sync::atomic::{AtomicU64, Ordering},
         thread,
-        time::Duration,
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     #[derive(Clone)]
@@ -283,6 +283,173 @@ mod tests {
             body: "answer".into(),
             addressed_to: vec!["human".into()],
         }
+    }
+
+    fn required_program(name: &str) -> PathBuf {
+        PathBuf::from(std::env::var_os(name).unwrap_or_else(|| panic!("{name} is required")))
+    }
+
+    fn exact_owner_intent() -> PublicationIntentV1 {
+        PublicationIntentV1 {
+            effect: EffectIdV1([0x51; 16]),
+            source: [0x52; 16],
+            room_sequence: 8,
+            room_id: "room".into(),
+            expected_agora_revision: 2,
+            logical_time: 29,
+            body: "standalone answer".into(),
+            addressed_to: vec!["bot".into()],
+        }
+    }
+
+    fn effective_id(flag: &str) -> String {
+        let output = Command::new("id").arg(flag).output().unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    #[test]
+    fn lost_response_reply_is_observed_through_exact_agora_and_aegis_standalone_owners() {
+        let directory = path();
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let aegis_socket = directory.join("aegis.sock");
+        let agora_socket = directory.join("agora.sock");
+        let mut aegis = Command::new(required_program("MOIRA_AEGIS_DAEMON_PROGRAM"))
+            .arg("create")
+            .arg(directory.join("authority"))
+            .arg(&aegis_socket)
+            .arg("01010101010101010101010101010101")
+            .arg(effective_id("-u"))
+            .arg(effective_id("-g"))
+            .arg("02020202020202020202020202020202")
+            .arg("0303030303030303")
+            .arg("administrator")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        wait_for_socket(&mut aegis, &aegis_socket);
+        // Socket publication precedes the daemon's first blocking accept by a
+        // few scheduler instructions; do not make that scheduling race part of
+        // Agora's authority-startup evidence.
+        thread::sleep(Duration::from_millis(50));
+
+        let config = directory.join("agora.conf");
+        let grant_now = u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        fs::write(
+            &config,
+            format!(
+                concat!(
+                    "schema=1\nmode=create\nstore={}\nsocket={}\naegis_socket={}\n",
+                    "participant=bot\nsubject=02020202020202020202020202020202\n",
+                    "resource=07070707070707070707070707070707\nauthority_epoch=0\n",
+                    "grant_now={}\ngrant_expires_at={}\ngrant_profile=scheduled\n",
+                    "host_scope=08080808080808080808080808080808\n",
+                    "server_incarnation=09090909090909090909090909090909\n",
+                    "display_name=Bot\nparticipant_kind=agent\nroom_id=room\n",
+                    "room_name=Room\nadmission=open\n"
+                ),
+                directory.join("agora-store").display(),
+                agora_socket.display(),
+                aegis_socket.display(),
+                grant_now,
+                grant_now + 600_000,
+            ),
+        )
+        .unwrap();
+        let mut agora = Command::new(required_program("MOIRA_AGORA_DAEMON_PROGRAM"))
+            .arg(&config)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        wait_for_socket(&mut agora, &agora_socket);
+
+        let first = ScheduledLocalClientV1::new(
+            &agora_socket,
+            "bot",
+            wire_limits(),
+            Duration::from_secs(2),
+        );
+        let mut publisher = ActorResponsePublisher::new(
+            DiscardCommittedReplyV1 {
+                client: first,
+                discard_once: true,
+            },
+            PublicationLimitsV1::default(),
+        )
+        .unwrap();
+        let first_result = publisher.publish(&exact_owner_intent());
+        if first_result
+            != Err(ActorPublisherErrorV1::Transport(
+                DiscardedReplyErrorV1::CommittedReplyDiscarded,
+            ))
+        {
+            let status = agora.try_wait().unwrap();
+            let detail = if status.is_some() {
+                let mut stderr = String::new();
+                agora
+                    .stderr
+                    .as_mut()
+                    .unwrap()
+                    .read_to_string(&mut stderr)
+                    .unwrap();
+                stderr
+            } else {
+                String::new()
+            };
+            panic!("unexpected first publication {first_result:?}; owner={status:?}: {detail}");
+        }
+        drop(publisher);
+
+        let second = ScheduledLocalClientV1::new(
+            &agora_socket,
+            "bot",
+            wire_limits(),
+            Duration::from_secs(2),
+        );
+        let mut publisher =
+            ActorResponsePublisher::new(second, PublicationLimitsV1::default()).unwrap();
+        let ActorObservationReplyV1::Published(observed) =
+            publisher.observe(&exact_owner_intent()).unwrap()
+        else {
+            panic!("standalone Agora owner must retain the actor publication")
+        };
+        assert_eq!(observed.receipt.effect, exact_owner_intent().effect);
+        assert_eq!(observed.receipt.agora_revision, 3);
+
+        agora.stdin.take().unwrap().write_all(&[1]).unwrap();
+        assert!(agora.wait().unwrap().success());
+        let mut receipt = String::new();
+        agora
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut receipt)
+            .unwrap();
+        assert!(receipt.contains("\"cleanup\":\"clean\""));
+        assert!(!agora_socket.exists());
+
+        assert!(
+            Command::new("kill")
+                .arg("-TERM")
+                .arg(aegis.id().to_string())
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(aegis.wait().unwrap().success());
+        assert!(!aegis_socket.exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

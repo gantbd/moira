@@ -129,6 +129,9 @@ discards that successful reply at Moira's boundary and observes the exact result
 through a fresh authenticated public client without republishing. The production
 adapter continues to depend only on Agora's public actor-publication port and
 local client; owner internals remain confined to the qualification workspace.
+The production-shaped case launches the exact standalone Aegis and Agora
+applications, provisions the scheduled-composition grant at current trusted
+time, and verifies ordered clean shutdown after reconciliation.
 
 The local harness now supplies the trusted peer router above those adapters.
 Opaque `(room, reply_to)` model references resolve only through deployment-owned

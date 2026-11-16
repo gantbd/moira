@@ -76,7 +76,8 @@
   exact room/revision/time/body/audience intent and accepted result independently
   of an authenticated connection. An isolated real daemon process commits the
   publication, Moira discards the successful reply, and a fresh authenticated
-  client observes the exact result without another mutation.
+  client observes the exact result without another mutation. The production-
+  shaped gate repeats this through the exact Aegis and Agora standalone owners.
 - [Public-client and independent-process recovery qualified] Vellum publication
   maps a distinct Moira effect to one revision- and extent-bound durable edit.
   Vellum's exact standalone authenticated daemon commits the edit while its

@@ -166,8 +166,12 @@ message. The isolated `make qualify-agora-local-port` profile now also starts a
 real durable Agora daemon in an independent process, commits one addressed actor
 publication, discards its successful reply at Moira's boundary, and observes the
 exact retained result through a new authenticated public client. This closes the
-Agora independent-process lost-reply federation gate; the combined Agora→Vellum
-and every-effect fault matrix remains open.
+Agora independent-process lost-reply federation gate. The same named gate now
+builds and launches the exact `aegis-daemon` and `agora-private-local` binaries,
+issues a current bounded scheduled-composition grant, repeats committed-reply
+loss and fresh-client observation, drains Agora through its stdin lifecycle
+contract and then terminates Aegis cleanly. The combined Agora→Vellum and every-
+effect fault matrix remains open.
 
 ## Vellum durable-edit adapter
 

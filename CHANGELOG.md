@@ -13,6 +13,9 @@ Semantic Versioning once a public distribution contract is selected.
 - Extended the isolated Agora qualification with a durable daemon subprocess:
   Moira discards a committed publication reply and a new authenticated public
   client observes the exact retained result without a second mutation.
+- Extended that proof through the exact Aegis and Agora standalone binaries,
+  including a current bounded scheduled-composition grant and ordered clean
+  owner shutdown.
 - Added an isolated qualification against Vellum's exact standalone daemon that
   discards an accepted durable edit reply, reconciles the stable Moira operation
   through a fresh authenticated public client using historical lookup only, and

@@ -197,7 +197,9 @@ documented terminal reason why none is safe.
     recovery and a clean durable-daemon state restart.
   - [x] Agora actor publication in an independent durable daemon process, with a
     committed reply discarded at Moira's boundary and the exact result observed
-    by a new authenticated public client without republishing.
+    by a new authenticated public client without republishing. The same proof
+    now runs through the exact `aegis-daemon` and `agora-private-local` standalone
+    binaries with current bounded grants and ordered clean shutdown.
 - [x] Add Vellum only through its public revisioned publication contract. The
   independent-process qualification launches Vellum's exact standalone daemon,
   establishes a saved baseline, discards the accepted durable edit reply, and
