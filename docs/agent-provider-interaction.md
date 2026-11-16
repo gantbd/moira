@@ -335,9 +335,13 @@ ambient provider authority.
    evidence remains historical and is not upstream-TCK conformant because it
    fails delete and resume requirements. Claude has genuine
    no-prompt transport qualification on its distinct wire and a compiled
-   explicit-spend prompt gate. Gemini 0.68.0 remains externally blocked before
-   session creation on the current host. Executing the Claude prompt gate and
-   a live, productively orthogonal Moira ensemble remain open. Hermetic
+   explicit-spend prompt gate. Its latest captured prompt attempt failed closed
+   because the installed CLI reports an expired, logged-out OAuth session.
+   Gemini 0.68.0 remains externally blocked before session creation on the
+   current host. A separately opt-in Claude-first/Codex-second live router gate
+   now enforces distinct persona markers and profile evidence without spending
+   a Codex turn when Claude is unavailable. Completed Claude behavior and a
+   live, productively orthogonal Moira ensemble remain open. Hermetic
    qualification now covers both mixed ACP/Claude transport composition and
    the complete two-worker Moira participation-to-report ensemble path. Each
    gate records exact advertised capabilities rather than claiming
