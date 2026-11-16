@@ -197,6 +197,9 @@ identities, and emits a server-prepared confirmation fingerprint. Its explicit
 confirmation command carries only that fingerprint and one retained option;
 Moira revalidates current state, derives the operation identities, and crosses
 the exact Aegis boundary without exposing authority material to the terminal.
+The sibling cancellation challenge binds the active turn and current durable
+context; Moira derives the cancel key and requires authenticated mutation
+access, so the terminal cannot invent either turn or idempotency identity.
 The report-admission gate accepts only an exact completed EndTurn
 observation whose member, method, persona, grounding, output, provider evidence,
 and grounding evidence match the governed participation. Mutating terminal

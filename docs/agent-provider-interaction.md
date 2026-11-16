@@ -14,9 +14,13 @@ emits a domain-separated server challenge. Its explicit confirmation command
 submits only the challenge and retained option; Moira revalidates durable state,
 derives replay-stable execution identities, and obtains command-scoped Aegis
 authority without exposing credentials to the terminal.
-The exact terminal report-admission gate is implemented. Governed prompt and
-cancel controls, provider-output parsing/composition, and the interactive TUI
-remain open.
+Cancellation uses a separate `MOIRACCF1` challenge bound to the same methodical
+context plus the exact active turn. Moira derives its idempotency key and
+requires authenticated mutation access; the terminal supplies neither turn nor
+key.
+The exact terminal report-admission gate is implemented. Governed prompt
+submission, provider-output parsing/composition, and the interactive TUI remain
+open.
 
 ## Decision
 
@@ -185,7 +189,7 @@ ambient provider authority.
    report-admission gate now requires a completed EndTurn observation plus
    matching member, Rune method, persona, Dendrite grounding, output, provider
    evidence, and grounding evidence before report storage. Governed
-   prompt/cancel commands, provider-output parsing/composition, and interactive
+   prompt commands, provider-output parsing/composition, and interactive
    participation views remain open.
 8. Qualify Codex, Claude, and Gemini independently, then qualify one mixed
    orthogonal ensemble. Each gate records exact advertised capabilities rather
