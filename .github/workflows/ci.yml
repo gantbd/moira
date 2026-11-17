@@ -36,7 +36,7 @@ jobs:
         with: { repository: gantbd/chronos, ref: 26366ec9172b48280d9bba3688572edf1c0d2719, path: chronos, persist-credentials: false }
       - name: Check out Daimon dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: { repository: gantbd/daimon, ref: b33ca7427cfe0baaeb2f3d53dd287d3185262b32, path: daimon, persist-credentials: false }
+        with: { repository: gantbd/daimon, ref: ca358a46e7b18b0b93599d0e7cc1bfdff36e3636, path: daimon, persist-credentials: false }
       - name: Check out Hermes dependency
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with: { repository: gantbd/hermes, ref: f5e5f12a5cd258f38bf5f1b004ed7a961d14bf08, path: hermes, persist-credentials: false }
@@ -47,6 +47,14 @@ jobs:
         run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
       - name: Install gate prerequisites
         run: brew install ripgrep
+      - name: Fetch locked dependency closure
+        working-directory: moira
+        run: |
+          cargo fetch --locked
+          for manifest in qualification/*/Cargo.toml; do
+            cargo fetch --manifest-path "$manifest" --locked
+          done
+          cargo fetch --manifest-path ../daimon/qualification/chronos-attempt/Cargo.toml --locked
       - name: Audit current RustSec advisories
         working-directory: moira
         run: |
