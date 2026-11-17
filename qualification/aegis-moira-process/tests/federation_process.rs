@@ -15,14 +15,15 @@ use aegis_wire::{
     decode_session_opened, encode_request as encode_aegis_request,
 };
 use moira_client::{
-    SagaMutationClient, SagaOperatorClient, SagaReadOnlyClient, SagaServicePort as MoiraServicePort,
+    SagaConfirmedReconciliationClient, SagaMutationClient, SagaReadOnlyClient,
+    SagaServicePort as MoiraServicePort,
 };
 use moira_core::saga::{SagaLimitsV1, persistence::SagaCodecLimitsV1};
 use moira_local_daemon::unix::{SagaAuthenticator, SagaDaemon};
 use moira_protocol::{
-    OperatorActionIdV1, OperatorDispositionV1, OperatorOperationV1, SagaCommandV1,
-    SagaEffectOutcomeV1, SagaMutationV1, SagaOutcomeV1, SagaReplyV1, SagaSourceV1,
-    SagaTransitionV1,
+    ConfirmedReconciliationV1, OperatorDispositionV1, OperatorOperationV1,
+    ReconciliationProposalV1, SagaCommandV1, SagaEffectOutcomeV1, SagaMutationV1, SagaOutcomeV1,
+    SagaReplyV1, SagaSourceV1, SagaTransitionV1,
 };
 use moira_service::{
     AccessV1,
@@ -319,25 +320,38 @@ fn run_live_aegis_moira_cycle() {
             },
         )
         .unwrap();
-    let action = OperatorActionIdV1([0x51; 16]);
-    let mut operator = SagaOperatorClient::new(mutation.into_port());
-    assert!(matches!(
-        operator
-            .reconcile(
-                2,
-                OperatorOperationV1 {
-                    action,
-                    saga,
-                    disposition: OperatorDispositionV1::KeepUncertain,
-                },
-            )
-            .unwrap(),
-        SagaReplyV1::Accepted(SagaOutcomeV1::Applied {
-            replayed: false,
-            transition: SagaTransitionV1::Reconciled { .. },
-            ..
+    let proposal = ReconciliationProposalV1 {
+        saga,
+        disposition: OperatorDispositionV1::KeepUncertain,
+    };
+    let mut reader = SagaReadOnlyClient::new(mutation.into_port());
+    let SagaReplyV1::Accepted(SagaOutcomeV1::ReconciliationConfirmation(Some(confirmation))) =
+        reader.reconciliation_confirmation(proposal).unwrap()
+    else {
+        panic!("reconciliation confirmation expected")
+    };
+    let action = confirmation.action;
+    let mut operator = SagaConfirmedReconciliationClient::new(reader.into_port());
+    let reconciliation = operator
+        .confirm(ConfirmedReconciliationV1 {
+            storage_revision: confirmation.storage_revision,
+            saga: confirmation.saga,
+            disposition: confirmation.disposition,
+            action: confirmation.action,
+            confirmation_digest: confirmation.confirmation_digest,
         })
-    ));
+        .unwrap();
+    assert!(
+        matches!(
+            reconciliation,
+            SagaReplyV1::Accepted(SagaOutcomeV1::Applied {
+                replayed: false,
+                transition: SagaTransitionV1::Reconciled { .. },
+                ..
+            })
+        ),
+        "unexpected reconciliation reply: {reconciliation:?}"
+    );
     let mut reader = SagaReadOnlyClient::new(operator.into_port());
     assert!(matches!(
         reader.operator_receipt(action).unwrap(),

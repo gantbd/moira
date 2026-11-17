@@ -12,11 +12,11 @@ license = "MIT OR Apache-2.0"
 description = "Isolated durable Agora service recovery qualification for Moira"
 
 [dependencies]
-agora-client = { path = "../../../agora/crates/agora-client" }
-agora-durable = { path = "../../../agora/crates/agora-durable" }
-agora-engine = { path = "../../../agora" }
-agora-protocol = { path = "../../../agora/crates/agora-protocol" }
-agora-service = { path = "../../../agora/crates/agora-service" }
+agora-client = { path = "../../../agora/client/agora-client" }
+agora-durable = { path = "../../../agora/service/agora-durable" }
+agora-engine = { path = "../../../agora/engine/agora-engine" }
+agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
+agora-service = { path = "../../../agora/service/agora-service" }
 keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
 moira-agora = { path = "../../adapters/moira-agora" }
 moira-protocol = { path = "../../crates/moira-protocol" }
