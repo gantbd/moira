@@ -56,6 +56,9 @@ jobs:
           for manifest in qualification/*/Cargo.toml; do
             cargo fetch --manifest-path "$manifest" --locked
           done
+          for manifest in ../aegis/Cargo.toml ../agora/Cargo.toml ../vellum/Cargo.toml; do
+            cargo fetch --manifest-path "$manifest" --locked
+          done
           cargo fetch --manifest-path ../daimon/qualification/chronos-attempt/Cargo.toml --locked
       - name: Audit current RustSec advisories
         working-directory: moira
