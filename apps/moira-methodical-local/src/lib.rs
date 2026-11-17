@@ -997,6 +997,7 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         let mut continuation = continuation;
         let mut result = *result;
         let mut turn = 0_u32;
+        let mut used_tool_calls = 0_u32;
         loop {
             if continuation.source_execution != result.receipt.execution_id {
                 return Err(ErrorV1::Tooling);
@@ -1043,11 +1044,19 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
                     ..
                 } => {
                     runtime.storage_revision = Some(storage_revision);
+                    used_tool_calls = used_tool_calls
+                        .checked_add(u32::try_from(results.len()).map_err(|_| ErrorV1::Tooling)?)
+                        .ok_or(ErrorV1::Tooling)?;
                     let resumed = resume_member_and_retain(
                         &mut store,
                         &mut daimon,
                         &plan,
-                        resumed_run(&base_run, continuation.source_execution, turn),
+                        resumed_run(
+                            &base_run,
+                            continuation.source_execution,
+                            turn,
+                            used_tool_calls,
+                        ),
                         continuation,
                         results,
                         now,
@@ -1237,7 +1246,12 @@ fn tool_workflow(
     ))
 }
 
-fn resumed_run(base: &MemberRunV1, source_execution: [u8; 16], turn: u32) -> MemberRunV1 {
+fn resumed_run(
+    base: &MemberRunV1,
+    source_execution: [u8; 16],
+    turn: u32,
+    used_tool_calls: u32,
+) -> MemberRunV1 {
     let mut resumed = base.clone();
     let turn = turn.to_be_bytes();
     resumed.execution.execution_id = derived_identity(
@@ -1248,6 +1262,9 @@ fn resumed_run(base: &MemberRunV1, source_execution: [u8; 16], turn: u32) -> Mem
         b"moira-methodical-model-resume-idempotency-v1\0",
         &[&base.member.0, &source_execution, &turn],
     );
+    if used_tool_calls >= resumed.execution.budget.max_tool_calls {
+        resumed.execution.tools.clear();
+    }
     resumed
 }
 
@@ -2186,6 +2203,18 @@ mod tests {
         let validated = validate(parsed).unwrap();
         assert_eq!(validated.runs.len(), 4);
         assert_eq!(validated.plan.members.len(), 4);
+    }
+
+    #[test]
+    fn resumed_run_stops_exposing_tools_when_budget_is_spent() {
+        let parsed: ConfigV1 = serde_json::from_value(tool_config()).unwrap();
+        let validated = validate(parsed).unwrap();
+        let source = &validated.runs[0];
+
+        let resumed = resumed_run(source, source.execution.execution_id, 1, 1);
+
+        assert_eq!(resumed.execution.budget.max_tool_calls, 1);
+        assert!(resumed.execution.tools.is_empty());
     }
 
     #[test]
