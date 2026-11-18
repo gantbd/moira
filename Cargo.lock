@@ -916,6 +916,7 @@ name = "moira-vellum"
 version = "0.1.0"
 dependencies = [
  "moira-protocol",
+ "sha2",
  "vellum-client",
  "vellum-protocol",
 ]

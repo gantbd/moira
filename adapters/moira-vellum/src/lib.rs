@@ -7,12 +7,13 @@
 #![forbid(unsafe_code)]
 
 use moira_protocol::EffectIdV1;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use vellum_client::Client;
 use vellum_protocol::{
     DurableEffectIntentV1, DurableEffectReceiptV1, DurableExecuteOutcomeV1, DurableOperationRefV1,
-    DurableReceiptLookupOutcomeV1, DurableReplaceAndSaveReceiptV1, RefusalV1, ServiceAccessErrorV1,
-    ServiceControlErrorV1, ServicePort, WorkspaceDocumentIdV1, WorkspaceIdV1,
+    DurableReceiptLookupOutcomeV1, DurableReplaceAndSaveReceiptV1, OutcomeV1, RefusalV1,
+    ServiceAccessErrorV1, ServiceControlErrorV1, ServicePort, WorkspaceDocumentIdV1, WorkspaceIdV1,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -25,6 +26,108 @@ pub struct ExternalDocumentRefV1 {
 pub struct DocumentRouteV1 {
     pub workspace: WorkspaceIdV1,
     pub document: WorkspaceDocumentIdV1,
+}
+
+/// One externally stable decision-packet identity bound to the exact Vellum
+/// revision and UTF-8 bytes a human must review. The route remains private to
+/// trusted composition; Moira need not import Vellum workspace identities.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DecisionPacketRefV1 {
+    pub target: ExternalDocumentRefV1,
+    pub expected_revision: u64,
+    pub expected_sha256: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecisionPacketV1 {
+    pub reference: DecisionPacketRefV1,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DecisionPacketErrorV1 {
+    InvalidInput,
+    UnknownTarget,
+    InvalidRoute,
+    Access(ServiceAccessErrorV1),
+    Refused(RefusalV1),
+    UnexpectedReply,
+    RevisionMismatch { expected: u64, actual: u64 },
+    DigestMismatch,
+    PacketLimit,
+}
+
+/// Read-only materialization of one exact human decision packet. Selection is
+/// scoped to this adapter's Vellum client view and grants no edit or decision
+/// authority.
+pub struct DecisionPacketAdapter<P> {
+    client: Client<P>,
+    routes: BTreeMap<ExternalDocumentRefV1, DocumentRouteV1>,
+    max_packet_bytes: usize,
+}
+
+impl<P: ServicePort> DecisionPacketAdapter<P> {
+    pub fn connect(
+        port: P,
+        routes: BTreeMap<ExternalDocumentRefV1, DocumentRouteV1>,
+        max_packet_bytes: usize,
+    ) -> Result<Self, ServiceControlErrorV1> {
+        Ok(Self {
+            client: Client::connect(port)?,
+            routes,
+            max_packet_bytes,
+        })
+    }
+
+    pub fn read(
+        &mut self,
+        reference: DecisionPacketRefV1,
+    ) -> Result<DecisionPacketV1, DecisionPacketErrorV1> {
+        if reference.expected_revision == 0 || self.max_packet_bytes == 0 {
+            return Err(DecisionPacketErrorV1::InvalidInput);
+        }
+        let route = self
+            .routes
+            .get(&reference.target)
+            .copied()
+            .ok_or(DecisionPacketErrorV1::UnknownTarget)?;
+        if route.document.workspace() != route.workspace {
+            return Err(DecisionPacketErrorV1::InvalidRoute);
+        }
+        accepted(self.client.open_view())?;
+        match accepted(self.client.select_document(route.document))? {
+            OutcomeV1::DocumentSelected(document) if document == route.document => {}
+            _ => return Err(DecisionPacketErrorV1::UnexpectedReply),
+        }
+        let OutcomeV1::Snapshot(snapshot) = accepted(self.client.snapshot())? else {
+            return Err(DecisionPacketErrorV1::UnexpectedReply);
+        };
+        if snapshot.revision != reference.expected_revision {
+            return Err(DecisionPacketErrorV1::RevisionMismatch {
+                expected: reference.expected_revision,
+                actual: snapshot.revision,
+            });
+        }
+        if snapshot.text.len() > self.max_packet_bytes {
+            return Err(DecisionPacketErrorV1::PacketLimit);
+        }
+        if Sha256::digest(snapshot.text.as_bytes()).as_slice() != reference.expected_sha256 {
+            return Err(DecisionPacketErrorV1::DigestMismatch);
+        }
+        Ok(DecisionPacketV1 {
+            reference,
+            text: snapshot.text.to_string(),
+        })
+    }
+}
+
+fn accepted(
+    reply: Result<vellum_protocol::ReplyV1, ServiceAccessErrorV1>,
+) -> Result<OutcomeV1, DecisionPacketErrorV1> {
+    match reply.map_err(DecisionPacketErrorV1::Access)? {
+        vellum_protocol::ReplyV1::Accepted(outcome) => Ok(outcome),
+        vellum_protocol::ReplyV1::Refused(refusal) => Err(DecisionPacketErrorV1::Refused(refusal)),
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

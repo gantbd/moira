@@ -1,14 +1,17 @@
 use moira_protocol::EffectIdV1;
 use moira_vellum::{
-    DocumentRouteV1, EditAdapter, EditIntentV1, EditReplyV1, ExternalDocumentRefV1,
+    DecisionPacketAdapter, DecisionPacketErrorV1, DecisionPacketRefV1, DocumentRouteV1,
+    EditAdapter, EditIntentV1, EditReplyV1, ExternalDocumentRefV1,
 };
+use sha2::{Digest, Sha256};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc, sync::Arc};
 use vellum_protocol::{
-    ClientId, DurableEffectIntentV1, DurableEffectReceiptV1, DurableExecuteOutcomeV1,
+    ClientId, CommandV1, DurableEffectIntentV1, DurableEffectReceiptV1, DurableExecuteOutcomeV1,
     DurableExecuteRequestV1, DurableReceiptLookupOutcomeV1, DurableReceiptLookupV1,
     DurableReplaceAndSaveReceiptV1, EditPersistenceV1, ReplyV1, RequestV1, SaveApplicationV1,
     SaveReceiptV1, SaveSynchronizationV1, ServiceAccessErrorV1, ServiceControlErrorV1, ServicePort,
-    WorkspaceDocumentIdV1, WorkspaceIdV1,
+    SnapshotV1, VersionWitness, ViewOpenReceiptV1, ViewOpenStatusV1, WorkspaceDocumentIdV1,
+    WorkspaceIdV1,
 };
 
 #[derive(Clone, Copy)]
@@ -152,4 +155,120 @@ fn historical_reconciliation_never_falls_through_to_execution() {
     assert!(calls.executions.is_empty());
     assert_eq!(calls.lookups.len(), 1);
     assert_eq!(calls.lookups[0].operation.to_bytes(), intent.effect.0);
+}
+
+struct PacketPort {
+    document: WorkspaceDocumentIdV1,
+    revision: u64,
+    text: Arc<str>,
+    calls: Rc<RefCell<Vec<&'static str>>>,
+}
+
+impl ServicePort for PacketPort {
+    fn connect(&mut self) -> Result<ClientId, ServiceControlErrorV1> {
+        Ok(ClientId::new(2).unwrap())
+    }
+
+    fn execute(&mut self, request: RequestV1) -> Result<ReplyV1, ServiceAccessErrorV1> {
+        let outcome = match request.command {
+            CommandV1::OpenView => {
+                self.calls.borrow_mut().push("open");
+                vellum_protocol::OutcomeV1::ViewOpened(ViewOpenReceiptV1 {
+                    document: self.document,
+                    status: ViewOpenStatusV1::Opened,
+                })
+            }
+            CommandV1::SelectDocument { document } if document == self.document => {
+                self.calls.borrow_mut().push("select");
+                vellum_protocol::OutcomeV1::DocumentSelected(document)
+            }
+            CommandV1::Snapshot => {
+                self.calls.borrow_mut().push("snapshot");
+                vellum_protocol::OutcomeV1::Snapshot(SnapshotV1 {
+                    witness: VersionWitness::new(3).unwrap(),
+                    revision: self.revision,
+                    text: Arc::clone(&self.text),
+                })
+            }
+            _ => {
+                return Ok(ReplyV1::Refused(
+                    vellum_protocol::RefusalV1::UnknownDocument,
+                ));
+            }
+        };
+        Ok(ReplyV1::Accepted(outcome))
+    }
+
+    fn disconnect(&mut self, _client: ClientId) -> Result<(), ServiceControlErrorV1> {
+        Ok(())
+    }
+}
+
+fn packet_fixture(
+    revision: u64,
+    text: &str,
+) -> (
+    DecisionPacketAdapter<PacketPort>,
+    DecisionPacketRefV1,
+    Rc<RefCell<Vec<&'static str>>>,
+) {
+    let workspace = WorkspaceIdV1::new(7).unwrap();
+    let document = WorkspaceDocumentIdV1::new(workspace, 8).unwrap();
+    let target = ExternalDocumentRefV1 {
+        workspace: [9; 16],
+        document: [10; 16],
+    };
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let adapter = DecisionPacketAdapter::connect(
+        PacketPort {
+            document,
+            revision,
+            text: Arc::from(text),
+            calls: Rc::clone(&calls),
+        },
+        BTreeMap::from([(
+            target,
+            DocumentRouteV1 {
+                workspace,
+                document,
+            },
+        )]),
+        4_096,
+    )
+    .unwrap();
+    let reference = DecisionPacketRefV1 {
+        target,
+        expected_revision: revision,
+        expected_sha256: Sha256::digest(text.as_bytes()).into(),
+    };
+    (adapter, reference, calls)
+}
+
+#[test]
+fn decision_packet_resolves_one_exact_revision_and_digest_without_edit_authority() {
+    let (mut adapter, reference, calls) = packet_fixture(11, "decision packet");
+    let packet = adapter.read(reference).unwrap();
+    assert_eq!(packet.reference, reference);
+    assert_eq!(packet.text, "decision packet");
+    assert_eq!(&*calls.borrow(), &["open", "select", "snapshot"]);
+}
+
+#[test]
+fn decision_packet_refuses_stale_or_digest_mismatched_material() {
+    let (mut stale, mut reference, _) = packet_fixture(11, "decision packet");
+    reference.expected_revision = 10;
+    assert_eq!(
+        stale.read(reference),
+        Err(DecisionPacketErrorV1::RevisionMismatch {
+            expected: 10,
+            actual: 11,
+        })
+    );
+
+    let (mut changed, mut reference, _) = packet_fixture(11, "decision packet");
+    reference.expected_sha256 = [0; 32];
+    assert_eq!(
+        changed.read(reference),
+        Err(DecisionPacketErrorV1::DigestMismatch)
+    );
 }
