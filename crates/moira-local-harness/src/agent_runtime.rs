@@ -1401,47 +1401,6 @@ fn hash_context_receipt(hash: &mut Sha256, value: Option<&agent::ContextReceiptV
     }
 }
 
-#[cfg(test)]
-mod context_evidence_tests {
-    use super::*;
-
-    fn session(source_digest: [u8; 32]) -> agent::SessionViewV1 {
-        agent::SessionViewV1 {
-            session: agent::SessionIdV1([1; 16]),
-            revision: 2,
-            phase: agent::PhaseV1::Ready,
-            profile_document_digest: agent::DigestV1([3; 32]),
-            active_turn: None,
-            last_event_cursor: None,
-            last_context: Some(agent::ContextReceiptV1 {
-                execution: agent::ExecutionIdV1([4; 16]),
-                manifest_digest: agent::DigestV1([5; 32]),
-                entries: vec![agent::ContextManifestEntryV1 {
-                    reference: agent::ContextIdV1([6; 16]),
-                    kind: agent::ContextKindV1::VellumDocument,
-                    source_digest: agent::DigestV1(source_digest),
-                    content_bytes: 21,
-                    grounding: None,
-                }],
-            }),
-            capabilities: agent::CapabilitiesV1::default(),
-        }
-    }
-
-    #[test]
-    fn evidence_digest_binds_exact_context_source() {
-        let page = agent::EventPageV1 {
-            session: agent::SessionIdV1([1; 16]),
-            entries: Vec::new(),
-            next_after: None,
-        };
-        assert_ne!(
-            evidence_digest(&session([7; 32]), &page),
-            evidence_digest(&session([8; 32]), &page)
-        );
-    }
-}
-
 fn hash_event(hash: &mut Sha256, value: &agent::EventV1) {
     match value {
         agent::EventV1::AssistantMessage { bytes } => hash_bytes(hash, 0, bytes),
@@ -1582,5 +1541,46 @@ fn stop_tag(value: agent::StopReasonV1) -> u8 {
         agent::StopReasonV1::Failed => 3,
         agent::StopReasonV1::Disconnected => 4,
         agent::StopReasonV1::OutcomeUnknown => 5,
+    }
+}
+
+#[cfg(test)]
+mod context_evidence_tests {
+    use super::*;
+
+    fn session(source_digest: [u8; 32]) -> agent::SessionViewV1 {
+        agent::SessionViewV1 {
+            session: agent::SessionIdV1([1; 16]),
+            revision: 2,
+            phase: agent::PhaseV1::Ready,
+            profile_document_digest: agent::DigestV1([3; 32]),
+            active_turn: None,
+            last_event_cursor: None,
+            last_context: Some(agent::ContextReceiptV1 {
+                execution: agent::ExecutionIdV1([4; 16]),
+                manifest_digest: agent::DigestV1([5; 32]),
+                entries: vec![agent::ContextManifestEntryV1 {
+                    reference: agent::ContextIdV1([6; 16]),
+                    kind: agent::ContextKindV1::VellumDocument,
+                    source_digest: agent::DigestV1(source_digest),
+                    content_bytes: 21,
+                    grounding: None,
+                }],
+            }),
+            capabilities: agent::CapabilitiesV1::default(),
+        }
+    }
+
+    #[test]
+    fn evidence_digest_binds_exact_context_source() {
+        let page = agent::EventPageV1 {
+            session: agent::SessionIdV1([1; 16]),
+            entries: Vec::new(),
+            next_after: None,
+        };
+        assert_ne!(
+            evidence_digest(&session([7; 32]), &page),
+            evidence_digest(&session([8; 32]), &page)
+        );
     }
 }
