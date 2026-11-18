@@ -61,6 +61,15 @@
   completion API. The four-store path reads that result back from durable Moira,
   settles Chronos, then completes Agora publication while preserving distinct
   Chronos-submission and Daimon-execution effect identities.
+- [Implemented for trusted in-process J1 ownership] `moira-chronos-worker` owns
+  Chronos's single non-cloneable worker handle, keeps native grants and leases
+  private, binds one exact task incarnation and attempt to one execution and
+  effect, and settles only exact completed or uncertain result evidence. Public
+  callers receive authority-free receipts; transport or result ambiguity fences
+  the adapter. Real standalone-owner tests prove completion,
+  mismatch-without-mutation, and uncertainty without reclaim. Failed,
+  cancelled, and timed-out dispositions, heartbeat and renewal, daemon
+  composition, and restart recovery remain open.
 - [Implemented for the local fake-provider vertical slice] Agora's native bounded
   checkpoint and the separate SQLite receiver retain replies, exact replay receipts,
   events/acknowledgements and stable room/source correspondence. The four-store test

@@ -25,6 +25,7 @@ component|cfg-if|1.0.5
 component|cfg_aliases|0.2.2
 component|chronos-client|0.1.0
 component|chronos-engine|0.3.0
+component|chronos-host|0.1.0
 component|chronos-local|0.1.0
 component|chronos-protocol|0.1.0
 component|chronos-wire|0.1.0
@@ -77,6 +78,7 @@ component|moira-agora-publisher-sqlite|0.1.0
 component|moira-agora-sqlite|0.1.0
 component|moira-agora|0.1.0
 component|moira-chronos|0.1.0
+component|moira-chronos-worker|0.1.0
 component|moira-client|0.1.0
 component|moira-core|0.0.1
 component|moira-daimon|0.1.0

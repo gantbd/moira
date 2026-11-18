@@ -195,6 +195,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "moira-chronos-worker"
+version = "0.1.0"
+dependencies = [
+ "chronos-engine",
+ "chronos-host",
+ "moira-protocol",
+]
+
+[[package]]
 name = "moira-protocol"
 version = "0.1.0"
 dependencies = [
@@ -215,6 +224,7 @@ dependencies = [
  "chronos-standalone",
  "chronos-wire",
  "moira-chronos",
+ "moira-chronos-worker",
  "moira-protocol",
 ]
 

@@ -24,7 +24,7 @@ pass.
 | M8 authority | Aegis validated decisions adapted into bounded authority evidence | six-process execution-to-event chain obtains live profile and distinct-tool `Daimon/Execute` plus exact-stream Hermes `Submit`/`Observe`; `moira-aegis` uses the public client for exact saga `Administer`, deny-without-mutation and reauthorized replay | Satisfied for selected live execution and operator profiles; remaining production peer actions open |
 | M9 isolation | deterministic core with explicit commands/receipts; Keystone effect lattice is the sole mechanism dependency | source boundary, behavior tests, strict lint | Satisfied for implemented volatile slice |
 | M10 passive conversation ingress | durable Agora pending-event projection plus explicit core `AdmitMessage` | passive-before-admit, restart-stable fact, human/agent symmetry, mapping conflict, acknowledgement removal, and lost-admission-reply replay scenarios | Satisfied for the local Agora receiver profile |
-| M11 public peer isolation | production adapters depend on peer client/protocol contracts, not peer engines | dependency-closure gates; Aegis/Hermes/Chronos/Daimon service journeys and process profiles; independent Agora public-contract conformance; reconnect-safe actor observation against the exact private-local owner; Vellum historical lookup against its exact standalone owner | Adapter boundary satisfied for the selected Aegis, Hermes, actor-owned Agora, Chronos, Daimon, and Vellum profiles; the legacy session-scoped Agora V2 publisher remains non-reconnectable by design and is not the selected exact-owner recovery path |
+| M11 public peer isolation | federation adapters depend on peer client/protocol contracts, not peer engines; an explicitly trusted in-process composition consumes a typed host profile in its own package rather than leaking that authority into a public adapter | dependency-closure gates; Aegis/Hermes/Chronos/Daimon service journeys and process profiles; independent Agora public-contract conformance; reconnect-safe actor observation against the exact private-local owner; Vellum historical lookup against its exact standalone owner; separate `moira-chronos-worker` host/engine closure | Adapter boundary satisfied for the selected Aegis, Hermes, actor-owned Agora, Chronos, Daimon, and Vellum profiles; the trusted Chronos worker is isolated from `moira-chronos`; the legacy session-scoped Agora V2 publisher remains non-reconnectable by design and is not the selected exact-owner recovery path |
 | M12 process-separated federation | independently owned local service processes connected only by public contracts | a SQLite-backed Moira daemon admits and prepares the workflow, exits, then reopens to accept the recovered Daimon result; Aegis authorizes profile/tools and exact Hermes stream actions; Chronos validates the running attempt; Daimon discards its result reply, reopens and returns one execution without redispatch; Hermes publishes and reads one canonical Moira event; a separate exact Aegis/Agora/Vellum gate loses both selected peer-effect replies and reopens the Moira saga between actor observation and Vellum receipt lookup | Satisfied for the integrated execution-to-event segment and the combined exact-owner Agora/Vellum peer-effect segment; one top-level fault gate spanning ingress through event delivery and peer effects remains open |
 | M13 storage integrity | bounded SQLite structural validation before existing state is trusted, with no repair/reset fallback | all current SQLite owners call `quick_check(1)` pre-trust; deterministic legacy/saga non-header page corruption refuses and leaves exact corrupted bytes unchanged | Satisfied for the selected structural-page profile; arbitrary corruption, rollback, torn writes and device certification remain open |
 | M14 composition boundaries | separate coordinator/saga, Agora and execution-projection packages with explicit closures | Agora and Chronos/Daimon sources and tests reside in distinct crates; `check-sdk-boundaries.sh` freezes every direct production dependency set | Satisfied for the selected local SQLite architecture; full remote composition remains open |
@@ -96,7 +96,7 @@ completed replay. The exact-owner peer-effect gate now adds combined fault
 injection through the reconnect-safe actor router. Agora engine/host/service
 dependencies stay in the qualification lockfile rather than Moira's root graph.
 
-Release assurance additionally binds the exact 112-component root lockfile to a
+Release assurance additionally binds the exact 130-component root lockfile to a
 clean RustSec audit at the database revision recorded in
 `docs/advisory-attestation.md`. CI audits the then-current database with warnings
 denied. Deliberately separate qualification lockfiles remain outside this result;
@@ -214,6 +214,23 @@ Unix transport in two helper processes: it discards the execute reply, reopens
 the durable service, retires the original task, reuses its descriptive name and
 still reconciles the original incarnation/revision through V3/V4 read-only
 lookups without mutation replay.
+
+## Chronos trusted-worker adapter
+
+`moira-chronos-worker` is a deliberately separate trusted in-process composition
+over Chronos's typed host profile; it is not a public completion API and does not
+weaken `moira-chronos`'s public-client dependency closure. It owns the one
+non-cloneable worker handle, keeps native grants and leases private, issues only
+an authority-free exact-attempt receipt, and binds settlement to the matching
+Moira effect, execution, task incarnation and attempt. Unsupported dispositions
+refuse before an owner call. Transport or withheld-result ambiguity fences the
+adapter rather than guessing whether mutation occurred. The isolated
+`make qualify-chronos-recovery` profile crosses the real standalone Chronos
+owner and proves exact completion, evidence mismatch without settlement,
+unsupported failure without mutation, uncertain fencing without reclaim, and
+invalid configuration without dispatch. Heartbeat and lease renewal, remaining
+result dispositions, adapter restart recovery and Pantheon runtime composition
+remain open.
 
 ## Daimon execution adapter
 

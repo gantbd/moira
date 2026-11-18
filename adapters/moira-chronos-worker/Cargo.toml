@@ -1,0 +1,19 @@
+[package]
+name = "moira-chronos-worker"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Trusted in-process Chronos worker ownership for Moira"
+
+[dependencies]
+chronos-engine = { path = "../../../chronos/engine/chronos-engine" }
+chronos-host = { path = "../../../chronos/host/chronos-host" }
+moira-protocol = { path = "../../crates/moira-protocol" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

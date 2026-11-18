@@ -22,6 +22,7 @@ chronos-service = { path = "../../../chronos/service/chronos-service" }
 chronos-standalone = { path = "../../../chronos/applications/chronos-daemon" }
 chronos-wire = { path = "../../../chronos/protocol/chronos-wire" }
 moira-chronos = { path = "../../adapters/moira-chronos" }
+moira-chronos-worker = { path = "../../adapters/moira-chronos-worker" }
 moira-protocol = { path = "../../crates/moira-protocol" }
 
 [lints.rust]

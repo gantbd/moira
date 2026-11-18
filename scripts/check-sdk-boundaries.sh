@@ -69,6 +69,9 @@ echo 'Moira Agora local transport boundary verified'
 expect_dependencies moira-chronos 'chronos-client,chronos-protocol,moira-protocol'
 echo 'Moira Chronos adapter public-client dependency closure verified'
 
+expect_dependencies moira-chronos-worker 'chronos-engine,chronos-host,moira-protocol'
+echo 'Moira trusted Chronos worker dependency closure verified'
+
 expect_dependencies moira-daimon 'daimon-client,daimon-protocol,moira-client,moira-core,moira-host,moira-protocol,serde,serde_json,sha2'
 echo 'Moira Daimon adapter public-client dependency closure verified'
 

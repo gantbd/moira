@@ -26,7 +26,7 @@ check-sdk-boundaries:
 	./scripts/check-sdk-boundaries.sh
 
 fmt:
-	cargo fmt -p moira-core -p moira-sqlite -p moira-agora-sqlite -p moira-execution-sqlite -p moira-aegis -p moira-agora -p moira-agora-local -p moira-chronos -p moira-daimon -p moira-dendrite -p moira-hermes -p moira-rune-validator -p moira-unix-peer -p moira-methodical-local -p moira-agent-local -p moira-client -p moira-host -p moira-local-daemon -p moira-local-harness -p moira-protocol -p moira-service -p moira-wire -p moira-sdk-embedded -- --check
+	cargo fmt -p moira-core -p moira-sqlite -p moira-agora-sqlite -p moira-execution-sqlite -p moira-aegis -p moira-agora -p moira-agora-local -p moira-chronos -p moira-chronos-worker -p moira-daimon -p moira-dendrite -p moira-hermes -p moira-rune-validator -p moira-unix-peer -p moira-methodical-local -p moira-agent-local -p moira-client -p moira-host -p moira-local-daemon -p moira-local-harness -p moira-protocol -p moira-service -p moira-wire -p moira-sdk-embedded -- --check
 
 lint:
 	cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings

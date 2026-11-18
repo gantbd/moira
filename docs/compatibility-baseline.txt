@@ -6,6 +6,7 @@ package|adapters/moira-agora-publisher-sqlite/Cargo.toml|moira-agora-publisher-s
 package|adapters/moira-agora/Cargo.toml|moira-agora|0.1.0
 package|adapters/moira-agora-sqlite/Cargo.toml|moira-agora-sqlite|0.1.0
 package|adapters/moira-chronos/Cargo.toml|moira-chronos|0.1.0
+package|adapters/moira-chronos-worker/Cargo.toml|moira-chronos-worker|0.1.0
 package|adapters/moira-daimon/Cargo.toml|moira-daimon|0.1.0
 package|adapters/moira-dendrite/Cargo.toml|moira-dendrite|0.1.0
 package|adapters/moira-execution-sqlite/Cargo.toml|moira-execution-sqlite|0.1.0

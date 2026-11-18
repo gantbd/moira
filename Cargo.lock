@@ -175,6 +175,13 @@ name = "chronos-engine"
 version = "0.3.0"
 
 [[package]]
+name = "chronos-host"
+version = "0.1.0"
+dependencies = [
+ "chronos-engine",
+]
+
+[[package]]
 name = "chronos-local"
 version = "0.1.0"
 dependencies = [
@@ -610,6 +617,15 @@ version = "0.1.0"
 dependencies = [
  "chronos-client",
  "chronos-protocol",
+ "moira-protocol",
+]
+
+[[package]]
+name = "moira-chronos-worker"
+version = "0.1.0"
+dependencies = [
+ "chronos-engine",
+ "chronos-host",
  "moira-protocol",
 ]
 

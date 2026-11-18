@@ -17,6 +17,7 @@ license|cfg-if|1.0.5|MIT OR Apache-2.0
 license|cfg_aliases|0.2.2|MIT
 license|chronos-client|0.1.0|MIT OR Apache-2.0
 license|chronos-engine|0.3.0|MIT OR Apache-2.0
+license|chronos-host|0.1.0|MIT OR Apache-2.0
 license|chronos-protocol|0.1.0|MIT OR Apache-2.0
 license|daimon-acp|0.1.0|MIT OR Apache-2.0
 license|daimon-agent-router|0.0.1|MIT OR Apache-2.0
@@ -51,6 +52,7 @@ license|moira-agent-local|0.1.0|MIT OR Apache-2.0
 license|moira-agora|0.1.0|MIT OR Apache-2.0
 license|moira-agora-sqlite|0.1.0|MIT OR Apache-2.0
 license|moira-chronos|0.1.0|MIT OR Apache-2.0
+license|moira-chronos-worker|0.1.0|MIT OR Apache-2.0
 license|moira-daimon|0.1.0|MIT OR Apache-2.0
 license|moira-execution-sqlite|0.1.0|MIT OR Apache-2.0
 license|moira-client|0.1.0|MIT OR Apache-2.0
