@@ -232,6 +232,7 @@ fn commands_and_mutations_roundtrip_on_distinct_canonical_frames() {
         participation,
         confirmation_digest: [39; 32],
     }));
+    round_request(p::CommandV1::PrepareOpen { participation });
 }
 
 #[test]

@@ -212,6 +212,36 @@ fn prompt_preparation_binds_bytes_and_full_ready_context() {
 }
 
 #[test]
+fn open_preparation_binds_the_complete_admitted_participation() {
+    let mut value = view();
+    value.revision = 0;
+    value.phase = p::PhaseV1::Admitted;
+    value.session_revision = None;
+    value.last_event_cursor = None;
+    value.profile_document_digest = None;
+    value.capabilities = p::CapabilitiesV1::default();
+    value.active_turn = None;
+    value.permission = None;
+    let first = p::prepared_open_operation(24, &value).unwrap();
+    assert_eq!(first, p::prepared_open_operation(24, &value).unwrap());
+    assert!(matches!(
+        first,
+        p::OperationV1::Open { key, execution }
+            if key.0 != [0; 16] && execution.0 != [0; 16]
+    ));
+
+    let mut changed = value.clone();
+    changed.binding.attempt.incarnation += 1;
+    assert_ne!(first, p::prepared_open_operation(24, &changed).unwrap());
+    assert_ne!(first, p::prepared_open_operation(25, &value).unwrap());
+    value.pending = Some(first);
+    assert!(p::prepared_open_operation(24, &value).is_none());
+    value.pending = None;
+    value.phase = p::PhaseV1::Ready;
+    assert!(p::prepared_open_operation(24, &value).is_none());
+}
+
+#[test]
 fn reattach_confirmation_binds_detached_methodical_context_without_exposing_attempt() {
     let mut value = view();
     value.phase = p::PhaseV1::ReattachRequired;

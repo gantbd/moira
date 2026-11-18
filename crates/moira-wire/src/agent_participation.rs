@@ -113,6 +113,10 @@ fn command(w: &mut Writer, value: &p::CommandV1) -> Result<(), CodecErrorV1> {
             w.raw(&value.participation.0)?;
             w.raw(&value.confirmation_digest)
         }
+        p::CommandV1::PrepareOpen { participation } => {
+            w.byte(12)?;
+            w.raw(&participation.0)
+        }
     }
 }
 
@@ -162,6 +166,9 @@ fn read_command(r: &mut Reader<'_>) -> Result<p::CommandV1, CodecErrorV1> {
             participation: p::ParticipationIdV1(r.raw()?),
             confirmation_digest: r.raw()?,
         })),
+        12 => Ok(p::CommandV1::PrepareOpen {
+            participation: p::ParticipationIdV1(r.raw()?),
+        }),
         _ => Err(CodecErrorV1::Unsupported),
     }
 }

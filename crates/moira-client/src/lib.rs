@@ -45,6 +45,82 @@ impl<P: AgentParticipationServicePort> AgentParticipationMutationClient<P> {
         self.0
     }
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PrepareAgentOpenDispositionV1 {
+    Prepared {
+        storage_revision: u64,
+        participation: participation::ParticipationViewV1,
+        replayed: bool,
+    },
+    AlreadyPrepared {
+        storage_revision: u64,
+        participation: participation::ParticipationViewV1,
+    },
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum PrepareAgentOpenErrorV1<E> {
+    NotAvailable,
+    Refused(participation::RefusalV1),
+    InvalidReply,
+    Transport(E),
+}
+
+/// Capability-shaped request for one owner-derived open preparation. The
+/// client carries only the selected participation identity; Moira reads its
+/// durable state, derives the operation identities and recognizes replay.
+pub struct AgentParticipationOpenClient<P>(P);
+impl<P: AgentParticipationServicePort> AgentParticipationOpenClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+
+    pub fn prepare(
+        &mut self,
+        id: participation::ParticipationIdV1,
+    ) -> Result<PrepareAgentOpenDispositionV1, PrepareAgentOpenErrorV1<P::Error>> {
+        match self
+            .0
+            .execute_participation(participation::CommandV1::PrepareOpen { participation: id })
+            .map_err(PrepareAgentOpenErrorV1::Transport)?
+        {
+            participation::ReplyV1::Accepted(value) => match *value {
+                participation::OutcomeV1::Applied {
+                    storage_revision,
+                    participation,
+                    replayed,
+                } if participation.binding.participation == id
+                    && matches!(
+                        participation.pending,
+                        Some(participation::OperationV1::Open { .. })
+                    ) =>
+                {
+                    if replayed {
+                        Ok(PrepareAgentOpenDispositionV1::AlreadyPrepared {
+                            storage_revision,
+                            participation,
+                        })
+                    } else {
+                        Ok(PrepareAgentOpenDispositionV1::Prepared {
+                            storage_revision,
+                            participation,
+                            replayed,
+                        })
+                    }
+                }
+                _ => Err(PrepareAgentOpenErrorV1::InvalidReply),
+            },
+            participation::ReplyV1::Refused(refusal) => {
+                Err(PrepareAgentOpenErrorV1::Refused(refusal))
+            }
+        }
+    }
+
+    pub fn into_port(self) -> P {
+        self.0
+    }
+}
 pub struct AgentParticipationReadOnlyClient<P>(P);
 impl<P: AgentParticipationServicePort> AgentParticipationReadOnlyClient<P> {
     pub const fn new(port: P) -> Self {

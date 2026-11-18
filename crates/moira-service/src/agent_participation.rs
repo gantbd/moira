@@ -80,6 +80,66 @@ impl<S: AgentParticipationStore> AgentParticipationService<S> {
         self.execute_with_policy(access, command, false)
     }
 
+    pub fn execute_open_authorized(
+        &mut self,
+        access: AccessV1,
+        participation: public::ParticipationIdV1,
+    ) -> Result<public::ReplyV1, S::Error> {
+        if !access.mutate {
+            return Ok(public::ReplyV1::Refused(public::RefusalV1::NotAuthorized));
+        }
+        if self.store.needs_reopen() {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidCheckpoint,
+            ));
+        }
+        let Some(storage_revision) = self.store.storage_revision() else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::UnknownParticipation,
+            ));
+        };
+        let Some(value) = self
+            .store
+            .participation(domain::ParticipationIdV1(participation.0))
+            .map(view)
+        else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::UnknownParticipation,
+            ));
+        };
+        if matches!(value.pending, Some(public::OperationV1::Open { .. })) {
+            return Ok(public::ReplyV1::Accepted(Box::new(
+                public::OutcomeV1::Applied {
+                    storage_revision,
+                    participation: value,
+                    replayed: true,
+                },
+            )));
+        }
+        if value.pending.is_some() {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::OperationConflict,
+            ));
+        }
+        let Some(operation) = public::prepared_open_operation(storage_revision, &value) else {
+            return Ok(public::ReplyV1::Refused(
+                public::RefusalV1::InvalidOperation,
+            ));
+        };
+        self.execute_with_policy(
+            access,
+            public::CommandV1::Apply {
+                expected_storage_revision: Some(storage_revision),
+                mutation: Box::new(public::MutationV1::Prepare {
+                    participation,
+                    expected_revision: value.revision,
+                    operation,
+                }),
+            },
+            true,
+        )
+    }
+
     fn execute_with_policy(
         &mut self,
         access: AccessV1,
@@ -104,6 +164,7 @@ impl<S: AgentParticipationStore> AgentParticipationService<S> {
             public::CommandV1::SelectPermission(_) | public::CommandV1::ConfirmPermission(_) => {
                 false
             }
+            public::CommandV1::PrepareOpen { .. } => false,
         };
         if !allowed {
             return Ok(public::ReplyV1::Refused(public::RefusalV1::NotAuthorized));
@@ -146,6 +207,9 @@ impl<S: AgentParticipationStore> AgentParticipationService<S> {
                         .map(view),
                 )),
             )),
+            public::CommandV1::PrepareOpen { .. } => {
+                Ok(public::ReplyV1::Refused(public::RefusalV1::NotAuthorized))
+            }
             public::CommandV1::PermissionConfirmation { participation } => {
                 let confirmation = self.store.storage_revision().and_then(|storage_revision| {
                     self.store

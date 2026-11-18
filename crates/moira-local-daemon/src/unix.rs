@@ -288,6 +288,10 @@ impl<S: AgentParticipationStore, A: AgentParticipationAuthenticator, P: AgentPro
             .map_err(AgentParticipationDaemonErrorV1::Io)?;
         serve_agent_participation_up_to(stream, self.wire_limits, self.max_requests, |command| {
             match command {
+                participation::CommandV1::PrepareOpen { participation } => self
+                    .service
+                    .execute_open_authorized(access, participation)
+                    .map_err(AgentParticipationDispatchErrorV1::Service),
                 participation::CommandV1::ConfirmPermission(confirmed) => {
                     let selection = match self.service.prepare_confirmed_permission(confirmed) {
                         Ok(selection) => selection,

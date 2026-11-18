@@ -209,6 +209,11 @@ pub enum CommandV1 {
     Participation {
         participation: ParticipationIdV1,
     },
+    /// Requests owner-derived preparation of the exact admitted
+    /// participation. The client supplies no execution or idempotency identity.
+    PrepareOpen {
+        participation: ParticipationIdV1,
+    },
     SelectPermission(PermissionSelectionV1),
     PermissionConfirmation {
         participation: ParticipationIdV1,
@@ -623,6 +628,52 @@ pub fn reattach_operation_for_digest(
 
 pub fn agent_prompt_digest(prompt: &[u8]) -> Option<[u8; 32]> {
     (!prompt.is_empty()).then(|| Sha256::digest(prompt).into())
+}
+
+/// Derives replay-stable identities for opening one exact admitted
+/// participation. The caller selects only the retained participation; it does
+/// not choose provider execution or idempotency identities.
+pub fn prepared_open_operation(
+    storage_revision: u64,
+    view: &ParticipationViewV1,
+) -> Option<OperationV1> {
+    if view.phase != PhaseV1::Admitted
+        || view.revision != 0
+        || view.session_revision.is_some()
+        || view.last_event_cursor.is_some()
+        || view.profile_document_digest.is_some()
+        || view.active_turn.is_some()
+        || view.permission.is_some()
+        || view.terminal.is_some()
+        || view.pending.is_some()
+        || view.capabilities != CapabilitiesV1::default()
+    {
+        return None;
+    }
+    let mut context = Sha256::new();
+    context.update(b"MOIRAOPEN1");
+    context.update(storage_revision.to_be_bytes());
+    context.update(view.binding.participation.0);
+    context.update(view.binding.workflow.0);
+    context.update(view.binding.deliberation.0);
+    context.update(view.binding.member.0);
+    context.update(view.binding.session.0);
+    context.update(view.binding.profile.0);
+    context.update(view.binding.attempt.task_key);
+    context.update(view.binding.attempt.incarnation.to_be_bytes());
+    context.update(view.binding.attempt.attempt.to_be_bytes());
+    context.update(view.binding.method.machine_digest);
+    context.update(view.binding.method.state_digest);
+    context.update(view.binding.grounding.authority_digest);
+    context.update(view.binding.grounding.surface_digest);
+    context.update([depth_tag(view.binding.grounding.depth)]);
+    context.update([persona_tag(view.binding.persona)]);
+    context.update(view.revision.to_be_bytes());
+    let context: [u8; 32] = context.finalize().into();
+    Some(OperationV1::Open {
+        key: IdempotencyKeyV1(derived_prompt_id(b"MOIRAOPKEY1", context)?),
+        execution: ExecutionIdV1(derived_prompt_id(b"MOIRAOPEXE1", context)?),
+    })
 }
 
 /// Derives opaque replay identities for one exact prompt at one exact durable
