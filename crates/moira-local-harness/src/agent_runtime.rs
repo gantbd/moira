@@ -1353,16 +1353,93 @@ fn retained_option_ids(
 
 fn evidence_digest(session: &agent::SessionViewV1, page: &agent::EventPageV1) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"MOIRAEV1");
+    hash.update(b"MOIRAEV2");
     hash.update(session.session.0);
     hash.update(session.revision.to_be_bytes());
     hash.update(session.profile_document_digest.0);
+    hash_context_receipt(&mut hash, session.last_context.as_ref());
     hash.update((page.entries.len() as u64).to_be_bytes());
     for record in &page.entries {
         hash.update(record.cursor.to_be_bytes());
         hash_event(&mut hash, &record.event);
     }
     hash.finalize().into()
+}
+
+fn hash_context_receipt(hash: &mut Sha256, value: Option<&agent::ContextReceiptV1>) {
+    let Some(value) = value else {
+        hash.update([0]);
+        return;
+    };
+    hash.update([1]);
+    hash.update(value.execution.0);
+    hash.update(value.manifest_digest.0);
+    hash.update((value.entries.len() as u64).to_be_bytes());
+    for entry in &value.entries {
+        hash.update(entry.reference.0);
+        hash.update([match entry.kind {
+            agent::ContextKindV1::AgoraMessage => 0,
+            agent::ContextKindV1::ChronosWork => 1,
+            agent::ContextKindV1::VellumDocument => 2,
+            agent::ContextKindV1::DendriteGrounding => 3,
+        }]);
+        hash.update(entry.source_digest.0);
+        hash.update((entry.content_bytes as u64).to_be_bytes());
+        match entry.grounding {
+            None => hash.update([0]),
+            Some(grounding) => {
+                hash.update([1]);
+                hash.update([match grounding.depth {
+                    agent::GroundingDepthV1::Ambient => 0,
+                    agent::GroundingDepthV1::Activated => 1,
+                    agent::GroundingDepthV1::Reference => 2,
+                }]);
+                hash.update(grounding.grounding_digest.0);
+                hash.update(grounding.surface_digest.0);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod context_evidence_tests {
+    use super::*;
+
+    fn session(source_digest: [u8; 32]) -> agent::SessionViewV1 {
+        agent::SessionViewV1 {
+            session: agent::SessionIdV1([1; 16]),
+            revision: 2,
+            phase: agent::PhaseV1::Ready,
+            profile_document_digest: agent::DigestV1([3; 32]),
+            active_turn: None,
+            last_event_cursor: None,
+            last_context: Some(agent::ContextReceiptV1 {
+                execution: agent::ExecutionIdV1([4; 16]),
+                manifest_digest: agent::DigestV1([5; 32]),
+                entries: vec![agent::ContextManifestEntryV1 {
+                    reference: agent::ContextIdV1([6; 16]),
+                    kind: agent::ContextKindV1::VellumDocument,
+                    source_digest: agent::DigestV1(source_digest),
+                    content_bytes: 21,
+                    grounding: None,
+                }],
+            }),
+            capabilities: agent::CapabilitiesV1::default(),
+        }
+    }
+
+    #[test]
+    fn evidence_digest_binds_exact_context_source() {
+        let page = agent::EventPageV1 {
+            session: agent::SessionIdV1([1; 16]),
+            entries: Vec::new(),
+            next_after: None,
+        };
+        assert_ne!(
+            evidence_digest(&session([7; 32]), &page),
+            evidence_digest(&session([8; 32]), &page)
+        );
+    }
 }
 
 fn hash_event(hash: &mut Sha256, value: &agent::EventV1) {

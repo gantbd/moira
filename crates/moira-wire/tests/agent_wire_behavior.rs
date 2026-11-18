@@ -183,6 +183,17 @@ fn every_event_outcome_and_refusal_roundtrips_canonically() {
         profile_document_digest: DigestV1([11; 32]),
         active_turn: Some(turn),
         last_event_cursor: Some(8),
+        last_context: Some(ContextReceiptV1 {
+            execution: ExecutionIdV1([12; 16]),
+            manifest_digest: DigestV1([19; 32]),
+            entries: vec![ContextManifestEntryV1 {
+                reference: ContextIdV1([17; 16]),
+                kind: ContextKindV1::VellumDocument,
+                source_digest: DigestV1([20; 32]),
+                content_bytes: 21,
+                grounding: None,
+            }],
+        }),
         capabilities: CapabilitiesV1 {
             load_session: true,
             resume_session: true,
@@ -201,6 +212,7 @@ fn every_event_outcome_and_refusal_roundtrips_canonically() {
         profile_document_digest: DigestV1([11; 32]),
         active_turn: None,
         last_event_cursor: Some(8),
+        last_context: None,
         capabilities: CapabilitiesV1 {
             resume_session: true,
             ..CapabilitiesV1::default()
@@ -263,6 +275,13 @@ fn framing_and_collection_limits_fail_closed() {
     bytes[8] = 4;
     assert_eq!(
         decode_agent_request(&bytes, LimitsV1::default()),
+        Err(CodecErrorV1::Unsupported)
+    );
+
+    let mut prior_agent_profile = encode_agent_request(&value, LimitsV1::default()).unwrap();
+    prior_agent_profile[8] = 6;
+    assert_eq!(
+        decode_agent_request(&prior_agent_profile, LimitsV1::default()),
         Err(CodecErrorV1::Unsupported)
     );
 }

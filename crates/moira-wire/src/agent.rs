@@ -1,8 +1,8 @@
 use super::{CodecErrorV1, LimitsV1, Reader, Writer};
 use moira_protocol::agent::*;
 
-const AGENT_REQUEST: u8 = 6;
-const AGENT_REPLY: u8 = 7;
+const AGENT_REQUEST: u8 = 14;
+const AGENT_REPLY: u8 = 15;
 
 pub fn encode_agent_request(value: &CommandV1, limits: LimitsV1) -> Result<Vec<u8>, CodecErrorV1> {
     let mut writer = Writer::new(AGENT_REQUEST, limits)?;
@@ -411,7 +411,8 @@ fn session_view(w: &mut Writer, value: &SessionViewV1) -> Result<(), CodecErrorV
     w.raw(&value.profile_document_digest.0)?;
     w.option(value.active_turn, |w, v| w.raw(&v.0))?;
     w.option(value.last_event_cursor, Writer::u64)?;
-    capabilities(w, value.capabilities)
+    capabilities(w, value.capabilities)?;
+    w.option(value.last_context.as_ref(), context_receipt)
 }
 fn read_session_view(r: &mut Reader<'_>) -> Result<SessionViewV1, CodecErrorV1> {
     Ok(SessionViewV1 {
@@ -422,6 +423,78 @@ fn read_session_view(r: &mut Reader<'_>) -> Result<SessionViewV1, CodecErrorV1> 
         active_turn: r.option(|r| r.raw().map(TurnIdV1))?,
         last_event_cursor: r.option(Reader::u64)?,
         capabilities: read_capabilities(r)?,
+        last_context: r.option(read_context_receipt)?,
+    })
+}
+
+fn context_receipt(w: &mut Writer, value: &ContextReceiptV1) -> Result<(), CodecErrorV1> {
+    w.raw(&value.execution.0)?;
+    w.raw(&value.manifest_digest.0)?;
+    list_len(w, value.entries.len())?;
+    for entry in &value.entries {
+        w.raw(&entry.reference.0)?;
+        w.byte(match entry.kind {
+            ContextKindV1::AgoraMessage => 0,
+            ContextKindV1::ChronosWork => 1,
+            ContextKindV1::VellumDocument => 2,
+            ContextKindV1::DendriteGrounding => 3,
+        })?;
+        w.raw(&entry.source_digest.0)?;
+        w.usize(entry.content_bytes)?;
+        w.option(entry.grounding, |w, grounding| {
+            w.byte(match grounding.depth {
+                GroundingDepthV1::Ambient => 0,
+                GroundingDepthV1::Activated => 1,
+                GroundingDepthV1::Reference => 2,
+            })?;
+            w.raw(&grounding.grounding_digest.0)?;
+            w.raw(&grounding.surface_digest.0)
+        })?;
+    }
+    Ok(())
+}
+
+fn read_context_receipt(r: &mut Reader<'_>) -> Result<ContextReceiptV1, CodecErrorV1> {
+    let execution = ExecutionIdV1(r.raw()?);
+    let manifest_digest = DigestV1(r.raw()?);
+    let length = usize::try_from(r.u32()?).map_err(|_| CodecErrorV1::Limit)?;
+    if length > r.bytes.len().saturating_sub(r.position) / 58 {
+        return Err(CodecErrorV1::Malformed);
+    }
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(length)
+        .map_err(|_| CodecErrorV1::Capacity)?;
+    for _ in 0..length {
+        entries.push(ContextManifestEntryV1 {
+            reference: ContextIdV1(r.raw()?),
+            kind: match r.byte()? {
+                0 => ContextKindV1::AgoraMessage,
+                1 => ContextKindV1::ChronosWork,
+                2 => ContextKindV1::VellumDocument,
+                3 => ContextKindV1::DendriteGrounding,
+                _ => return Err(CodecErrorV1::Malformed),
+            },
+            source_digest: DigestV1(r.raw()?),
+            content_bytes: r.usize()?,
+            grounding: r.option(|r| {
+                Ok(GroundingEvidenceV1 {
+                    depth: match r.byte()? {
+                        0 => GroundingDepthV1::Ambient,
+                        1 => GroundingDepthV1::Activated,
+                        2 => GroundingDepthV1::Reference,
+                        _ => return Err(CodecErrorV1::Malformed),
+                    },
+                    grounding_digest: DigestV1(r.raw()?),
+                    surface_digest: DigestV1(r.raw()?),
+                })
+            })?,
+        });
+    }
+    Ok(ContextReceiptV1 {
+        execution,
+        manifest_digest,
+        entries,
     })
 }
 

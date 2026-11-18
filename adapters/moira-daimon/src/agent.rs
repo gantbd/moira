@@ -197,6 +197,54 @@ fn outcome_public(value: upstream::AgentOutcomeV1) -> public::OutcomeV1 {
                     .active_turn
                     .map(|id| public::TurnIdV1(id.into_bytes())),
                 last_event_cursor: value.last_event_cursor,
+                last_context: value.last_context.map(|receipt| public::ContextReceiptV1 {
+                    execution: public::ExecutionIdV1(receipt.execution.into_bytes()),
+                    manifest_digest: public::DigestV1(receipt.manifest_digest.into_bytes()),
+                    entries: receipt
+                        .entries
+                        .into_iter()
+                        .map(|entry| public::ContextManifestEntryV1 {
+                            reference: public::ContextIdV1(entry.reference.into_bytes()),
+                            kind: match entry.kind {
+                                daimon::ContextKindV1::AgoraMessage => {
+                                    public::ContextKindV1::AgoraMessage
+                                }
+                                daimon::ContextKindV1::ChronosWork => {
+                                    public::ContextKindV1::ChronosWork
+                                }
+                                daimon::ContextKindV1::VellumDocument => {
+                                    public::ContextKindV1::VellumDocument
+                                }
+                                daimon::ContextKindV1::DendriteGrounding => {
+                                    public::ContextKindV1::DendriteGrounding
+                                }
+                            },
+                            source_digest: public::DigestV1(entry.source_digest.into_bytes()),
+                            content_bytes: entry.content_bytes,
+                            grounding: entry.grounding.map(|grounding| {
+                                public::GroundingEvidenceV1 {
+                                    depth: match grounding.depth {
+                                        daimon::GroundingDepthV1::Ambient => {
+                                            public::GroundingDepthV1::Ambient
+                                        }
+                                        daimon::GroundingDepthV1::Activated => {
+                                            public::GroundingDepthV1::Activated
+                                        }
+                                        daimon::GroundingDepthV1::Reference => {
+                                            public::GroundingDepthV1::Reference
+                                        }
+                                    },
+                                    grounding_digest: public::DigestV1(
+                                        grounding.grounding_digest.into_bytes(),
+                                    ),
+                                    surface_digest: public::DigestV1(
+                                        grounding.surface_digest.into_bytes(),
+                                    ),
+                                }
+                            }),
+                        })
+                        .collect(),
+                }),
                 capabilities: capabilities_public(value.capabilities),
             })
         }

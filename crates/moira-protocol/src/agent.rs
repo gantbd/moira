@@ -212,6 +212,44 @@ pub struct EventRecordV1 {
     pub event: EventV1,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContextKindV1 {
+    AgoraMessage,
+    ChronosWork,
+    VellumDocument,
+    DendriteGrounding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroundingDepthV1 {
+    Ambient,
+    Activated,
+    Reference,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GroundingEvidenceV1 {
+    pub depth: GroundingDepthV1,
+    pub grounding_digest: DigestV1,
+    pub surface_digest: DigestV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextManifestEntryV1 {
+    pub reference: ContextIdV1,
+    pub kind: ContextKindV1,
+    pub source_digest: DigestV1,
+    pub content_bytes: usize,
+    pub grounding: Option<GroundingEvidenceV1>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextReceiptV1 {
+    pub execution: ExecutionIdV1,
+    pub manifest_digest: DigestV1,
+    pub entries: Vec<ContextManifestEntryV1>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SessionViewV1 {
     pub session: SessionIdV1,
@@ -220,6 +258,7 @@ pub struct SessionViewV1 {
     pub profile_document_digest: DigestV1,
     pub active_turn: Option<TurnIdV1>,
     pub last_event_cursor: Option<u64>,
+    pub last_context: Option<ContextReceiptV1>,
     pub capabilities: CapabilitiesV1,
 }
 

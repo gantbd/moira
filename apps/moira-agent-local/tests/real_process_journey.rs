@@ -135,6 +135,7 @@ impl AgentServicePort for AgentPort {
                     profile_document_digest: ContentDigestV1::new([30; 32]),
                     active_turn: None,
                     last_event_cursor: None,
+                    last_context: None,
                     capabilities: AgentCapabilitiesV1::default(),
                 }))
             }
@@ -209,6 +210,7 @@ impl AgentServicePort for ReattachAgentPort {
                     profile_document_digest: ContentDigestV1::new([30; 32]),
                     active_turn: None,
                     last_event_cursor: None,
+                    last_context: None,
                     capabilities,
                 }))
             }
@@ -238,6 +240,7 @@ impl AgentServicePort for ReattachAgentPort {
                     profile_document_digest: ContentDigestV1::new([30; 32]),
                     active_turn: None,
                     last_event_cursor: None,
+                    last_context: None,
                     capabilities,
                 }))
             }
@@ -310,6 +313,7 @@ impl AgentServicePort for PromptAgentPort {
                     profile_document_digest: ContentDigestV1::new([31; 32]),
                     active_turn: None,
                     last_event_cursor: Some(1),
+                    last_context: None,
                     capabilities: AgentCapabilitiesV1::default(),
                 }))
             }

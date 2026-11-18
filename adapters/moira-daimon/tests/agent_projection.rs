@@ -31,6 +31,17 @@ fn prompt_binding_is_exact_and_view_is_independent() {
             profile_document_digest: daimon::ContentDigestV1::new([9; 32]),
             active_turn: Some(daimon::AgentTurnIdV1::new([2; 16])),
             last_event_cursor: Some(3),
+            last_context: Some(upstream::AgentContextReceiptV1 {
+                execution: daimon::ExecutionIdV1::new([3; 16]),
+                manifest_digest: daimon::ContentDigestV1::new([10; 32]),
+                entries: vec![upstream::AgentContextManifestEntryV1 {
+                    reference: daimon::ContextReferenceIdV1::new([8; 16]),
+                    kind: daimon::ContextKindV1::VellumDocument,
+                    source_digest: daimon::ContentDigestV1::new([11; 32]),
+                    content_bytes: 21,
+                    grounding: None,
+                }],
+            }),
             capabilities: upstream::AgentCapabilitiesV1 {
                 load_session: true,
                 resume_session: true,
@@ -65,6 +76,18 @@ fn prompt_binding_is_exact_and_view_is_independent() {
     assert_eq!(view.revision, 8);
     assert_eq!(view.phase, public::PhaseV1::TurnActive);
     assert_eq!(view.active_turn, Some(public::TurnIdV1([2; 16])));
+    let context = view.last_context.as_ref().expect("context receipt");
+    assert_eq!(context.execution, public::ExecutionIdV1([3; 16]));
+    assert_eq!(context.manifest_digest, public::DigestV1([10; 32]));
+    assert_eq!(context.entries.len(), 1);
+    assert_eq!(context.entries[0].reference, public::ContextIdV1([8; 16]));
+    assert_eq!(
+        context.entries[0].kind,
+        public::ContextKindV1::VellumDocument
+    );
+    assert_eq!(context.entries[0].source_digest, public::DigestV1([11; 32]));
+    assert_eq!(context.entries[0].content_bytes, 21);
+    assert_eq!(context.entries[0].grounding, None);
     assert_eq!(
         view.capabilities,
         public::CapabilitiesV1 {
@@ -168,6 +191,7 @@ fn reattach_binding_and_required_phase_are_exact() {
             profile_document_digest: daimon::ContentDigestV1::new([9; 32]),
             active_turn: None,
             last_event_cursor: Some(3),
+            last_context: None,
             capabilities: upstream::AgentCapabilitiesV1 {
                 resume_session: true,
                 ..upstream::AgentCapabilitiesV1::default()

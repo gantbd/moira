@@ -827,6 +827,7 @@ fn session(
         profile_document_digest: agent::DigestV1([44; 32]),
         active_turn,
         last_event_cursor,
+        last_context: None,
         capabilities: agent::CapabilitiesV1 {
             resume_session: true,
             permissions: true,
