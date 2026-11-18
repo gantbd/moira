@@ -437,6 +437,7 @@ fn executable_composition_crosses_both_private_sockets_and_commits_observation()
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
         serde_json::json!({
             "outcome": "observed",
+            "participation": hex([2; 16]),
             "participation_revision": 3,
         })
     );
@@ -566,7 +567,13 @@ fn prompt_worker_materializes_through_daemon_and_retains_exact_terminal_output()
     });
 
     let summary = execute(validate(config(&fixture)).unwrap()).unwrap();
-    assert_eq!(summary, SummaryV1::Observed { revision: 5 });
+    assert_eq!(
+        summary,
+        SummaryV1::Observed {
+            participation: p::ParticipationIdV1([2; 16]),
+            revision: 5,
+        }
+    );
     assert_eq!(commands.load(Ordering::Relaxed), 2);
 
     let retained = participation_server.join().unwrap();
@@ -643,6 +650,7 @@ fn executable_discovers_confirms_and_dispatches_governed_reattach() {
         serde_json::from_slice::<serde_json::Value>(&first.stdout).unwrap(),
         serde_json::json!({
             "outcome": "observed",
+            "participation": hex([2; 16]),
             "participation_revision": 3,
         })
     );
@@ -722,6 +730,7 @@ fn executable_discovers_confirms_and_dispatches_governed_reattach() {
         serde_json::from_slice::<serde_json::Value>(&second.stdout).unwrap(),
         serde_json::json!({
             "outcome": "observed",
+            "participation": hex([2; 16]),
             "participation_revision": 6,
         })
     );

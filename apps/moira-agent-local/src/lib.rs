@@ -132,22 +132,49 @@ impl std::error::Error for ErrorV1 {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SummaryV1 {
-    Idle { revision: u64 },
-    Observed { revision: u64 },
-    Fenced { revision: u64 },
+    Idle {
+        participation: participation::ParticipationIdV1,
+        revision: u64,
+    },
+    Observed {
+        participation: participation::ParticipationIdV1,
+        revision: u64,
+    },
+    Fenced {
+        participation: participation::ParticipationIdV1,
+        revision: u64,
+    },
 }
 
 impl SummaryV1 {
     pub fn json(self) -> String {
         match self {
-            Self::Idle { revision } => {
-                format!(r#"{{"outcome":"idle","participation_revision":{revision}}}"#)
+            Self::Idle {
+                participation,
+                revision,
+            } => {
+                format!(
+                    r#"{{"outcome":"idle","participation":"{}","participation_revision":{revision}}}"#,
+                    hex(&participation.0)
+                )
             }
-            Self::Observed { revision } => {
-                format!(r#"{{"outcome":"observed","participation_revision":{revision}}}"#)
+            Self::Observed {
+                participation,
+                revision,
+            } => {
+                format!(
+                    r#"{{"outcome":"observed","participation":"{}","participation_revision":{revision}}}"#,
+                    hex(&participation.0)
+                )
             }
-            Self::Fenced { revision } => {
-                format!(r#"{{"outcome":"fenced_unknown","participation_revision":{revision}}}"#)
+            Self::Fenced {
+                participation,
+                revision,
+            } => {
+                format!(
+                    r#"{{"outcome":"fenced_unknown","participation":"{}","participation_revision":{revision}}}"#,
+                    hex(&participation.0)
+                )
             }
         }
     }
@@ -303,24 +330,32 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         config.max_event_observations,
     )
     .map_err(|_| ErrorV1::Dispatch)?;
-    Ok(summary(outcome))
+    Ok(summary(outcome, config.participation))
 }
 
-fn summary<E>(outcome: AgentWorkerOutcomeV1<E>) -> SummaryV1 {
+fn summary<E>(
+    outcome: AgentWorkerOutcomeV1<E>,
+    participation: participation::ParticipationIdV1,
+) -> SummaryV1 {
     match outcome {
         AgentWorkerOutcomeV1::Idle(value) => SummaryV1::Idle {
+            participation,
             revision: value.participation.revision,
         },
-        AgentWorkerOutcomeV1::Progress(AgentDriveOutcomeV1::Observed { participation, .. }) => {
-            SummaryV1::Observed {
-                revision: participation.revision,
-            }
-        }
-        AgentWorkerOutcomeV1::Progress(AgentDriveOutcomeV1::Fenced { participation, .. }) => {
-            SummaryV1::Fenced {
-                revision: participation.revision,
-            }
-        }
+        AgentWorkerOutcomeV1::Progress(AgentDriveOutcomeV1::Observed {
+            participation: view,
+            ..
+        }) => SummaryV1::Observed {
+            participation,
+            revision: view.revision,
+        },
+        AgentWorkerOutcomeV1::Progress(AgentDriveOutcomeV1::Fenced {
+            participation: view,
+            ..
+        }) => SummaryV1::Fenced {
+            participation,
+            revision: view.revision,
+        },
     }
 }
 
@@ -335,6 +370,10 @@ fn hex_id(value: &str) -> Result<[u8; 16], ErrorV1> {
             u8::from_str_radix(&value[start..start + 2], 16).map_err(|_| ErrorV1::InvalidConfig)?;
     }
     Ok(bytes)
+}
+
+fn hex(value: &[u8]) -> String {
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]
@@ -414,8 +453,12 @@ mod tests {
     #[test]
     fn summaries_are_content_free() {
         assert_eq!(
-            SummaryV1::Fenced { revision: 9 }.json(),
-            r#"{"outcome":"fenced_unknown","participation_revision":9}"#
+            SummaryV1::Fenced {
+                participation: participation::ParticipationIdV1([1; 16]),
+                revision: 9,
+            }
+            .json(),
+            r#"{"outcome":"fenced_unknown","participation":"01010101010101010101010101010101","participation_revision":9}"#
         );
     }
 }
