@@ -1,7 +1,6 @@
 #![cfg(unix)]
 
 use chronos_client::WireClientV1;
-use chronos_engine::Agent;
 use chronos_local::LocalClient;
 use chronos_wire::{Command, Outcome, Phase, Request, RetrySafety, Revision, TaskSpec};
 use moira_chronos_worker::{
@@ -115,11 +114,12 @@ fn submit(client: &mut LocalClient, task: &str) {
 }
 
 fn configuration() -> ConfigurationV1 {
-    ConfigurationV1 {
-        agent: Agent::new("moira-j1-worker"),
-        grant_validity: Duration::from_secs(60),
-        lease_duration: Duration::from_secs(30),
-    }
+    ConfigurationV1::new(
+        "moira-j1-worker",
+        Duration::from_secs(60),
+        Duration::from_secs(30),
+    )
+    .unwrap()
 }
 
 #[test]

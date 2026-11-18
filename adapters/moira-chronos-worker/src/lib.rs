@@ -20,6 +20,29 @@ pub struct ConfigurationV1 {
     pub lease_duration: Duration,
 }
 
+impl ConfigurationV1 {
+    pub fn new(
+        agent_id: impl Into<String>,
+        grant_validity: Duration,
+        lease_duration: Duration,
+    ) -> Result<Self, ConfigurationErrorV1> {
+        let agent_id = agent_id.into();
+        if agent_id.is_empty() || grant_validity.is_zero() || lease_duration.is_zero() {
+            return Err(ConfigurationErrorV1::Invalid);
+        }
+        Ok(Self {
+            agent: Agent::new(agent_id),
+            grant_validity,
+            lease_duration,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigurationErrorV1 {
+    Invalid,
+}
+
 #[derive(Clone, Eq, PartialEq)]
 pub struct ClaimIntentV1 {
     pub task_id: String,
