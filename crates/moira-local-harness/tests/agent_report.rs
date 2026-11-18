@@ -100,7 +100,10 @@ impl DeliberationStore for Store {
 fn only_exact_grounded_terminal_evidence_becomes_a_report() {
     let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
     registry
-        .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan())),
+        )
         .unwrap();
     let mut store = Store(registry);
     let mut outputs = outputs();
@@ -126,7 +129,10 @@ fn only_exact_grounded_terminal_evidence_becomes_a_report() {
 fn persona_output_and_completion_mismatch_refuse_before_store_mutation() {
     let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
     registry
-        .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan())),
+        )
         .unwrap();
     let mut store = Store(registry);
     let mut outputs = outputs();
@@ -161,7 +167,10 @@ fn persona_output_and_completion_mismatch_refuse_before_store_mutation() {
 fn retained_member_response_derives_one_stable_grounded_report() {
     let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
     registry
-        .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan())),
+        )
         .unwrap();
     let mut store = Store(registry);
     let mut outputs = outputs();
@@ -207,7 +216,10 @@ fn retained_member_response_derives_one_stable_grounded_report() {
 fn invalid_or_host_colliding_member_response_never_mutates_registry() {
     let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
     registry
-        .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan())),
+        )
         .unwrap();
     let mut store = Store(registry);
     let participation = participation();

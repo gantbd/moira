@@ -587,7 +587,7 @@ fn orthogonal_members_execute_with_distinct_identities_and_become_attributed_rep
     registry
         .apply(
             RegistryRevisionV1(0),
-            RegistryCommandV1::Admit(plan.clone()),
+            RegistryCommandV1::Admit(Box::new(plan.clone())),
         )
         .unwrap();
     for outcome in outcomes {

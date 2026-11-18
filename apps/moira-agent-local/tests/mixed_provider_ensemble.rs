@@ -324,7 +324,10 @@ fn acp_and_claude_terminal_outputs_become_one_orthogonal_moira_ensemble() {
 
     let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
     registry
-        .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan())),
+        )
         .unwrap();
     let mut registry = RegistryStore(registry);
     let mut outputs =

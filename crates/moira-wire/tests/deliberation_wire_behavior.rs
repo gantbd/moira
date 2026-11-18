@@ -115,6 +115,27 @@ fn view(resolution: Option<d::ResolutionV1>) -> d::DeliberationViewV1 {
         },
         reports: vec![report()],
         resolution,
+        human_gate_request: Some(d::HumanGateRequestV1 {
+            id: d::HumanGateRequestIdV1([33; 16]),
+            reviewer: [34; 16],
+            finding_digest: [35; 32],
+            decision_digest: [36; 32],
+            material_revision_digest: [37; 32],
+            policy_digest: [38; 32],
+            requested_at: 39,
+        }),
+        human_gate_response: Some(d::HumanGateResponseV1 {
+            id: d::HumanGateResponseIdV1([40; 16]),
+            request: d::HumanGateRequestIdV1([33; 16]),
+            disposition: d::HumanGateDispositionV1::ChangesRequested,
+            rationale_digest: [41; 32],
+            responded_at: 42,
+            authority: d::HumanGateAuthorityRefV1 {
+                decision: [43; 16],
+                subject: [34; 16],
+                epoch: 44,
+            },
+        }),
         remaining_fuel: 27,
         phase: d::DeliberationPhaseV1::Resolved,
     }
@@ -127,6 +148,34 @@ fn every_command_family_roundtrips_exactly() {
         d::CommandV1::Apply {
             expected_revision: 28,
             mutation: d::MutationV1::Admit(Box::new(plan())),
+        },
+        d::CommandV1::Apply {
+            expected_revision: 31,
+            mutation: d::MutationV1::RequestHumanGate {
+                deliberation: d::DeliberationIdV1([1; 16]),
+                request: d::HumanGateRequestV1 {
+                    id: d::HumanGateRequestIdV1([33; 16]),
+                    reviewer: [34; 16],
+                    finding_digest: [35; 32],
+                    decision_digest: [36; 32],
+                    material_revision_digest: [37; 32],
+                    policy_digest: [38; 32],
+                    requested_at: 39,
+                },
+            },
+        },
+        d::CommandV1::RespondHumanGate {
+            operation: d::HumanGateOperationV1 {
+                deliberation: d::DeliberationIdV1([1; 16]),
+                expected_revision: 32,
+                response: d::HumanGateResponseSubmissionV1 {
+                    id: d::HumanGateResponseIdV1([40; 16]),
+                    request: d::HumanGateRequestIdV1([33; 16]),
+                    disposition: d::HumanGateDispositionV1::Approved,
+                    rationale_digest: [41; 32],
+                    responded_at: 42,
+                },
+            },
         },
         d::CommandV1::Apply {
             expected_revision: 29,
@@ -159,7 +208,7 @@ fn every_command_family_roundtrips_exactly() {
 
 #[test]
 fn prior_deliberation_profile_frames_refuse_instead_of_reinterpreting_stakeholder_evidence() {
-    assert_eq!(moira_wire::DELIBERATION_PROFILE_VERSION, 2);
+    assert_eq!(moira_wire::DELIBERATION_PROFILE_VERSION, 3);
     let limits = LimitsV1::default();
     let mut request = encode_deliberation_request(&d::CommandV1::Status, limits).unwrap();
     request[8] = 10;

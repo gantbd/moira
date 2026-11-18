@@ -12,9 +12,10 @@ use keystone_storage::{
     StoreRefusal,
 };
 use moira_aegis::{
-    AegisActionSelectorV1, AegisChoiceAuthorityV1, AegisOperatorAuthorizerV1,
-    AegisPermissionAuthorizerV1, AegisToolAuthorityV1, OperatorAdapter, ReconcileError,
-    TimeSourceV1, ToolAuthorizationError, choice_resource, permission_resource, saga_resource,
+    AegisActionSelectorV1, AegisChoiceAuthorityV1, AegisHumanGateAuthorizerV1,
+    AegisOperatorAuthorizerV1, AegisPermissionAuthorizerV1, AegisToolAuthorityV1, OperatorAdapter,
+    ReconcileError, TimeSourceV1, ToolAuthorizationError, choice_resource, human_gate_resource,
+    permission_resource, saga_resource,
 };
 use moira_core::EffectId;
 use moira_core::deliberation::{
@@ -35,10 +36,11 @@ use moira_protocol::tool_continuation::ToolCapabilityIdV1;
 use moira_protocol::{
     OperatorActionIdV1, OperatorDispositionV1, OperatorOperationV1, SagaCommandV1,
     SagaEffectOutcomeV1, SagaMutationV1, SagaOutcomeV1, SagaReplyV1, SagaSourceV1,
-    SagaTransitionV1, agent_participation as participation,
+    SagaTransitionV1, agent_participation as participation, deliberation as deliberation_protocol,
 };
 use moira_service::{
     agent_participation::PermissionAuthorizer,
+    deliberation::HumanGateAuthorizer,
     saga::{OperatorAuthorizer, SagaService},
 };
 use moira_sqlite::deliberation::{DeliberationSqliteStore, DeliberationStoreLimitsV1};
@@ -336,6 +338,86 @@ fn exact_deliberation_scope_authorizes_one_attributed_choice() {
 }
 
 #[test]
+fn human_gate_authorizer_scopes_aegis_to_one_exact_request() {
+    let authority_id = EngineId::new([80; 16]);
+    let authority =
+        DurableAuthority::create_new(AuthorityStore::default(), authority_id, Limits::default())
+            .unwrap();
+    let mut aegis = Service::new(authority, authority_id, ServiceLimitsV1::default()).unwrap();
+    let subject = [81; 16];
+    let session = aegis
+        .open_session(AuthenticatedSessionV1 {
+            principal: PrincipalId::new(subject),
+            session: SessionId::new([82; 16]),
+            administrator: true,
+        })
+        .unwrap();
+    let deliberation = deliberation_protocol::DeliberationIdV1([83; 16]);
+    let request = deliberation_protocol::HumanGateRequestIdV1([84; 16]);
+    let resource = human_gate_resource(deliberation, request);
+    assert_ne!(
+        resource,
+        human_gate_resource(
+            deliberation,
+            deliberation_protocol::HumanGateRequestIdV1([85; 16])
+        )
+    );
+    let issue = |action| CommandV1::Issue {
+        expected_epoch: 0,
+        now: 1,
+        expires_at: 10,
+        scopes: vec![ScopeV1 {
+            engine: EngineNamespaceV1::Moira,
+            resource,
+            actions: 1 << action as u8,
+        }],
+    };
+    let ReplyV1::Accepted(OutcomeV1::GrantIssued(allowed)) =
+        aegis.execute(session, issue(ActionV1::Administer)).unwrap()
+    else {
+        panic!("human gate grant expected")
+    };
+    let ReplyV1::Accepted(OutcomeV1::GrantIssued(denied)) =
+        aegis.execute(session, issue(ActionV1::Observe)).unwrap()
+    else {
+        panic!("observe grant expected")
+    };
+    let operation = deliberation_protocol::HumanGateOperationV1 {
+        deliberation,
+        expected_revision: 9,
+        response: deliberation_protocol::HumanGateResponseSubmissionV1 {
+            id: deliberation_protocol::HumanGateResponseIdV1([86; 16]),
+            request,
+            disposition: deliberation_protocol::HumanGateDispositionV1::Deferred,
+            rationale_digest: [87; 32],
+            responded_at: 88,
+        },
+    };
+    let mut authorizer = AegisHumanGateAuthorizerV1::new(
+        AuthorityClient::new(session, AegisPort { service: aegis }),
+        allowed.handle,
+        subject,
+        FixedTime(2),
+    );
+    let access = authorizer.authorize_human_gate(operation).unwrap().unwrap();
+    assert_eq!(access.subject, subject);
+    assert_eq!(access.epoch, 0);
+    assert_eq!(&access.decision[..8], b"AEGISD01");
+
+    let (port, time) = authorizer.into_parts();
+    let mut denied_authorizer = AegisHumanGateAuthorizerV1::new(
+        AuthorityClient::new(session, port),
+        denied.handle,
+        subject,
+        time,
+    );
+    assert_eq!(
+        denied_authorizer.authorize_human_gate(operation).unwrap(),
+        None
+    );
+}
+
+#[test]
 fn aegis_authorized_choice_is_resolved_and_reopened_with_attribution() {
     let path = path();
     let owner = [50; 16];
@@ -345,7 +427,7 @@ fn aegis_authorized_choice_is_resolved_and_reopened_with_attribution() {
     store
         .apply(
             RegistryRevisionV1(0),
-            RegistryCommandV1::Admit(choice_plan(deliberation, selected)),
+            RegistryCommandV1::Admit(Box::new(choice_plan(deliberation, selected))),
         )
         .unwrap();
     store

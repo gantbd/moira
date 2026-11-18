@@ -702,6 +702,28 @@ impl<P: DeliberationServicePort> DeliberationReadOnlyClient<P> {
     }
 }
 
+/// Capability-scoped client for one command-authorized human-gate response.
+/// It cannot admit, resolve, or read deliberations through this facade.
+pub struct DeliberationHumanGateClient<P>(P);
+
+impl<P: DeliberationServicePort> DeliberationHumanGateClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+
+    pub fn respond(
+        &mut self,
+        operation: deliberation::HumanGateOperationV1,
+    ) -> Result<deliberation::ReplyV1, P::Error> {
+        self.0
+            .execute(deliberation::CommandV1::RespondHumanGate { operation })
+    }
+
+    pub fn into_port(self) -> P {
+        self.0
+    }
+}
+
 pub trait ToolContinuationServicePort {
     type Error;
     fn execute(&mut self, command: tools::CommandV1) -> Result<tools::ReplyV1, Self::Error>;

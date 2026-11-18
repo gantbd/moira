@@ -50,10 +50,16 @@ fn plan(seed: u8) -> DeliberationPlanV1 {
 fn checkpoint() -> moira_core::deliberation::registry::RegistryCheckpointV1 {
     let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
     registry
-        .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan(2)))
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan(2))),
+        )
         .unwrap();
     registry
-        .apply(RegistryRevisionV1(1), RegistryCommandV1::Admit(plan(1)))
+        .apply(
+            RegistryRevisionV1(1),
+            RegistryCommandV1::Admit(Box::new(plan(1))),
+        )
         .unwrap();
     registry.checkpoint()
 }
@@ -79,6 +85,51 @@ fn prior_registry_codec_identity_is_refused_instead_of_reinterpreted() {
     bytes[..8].copy_from_slice(b"MOIRADR1");
     bytes[8] = 1;
     assert_eq!(decode(&bytes, limits), Err(CodecErrorV1::Invalid));
+}
+
+#[test]
+fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
+    let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
+    registry
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan(1))),
+        )
+        .unwrap();
+    let expected = registry.checkpoint();
+    let limits = CodecLimitsV1::default();
+    let current = encode(&expected, limits).unwrap();
+    let child_start = current
+        .windows(8)
+        .position(|window| window == b"MOIRADL4")
+        .unwrap();
+    let length_start = child_start - 8;
+    let child_length = usize::try_from(u64::from_be_bytes(
+        current[length_start..child_start].try_into().unwrap(),
+    ))
+    .unwrap();
+    assert_eq!(child_start + child_length, current.len());
+
+    let mut child = current[child_start..].to_vec();
+    assert_eq!(&child[child.len() - 10..child.len() - 8], &[0, 0]);
+    child[..8].copy_from_slice(b"MOIRADL3");
+    child[8] = 3;
+    let gate_options = child.len() - 10;
+    child.drain(gate_options..gate_options + 2);
+
+    let mut legacy = current[..length_start].to_vec();
+    legacy[..8].copy_from_slice(b"MOIRADR2");
+    legacy[8] = 2;
+    legacy.extend_from_slice(&u64::try_from(child.len()).unwrap().to_be_bytes());
+    legacy.extend_from_slice(&child);
+
+    let migrated = decode(&legacy, limits).unwrap();
+    assert_eq!(migrated.version, 3);
+    assert_eq!(migrated.deliberations[0].version, 4);
+    assert_eq!(migrated.deliberations[0].human_gate_request, None);
+    assert_eq!(migrated.deliberations[0].human_gate_response, None);
+    assert_eq!(migrated, expected);
+    assert_ne!(encode(&migrated, limits).unwrap(), legacy);
 }
 
 #[test]

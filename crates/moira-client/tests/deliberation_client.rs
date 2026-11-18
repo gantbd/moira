@@ -1,7 +1,12 @@
 use moira_client::{
-    DeliberationMutationClient, DeliberationReadOnlyClient, DeliberationServicePort,
+    DeliberationHumanGateClient, DeliberationMutationClient, DeliberationReadOnlyClient,
+    DeliberationServicePort,
 };
-use moira_protocol::deliberation::{CommandV1, DeliberationIdV1, MutationV1, RefusalV1, ReplyV1};
+use moira_protocol::deliberation::{
+    CommandV1, DeliberationIdV1, HumanGateDispositionV1, HumanGateOperationV1,
+    HumanGateRequestIdV1, HumanGateResponseIdV1, HumanGateResponseSubmissionV1, MutationV1,
+    RefusalV1, ReplyV1,
+};
 
 #[derive(Default)]
 struct RecordingPort(Vec<CommandV1>);
@@ -44,4 +49,20 @@ fn capability_clients_emit_only_their_closed_command_shapes() {
     let port = reader.into_port();
     assert!(matches!(port.0[1], CommandV1::Status));
     assert!(matches!(port.0[2], CommandV1::Deliberation { .. }));
+
+    let mut gate = DeliberationHumanGateClient::new(port);
+    gate.respond(HumanGateOperationV1 {
+        deliberation: DeliberationIdV1([1; 16]),
+        expected_revision: 8,
+        response: HumanGateResponseSubmissionV1 {
+            id: HumanGateResponseIdV1([2; 16]),
+            request: HumanGateRequestIdV1([3; 16]),
+            disposition: HumanGateDispositionV1::ChangesRequested,
+            rationale_digest: [4; 32],
+            responded_at: 9,
+        },
+    })
+    .unwrap();
+    let port = gate.into_port();
+    assert!(matches!(port.0[3], CommandV1::RespondHumanGate { .. }));
 }

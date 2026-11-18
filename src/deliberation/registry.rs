@@ -30,7 +30,7 @@ impl Default for RegistryLimitsV1 {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RegistryCommandV1 {
-    Admit(DeliberationPlanV1),
+    Admit(Box<DeliberationPlanV1>),
     SubmitReport {
         deliberation: DeliberationIdV1,
         report: MemberReportV1,
@@ -38,6 +38,14 @@ pub enum RegistryCommandV1 {
     Resolve {
         deliberation: DeliberationIdV1,
         resolution: ResolutionV1,
+    },
+    RequestHumanGate {
+        deliberation: DeliberationIdV1,
+        request: HumanGateRequestV1,
+    },
+    RespondHumanGate {
+        deliberation: DeliberationIdV1,
+        response: HumanGateResponseV1,
     },
 }
 
@@ -100,7 +108,7 @@ impl DeliberationRegistryV1 {
 
     pub fn checkpoint(&self) -> RegistryCheckpointV1 {
         RegistryCheckpointV1 {
-            version: 2,
+            version: 3,
             limits: self.limits,
             revision: self.revision,
             deliberations: self
@@ -123,7 +131,7 @@ impl DeliberationRegistryV1 {
             });
         }
         match command {
-            RegistryCommandV1::Admit(plan) => self.admit(plan),
+            RegistryCommandV1::Admit(plan) => self.admit(*plan),
             RegistryCommandV1::SubmitReport {
                 deliberation,
                 report,
@@ -132,11 +140,19 @@ impl DeliberationRegistryV1 {
                 deliberation,
                 resolution,
             } => self.update(deliberation, |state| state.resolve(resolution)),
+            RegistryCommandV1::RequestHumanGate {
+                deliberation,
+                request,
+            } => self.update(deliberation, |state| state.request_human_gate(request)),
+            RegistryCommandV1::RespondHumanGate {
+                deliberation,
+                response,
+            } => self.update(deliberation, |state| state.respond_human_gate(response)),
         }
     }
 
     pub fn recover(checkpoint: RegistryCheckpointV1) -> Result<Self, RegistryRefusalV1> {
-        if checkpoint.version != 2 {
+        if checkpoint.version != 3 {
             return Err(RegistryRefusalV1::UnsupportedVersion);
         }
         let expected = checkpoint.clone();
@@ -155,6 +171,12 @@ impl DeliberationRegistryV1 {
                 .checked_add(1)
                 .and_then(|value| value.checked_add(u64::try_from(retained.reports.len()).ok()?))
                 .and_then(|value| value.checked_add(u64::from(retained.resolution.is_some())))
+                .and_then(|value| {
+                    value.checked_add(u64::from(retained.human_gate_request.is_some()))
+                })
+                .and_then(|value| {
+                    value.checked_add(u64::from(retained.human_gate_response.is_some()))
+                })
                 .ok_or(RegistryRefusalV1::RevisionExhausted)?;
             let id = retained.plan.id;
             let deliberation =

@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use moira_client::{
-    DeliberationMutationClient, DeliberationReadOnlyClient,
+    DeliberationHumanGateClient, DeliberationMutationClient, DeliberationReadOnlyClient,
     unix::{DeliberationClientLimitsV1, DeliberationUnixPort},
 };
 use moira_core::deliberation::{
@@ -10,7 +10,10 @@ use moira_core::deliberation::{
 };
 use moira_local_daemon::unix::{Authenticator, DeliberationDaemon};
 use moira_protocol::deliberation::*;
-use moira_service::{AccessV1, deliberation::DeliberationService};
+use moira_service::{
+    AccessV1,
+    deliberation::{DeliberationService, HumanGateAccessV1},
+};
 use moira_sqlite::deliberation::{DeliberationSqliteStore, DeliberationStoreLimitsV1};
 use moira_wire::LimitsV1;
 use std::{
@@ -35,6 +38,34 @@ impl Authenticator for ReadOnly {
             read: true,
             mutate: false,
         })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct HumanGateAuth {
+    operation: HumanGateOperationV1,
+    subject: [u8; 16],
+}
+
+impl Authenticator for HumanGateAuth {
+    type Error = Infallible;
+
+    fn authenticate(&mut self, _: &UnixStream) -> Result<AccessV1, Self::Error> {
+        Ok(AccessV1 {
+            read: true,
+            mutate: true,
+        })
+    }
+
+    fn authorize_human_gate(
+        &mut self,
+        operation: HumanGateOperationV1,
+    ) -> Result<Option<HumanGateAccessV1>, Self::Error> {
+        Ok((operation == self.operation).then_some(HumanGateAccessV1 {
+            decision: [40; 16],
+            subject: self.subject,
+            epoch: 41,
+        }))
     }
 }
 
@@ -139,6 +170,16 @@ fn plan() -> DeliberationPlanV1 {
     }
 }
 
+fn report() -> MemberReportV1 {
+    MemberReportV1 {
+        id: ReportIdV1([17; 16]),
+        member: EnsembleMemberIdV1([6; 16]),
+        output_digest: [18; 32],
+        evidence_digests: vec![[19; 32]],
+        dissent_digests: vec![[20; 32]],
+    }
+}
+
 #[test]
 fn read_only_private_port_reopens_exact_deliberation_and_refuses_mutation() {
     let fixture = Fixture::new();
@@ -210,4 +251,126 @@ fn read_only_private_port_reopens_exact_deliberation_and_refuses_mutation() {
     ));
     drop(reader);
     worker.join().unwrap();
+}
+
+#[test]
+fn private_port_injects_named_human_authority_and_replays_a_lost_success_reply() {
+    let fixture = Fixture::new();
+    let request = HumanGateRequestV1 {
+        id: HumanGateRequestIdV1([30; 16]),
+        reviewer: [31; 16],
+        finding_digest: [32; 32],
+        decision_digest: [33; 32],
+        material_revision_digest: [34; 32],
+        policy_digest: [35; 32],
+        requested_at: 36,
+    };
+    {
+        let mut service = DeliberationService::new(fixture.open());
+        service
+            .execute(CommandV1::Apply {
+                expected_revision: 0,
+                mutation: MutationV1::Admit(Box::new(plan())),
+            })
+            .unwrap();
+        service
+            .execute(CommandV1::Apply {
+                expected_revision: 1,
+                mutation: MutationV1::SubmitReport {
+                    deliberation: DeliberationIdV1([1; 16]),
+                    report: report(),
+                },
+            })
+            .unwrap();
+        service
+            .execute(CommandV1::Apply {
+                expected_revision: 2,
+                mutation: MutationV1::Resolve {
+                    deliberation: DeliberationIdV1([1; 16]),
+                    resolution: ResolutionV1::Maybe(MaybeValueV1::Both),
+                },
+            })
+            .unwrap();
+        service
+            .execute(CommandV1::Apply {
+                expected_revision: 3,
+                mutation: MutationV1::RequestHumanGate {
+                    deliberation: DeliberationIdV1([1; 16]),
+                    request,
+                },
+            })
+            .unwrap();
+    }
+
+    let operation = HumanGateOperationV1 {
+        deliberation: DeliberationIdV1([1; 16]),
+        expected_revision: 4,
+        response: HumanGateResponseSubmissionV1 {
+            id: HumanGateResponseIdV1([37; 16]),
+            request: request.id,
+            disposition: HumanGateDispositionV1::ChangesRequested,
+            rationale_digest: [38; 32],
+            responded_at: 39,
+        },
+    };
+    let mut daemon = DeliberationDaemon::bind_new(
+        &fixture.socket,
+        DeliberationService::new(fixture.open()),
+        HumanGateAuth {
+            operation,
+            subject: request.reviewer,
+        },
+        LimitsV1::default(),
+        Duration::from_secs(3),
+        8,
+    )
+    .unwrap();
+    let worker = thread::spawn(move || daemon.serve_next().unwrap());
+    let port = DeliberationUnixPort::connect(
+        &fixture.socket,
+        DeliberationClientLimitsV1 {
+            max_frame_bytes: 64 * 1024,
+            max_requests: 8,
+            io_timeout: Duration::from_secs(3),
+        },
+    )
+    .unwrap();
+    let mut gate = DeliberationHumanGateClient::new(port);
+    assert!(matches!(
+        gate.respond(operation).unwrap(),
+        ReplyV1::Accepted(OutcomeV1::Applied {
+            revision: 5,
+            replayed: false,
+            ..
+        })
+    ));
+    assert!(matches!(
+        gate.respond(operation).unwrap(),
+        ReplyV1::Accepted(OutcomeV1::Applied {
+            revision: 5,
+            replayed: true,
+            ..
+        })
+    ));
+    let mut reader = DeliberationReadOnlyClient::new(gate.into_port());
+    let ReplyV1::Accepted(OutcomeV1::Deliberation(Some(view))) =
+        reader.deliberation(operation.deliberation).unwrap()
+    else {
+        panic!("settled deliberation expected")
+    };
+    let response = view.human_gate_response.unwrap();
+    assert_eq!(
+        response.disposition,
+        HumanGateDispositionV1::ChangesRequested
+    );
+    assert_eq!(response.authority.subject, request.reviewer);
+    assert_eq!(response.authority.decision, [40; 16]);
+    drop(reader);
+    worker.join().unwrap();
+
+    let reopened = fixture.open();
+    let retained = reopened
+        .deliberation(moira_core::deliberation::DeliberationIdV1([1; 16]))
+        .unwrap();
+    assert!(retained.human_gate_response.is_some());
 }

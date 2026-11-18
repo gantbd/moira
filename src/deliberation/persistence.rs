@@ -2,8 +2,10 @@
 
 use super::*;
 
-const MAGIC: &[u8; 8] = b"MOIRADL3";
-const CODEC_VERSION: u8 = 3;
+const MAGIC: &[u8; 8] = b"MOIRADL4";
+const CODEC_VERSION: u8 = 4;
+const LEGACY_MAGIC: &[u8; 8] = b"MOIRADL3";
+const LEGACY_CODEC_VERSION: u8 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CodecLimitsV1 {
@@ -141,6 +143,8 @@ pub fn encode(
         encode_report(&mut writer, report)?;
     }
     encode_resolution(&mut writer, checkpoint.resolution.as_ref())?;
+    encode_human_gate_request(&mut writer, checkpoint.human_gate_request.as_ref())?;
+    encode_human_gate_response(&mut writer, checkpoint.human_gate_response.as_ref())?;
     writer.number(checkpoint.remaining_fuel.into())?;
     Ok(writer.bytes)
 }
@@ -151,9 +155,13 @@ pub fn decode(
 ) -> Result<DeliberationCheckpointV1, CodecErrorV1> {
     validate_codec_limits(limits)?;
     let mut reader = Reader::new(bytes, limits.max_bytes)?;
-    if reader.raw::<8>()? != *MAGIC || reader.byte()? != CODEC_VERSION {
-        return Err(CodecErrorV1::Invalid);
-    }
+    let magic = reader.raw::<8>()?;
+    let version = reader.byte()?;
+    let legacy = match (&magic, version) {
+        (value, CODEC_VERSION) if value == MAGIC => false,
+        (value, LEGACY_CODEC_VERSION) if value == LEGACY_MAGIC => true,
+        _ => return Err(CodecErrorV1::Invalid),
+    };
     let domain = decode_limits(&mut reader, limits.domain)?;
     let plan = decode_plan(&mut reader, domain)?;
     let report_count = reader.count(domain.max_members)?;
@@ -165,6 +173,14 @@ pub fn decode(
         reports.push(decode_report(&mut reader, domain)?);
     }
     let resolution = decode_resolution(&mut reader, domain.max_candidates)?;
+    let (human_gate_request, human_gate_response) = if legacy {
+        (None, None)
+    } else {
+        (
+            decode_human_gate_request(&mut reader)?,
+            decode_human_gate_response(&mut reader)?,
+        )
+    };
     let remaining_fuel = to_u32(reader.number()?)?;
     reader.finish()?;
     let checkpoint = DeliberationCheckpointV1 {
@@ -173,10 +189,12 @@ pub fn decode(
         limits: domain,
         reports,
         resolution,
+        human_gate_request,
+        human_gate_response,
         remaining_fuel,
     };
     DeliberationV1::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
-    if encode(&checkpoint, limits)? != bytes {
+    if !legacy && encode(&checkpoint, limits)? != bytes {
         return Err(CodecErrorV1::NonCanonical);
     }
     Ok(checkpoint)
@@ -559,6 +577,99 @@ fn decode_resolution(
         4 => Some(ResolutionV1::Mu(read_mu(reader.byte()?)?)),
         _ => return Err(CodecErrorV1::Invalid),
     })
+}
+
+fn encode_human_gate_request(
+    writer: &mut Writer,
+    request: Option<&HumanGateRequestV1>,
+) -> Result<(), CodecErrorV1> {
+    let Some(request) = request else {
+        return writer.byte(0);
+    };
+    writer.byte(1)?;
+    writer.id(request.id.0)?;
+    writer.id(request.reviewer)?;
+    writer.digest(request.finding_digest)?;
+    writer.digest(request.decision_digest)?;
+    writer.digest(request.material_revision_digest)?;
+    writer.digest(request.policy_digest)?;
+    writer.number(request.requested_at)
+}
+
+fn decode_human_gate_request(
+    reader: &mut Reader<'_>,
+) -> Result<Option<HumanGateRequestV1>, CodecErrorV1> {
+    match reader.byte()? {
+        0 => Ok(None),
+        1 => Ok(Some(HumanGateRequestV1 {
+            id: HumanGateRequestIdV1(reader.id()?),
+            reviewer: reader.id()?,
+            finding_digest: reader.digest()?,
+            decision_digest: reader.digest()?,
+            material_revision_digest: reader.digest()?,
+            policy_digest: reader.digest()?,
+            requested_at: reader.number()?,
+        })),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn encode_human_gate_response(
+    writer: &mut Writer,
+    response: Option<&HumanGateResponseV1>,
+) -> Result<(), CodecErrorV1> {
+    let Some(response) = response else {
+        return writer.byte(0);
+    };
+    writer.byte(1)?;
+    writer.id(response.id.0)?;
+    writer.id(response.request.0)?;
+    writer.byte(human_gate_disposition_tag(response.disposition))?;
+    writer.digest(response.rationale_digest)?;
+    writer.number(response.responded_at)?;
+    writer.id(response.authority.decision)?;
+    writer.id(response.authority.subject)?;
+    writer.number(response.authority.epoch)
+}
+
+fn decode_human_gate_response(
+    reader: &mut Reader<'_>,
+) -> Result<Option<HumanGateResponseV1>, CodecErrorV1> {
+    match reader.byte()? {
+        0 => Ok(None),
+        1 => Ok(Some(HumanGateResponseV1 {
+            id: HumanGateResponseIdV1(reader.id()?),
+            request: HumanGateRequestIdV1(reader.id()?),
+            disposition: read_human_gate_disposition(reader.byte()?)?,
+            rationale_digest: reader.digest()?,
+            responded_at: reader.number()?,
+            authority: HumanGateAuthorityRefV1 {
+                decision: reader.id()?,
+                subject: reader.id()?,
+                epoch: reader.number()?,
+            },
+        })),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn human_gate_disposition_tag(value: HumanGateDispositionV1) -> u8 {
+    match value {
+        HumanGateDispositionV1::Approved => 0,
+        HumanGateDispositionV1::Rejected => 1,
+        HumanGateDispositionV1::Deferred => 2,
+        HumanGateDispositionV1::ChangesRequested => 3,
+    }
+}
+
+fn read_human_gate_disposition(value: u8) -> Result<HumanGateDispositionV1, CodecErrorV1> {
+    match value {
+        0 => Ok(HumanGateDispositionV1::Approved),
+        1 => Ok(HumanGateDispositionV1::Rejected),
+        2 => Ok(HumanGateDispositionV1::Deferred),
+        3 => Ok(HumanGateDispositionV1::ChangesRequested),
+        _ => Err(CodecErrorV1::Invalid),
+    }
 }
 
 fn validate_codec_limits(limits: CodecLimitsV1) -> Result<(), CodecErrorV1> {

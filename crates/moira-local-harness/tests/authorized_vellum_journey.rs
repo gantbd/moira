@@ -407,7 +407,7 @@ fn authorized_ensemble_edit_crosses_live_aegis_and_lookup_only_vellum_recovery()
     deliberations
         .apply(
             deliberations.revision(),
-            RegistryCommandV1::Admit(plan.clone()),
+            RegistryCommandV1::Admit(Box::new(plan.clone())),
         )
         .unwrap();
     for report in reports {

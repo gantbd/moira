@@ -353,7 +353,10 @@ fn resumed_member_remains_incomplete_until_terminal_report_is_durably_retained()
     let mut store = Store::new();
     let plan = plan();
     store
-        .apply(store.revision(), RegistryCommandV1::Admit(plan.clone()))
+        .apply(
+            store.revision(),
+            RegistryCommandV1::Admit(Box::new(plan.clone())),
+        )
         .unwrap();
     let run = runs(&plan).remove(0);
     let result = CompletedToolResultV1 {

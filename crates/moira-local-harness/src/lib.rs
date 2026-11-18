@@ -146,7 +146,10 @@ where
     let correlation =
         ensemble::analyze_correlation(&plan, &runs).map_err(GovernedRunErrorV1::InvalidCohort)?;
     let admitted = store
-        .apply(store.revision(), RegistryCommandV1::Admit(plan.clone()))
+        .apply(
+            store.revision(),
+            RegistryCommandV1::Admit(Box::new(plan.clone())),
+        )
         .map_err(GovernedRunErrorV1::Admission)?;
     let outcomes =
         ensemble::execute(adapter, &plan, runs, now).map_err(GovernedRunErrorV1::InvalidCohort)?;

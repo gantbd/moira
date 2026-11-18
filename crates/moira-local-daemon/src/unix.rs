@@ -16,7 +16,7 @@ use moira_service::{
     agent::AgentService,
     agent_participation::{AgentParticipationService, PermissionAccessV1, PromptSubmissionErrorV1},
     attempt_lookup::{AttemptLookupPolicy, ExactAttempt},
-    deliberation::DeliberationService,
+    deliberation::{DeliberationService, HumanGateAccessV1},
     saga::{OperatorAccessV1, SagaService},
 };
 use moira_wire::{LimitsV1, ReadyV1, encode_ready};
@@ -30,6 +30,15 @@ use std::{
 pub trait Authenticator {
     type Error;
     fn authenticate(&mut self, stream: &UnixStream) -> Result<AccessV1, Self::Error>;
+
+    /// Command-scoped named-human attribution for one exact deliberation gate
+    /// response. Ordinary/read-only authenticators deny this by default.
+    fn authorize_human_gate(
+        &mut self,
+        _operation: moira_protocol::deliberation::HumanGateOperationV1,
+    ) -> Result<Option<HumanGateAccessV1>, Self::Error> {
+        Ok(None)
+    }
 }
 
 /// Connection authentication plus command-scoped operator authorization for
@@ -106,7 +115,13 @@ pub enum AgentDaemonErrorV1<A, S> {
 pub enum DeliberationDaemonErrorV1<A, S> {
     Io(io::Error),
     Authentication(A),
-    Connection(ConnectionErrorV1<S>),
+    Connection(ConnectionErrorV1<DeliberationDispatchErrorV1<A, S>>),
+}
+
+#[derive(Debug)]
+pub enum DeliberationDispatchErrorV1<A, S> {
+    Authorization(A),
+    Service(S),
 }
 
 #[derive(Debug)]
@@ -598,7 +613,26 @@ impl<S: DeliberationStore, A: Authenticator> DeliberationDaemon<S, A> {
         write_ready(stream, self.wire_limits, self.max_requests)
             .map_err(DeliberationDaemonErrorV1::Io)?;
         serve_deliberation_up_to(stream, self.wire_limits, self.max_requests, |command| {
-            self.service.execute_authorized(access, command)
+            match command {
+                moira_protocol::deliberation::CommandV1::RespondHumanGate { operation } => {
+                    let Some(verified) = self
+                        .authenticator
+                        .authorize_human_gate(operation)
+                        .map_err(DeliberationDispatchErrorV1::Authorization)?
+                    else {
+                        return Ok(moira_protocol::deliberation::ReplyV1::Refused(
+                            moira_protocol::deliberation::RefusalV1::NotAuthorized,
+                        ));
+                    };
+                    self.service
+                        .execute_human_gate_authorized(access, verified, operation)
+                        .map_err(DeliberationDispatchErrorV1::Service)
+                }
+                command => self
+                    .service
+                    .execute_authorized(access, command)
+                    .map_err(DeliberationDispatchErrorV1::Service),
+            }
         })
         .map(|_| ())
         .map_err(DeliberationDaemonErrorV1::Connection)

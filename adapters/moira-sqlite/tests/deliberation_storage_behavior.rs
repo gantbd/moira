@@ -136,7 +136,10 @@ fn registry_reopens_and_matching_replay_does_not_advance_revision() {
     {
         let mut store = fixture.open();
         let admitted = store
-            .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+            .apply(
+                RegistryRevisionV1(0),
+                RegistryCommandV1::Admit(Box::new(plan())),
+            )
             .unwrap();
         assert_eq!(admitted.revision, RegistryRevisionV1(1));
         store
@@ -194,10 +197,16 @@ fn stale_revision_remains_a_domain_refusal_without_persistent_change() {
     let fixture = Fixture::new();
     let mut store = fixture.open();
     store
-        .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+        .apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan())),
+        )
         .unwrap();
     assert!(matches!(
-        store.apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan())),
+        store.apply(
+            RegistryRevisionV1(0),
+            RegistryCommandV1::Admit(Box::new(plan())),
+        ),
         Err(ApplyFailureV1::Domain(
             moira_core::deliberation::registry::RegistryRefusalV1::RevisionConflict { .. }
         ))

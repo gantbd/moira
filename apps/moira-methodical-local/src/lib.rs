@@ -2081,7 +2081,7 @@ mod tests {
         };
         let mut store = DeliberationSqliteStore::open(path, [11; 16], store_limits(64)).unwrap();
         store
-            .apply(store.revision(), RegistryCommandV1::Admit(plan))
+            .apply(store.revision(), RegistryCommandV1::Admit(Box::new(plan)))
             .unwrap();
         for (report, member) in [(12, 7), (13, 8)] {
             store

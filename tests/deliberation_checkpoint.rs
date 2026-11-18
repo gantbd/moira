@@ -2,9 +2,10 @@ use moira_core::deliberation::{
     AuthorityDecisionIdV1, AuthorityRefV1, AuthoritySubjectIdV1, CandidateIdV1, CandidateV1,
     ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1, DeliberationIdV1,
     DeliberationLimitsV1, DeliberationPlanV1, DeliberationV1, EnsembleAdmissionV1,
-    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, MemberReportV1, MethodRefV1,
-    OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1,
-    SurfaceDepthV1,
+    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, HumanGateAuthorityRefV1,
+    HumanGateDispositionV1, HumanGateRequestIdV1, HumanGateRequestV1, HumanGateResponseIdV1,
+    HumanGateResponseV1, MemberReportV1, MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1,
+    ReportIdV1, ResolutionV1, StakeholderRefV1, SurfaceDepthV1,
     persistence::{CodecErrorV1, CodecLimitsV1, decode, encode},
 };
 
@@ -91,6 +92,31 @@ fn checkpoint() -> moira_core::deliberation::DeliberationCheckpointV1 {
             },
         })
         .unwrap();
+    deliberation
+        .request_human_gate(HumanGateRequestV1 {
+            id: HumanGateRequestIdV1([30; 16]),
+            reviewer: [31; 16],
+            finding_digest: [32; 32],
+            decision_digest: [33; 32],
+            material_revision_digest: [34; 32],
+            policy_digest: [35; 32],
+            requested_at: 36,
+        })
+        .unwrap();
+    deliberation
+        .respond_human_gate(HumanGateResponseV1 {
+            id: HumanGateResponseIdV1([37; 16]),
+            request: HumanGateRequestIdV1([30; 16]),
+            disposition: HumanGateDispositionV1::Deferred,
+            rationale_digest: [38; 32],
+            responded_at: 39,
+            authority: HumanGateAuthorityRefV1 {
+                decision: [40; 16],
+                subject: [31; 16],
+                epoch: 41,
+            },
+        })
+        .unwrap();
     deliberation.checkpoint()
 }
 
@@ -111,6 +137,27 @@ fn prior_codec_identity_is_refused_instead_of_reinterpreted() {
     bytes[..8].copy_from_slice(b"MOIRADL1");
     bytes[8] = 1;
     assert_eq!(decode(&bytes, limits), Err(CodecErrorV1::Invalid));
+}
+
+#[test]
+fn version_three_bytes_migrate_without_fabricating_a_human_gate() {
+    let mut checkpoint = checkpoint();
+    checkpoint.human_gate_request = None;
+    checkpoint.human_gate_response = None;
+    let limits = CodecLimitsV1::default();
+    let current = encode(&checkpoint, limits).unwrap();
+    assert_eq!(&current[current.len() - 10..current.len() - 8], &[0, 0]);
+
+    let mut legacy = current;
+    legacy[..8].copy_from_slice(b"MOIRADL3");
+    legacy[8] = 3;
+    legacy.drain(legacy.len() - 10..legacy.len() - 8);
+
+    let migrated = decode(&legacy, limits).unwrap();
+    assert_eq!(migrated.version, 4);
+    assert_eq!(migrated.human_gate_request, None);
+    assert_eq!(migrated.human_gate_response, None);
+    assert_ne!(encode(&migrated, limits).unwrap(), legacy);
 }
 
 #[test]

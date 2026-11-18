@@ -9,6 +9,35 @@ pub struct DeliberationService<S> {
     store: S,
 }
 
+/// Verified named-human and authority facts supplied by a command-scoped
+/// adapter. Credentials and reusable grant handles never cross this boundary.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct HumanGateAccessV1 {
+    pub decision: [u8; 16],
+    pub subject: [u8; 16],
+    pub epoch: u64,
+}
+
+impl std::fmt::Debug for HumanGateAccessV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HumanGateAccessV1")
+            .field("decision", &"<opaque>")
+            .field("subject", &"<redacted>")
+            .field("epoch", &self.epoch)
+            .finish()
+    }
+}
+
+pub trait HumanGateAuthorizer {
+    type Error;
+
+    fn authorize_human_gate(
+        &mut self,
+        operation: protocol::HumanGateOperationV1,
+    ) -> Result<Option<HumanGateAccessV1>, Self::Error>;
+}
+
 impl<S: DeliberationStore> DeliberationService<S> {
     pub const fn new(store: S) -> Self {
         Self { store }
@@ -31,6 +60,7 @@ impl<S: DeliberationStore> DeliberationService<S> {
     ) -> Result<protocol::ReplyV1, S::Error> {
         let allowed = match command {
             protocol::CommandV1::Apply { .. } => access.mutate,
+            protocol::CommandV1::RespondHumanGate { .. } => false,
             protocol::CommandV1::Status | protocol::CommandV1::Deliberation { .. } => access.read,
         };
         if !allowed {
@@ -72,6 +102,62 @@ impl<S: DeliberationStore> DeliberationService<S> {
                         .map(Box::new),
                 ),
             )),
+            protocol::CommandV1::RespondHumanGate { .. } => unreachable!("refused above"),
+        }
+    }
+
+    pub fn execute_human_gate_authorized(
+        &mut self,
+        access: AccessV1,
+        verified: HumanGateAccessV1,
+        operation: protocol::HumanGateOperationV1,
+    ) -> Result<protocol::ReplyV1, S::Error> {
+        if !access.mutate {
+            return Ok(protocol::ReplyV1::Refused(
+                protocol::RefusalV1::NotAuthorized,
+            ));
+        }
+        let response = domain::HumanGateResponseV1 {
+            id: domain::HumanGateResponseIdV1(operation.response.id.0),
+            request: domain::HumanGateRequestIdV1(operation.response.request.0),
+            disposition: human_gate_disposition_domain(operation.response.disposition),
+            rationale_digest: operation.response.rationale_digest,
+            responded_at: operation.response.responded_at,
+            authority: domain::HumanGateAuthorityRefV1 {
+                decision: verified.decision,
+                subject: verified.subject,
+                epoch: verified.epoch,
+            },
+        };
+        let current_revision = self.store.revision();
+        if current_revision.0 != operation.expected_revision
+            && let Some(retained) = self
+                .store
+                .deliberation(domain::DeliberationIdV1(operation.deliberation.0))
+            && retained.human_gate_response == Some(response)
+        {
+            return Ok(protocol::ReplyV1::Accepted(protocol::OutcomeV1::Applied {
+                revision: current_revision.0,
+                deliberation: Box::new(checkpoint_view(retained)),
+                replayed: true,
+            }));
+        }
+        match self.store.apply(
+            registry::RegistryRevisionV1(operation.expected_revision),
+            registry::RegistryCommandV1::RespondHumanGate {
+                deliberation: domain::DeliberationIdV1(operation.deliberation.0),
+                response,
+            },
+        ) {
+            Ok(receipt) => Ok(protocol::ReplyV1::Accepted(protocol::OutcomeV1::Applied {
+                revision: receipt.revision.0,
+                deliberation: Box::new(checkpoint_view(receipt.deliberation)),
+                replayed: receipt.replayed,
+            })),
+            Err(DeliberationApplyErrorV1::Domain(value)) => {
+                Ok(protocol::ReplyV1::Refused(refusal(value)))
+            }
+            Err(DeliberationApplyErrorV1::Backend(error)) => Err(error),
         }
     }
 
@@ -82,7 +168,9 @@ impl<S: DeliberationStore> DeliberationService<S> {
 
 fn mutation_domain(value: protocol::MutationV1) -> registry::RegistryCommandV1 {
     match value {
-        protocol::MutationV1::Admit(plan) => registry::RegistryCommandV1::Admit(plan_domain(*plan)),
+        protocol::MutationV1::Admit(plan) => {
+            registry::RegistryCommandV1::Admit(Box::new(plan_domain(*plan)))
+        }
         protocol::MutationV1::SubmitReport {
             deliberation,
             report,
@@ -97,6 +185,38 @@ fn mutation_domain(value: protocol::MutationV1) -> registry::RegistryCommandV1 {
             deliberation: domain::DeliberationIdV1(deliberation.0),
             resolution: resolution_domain(resolution),
         },
+        protocol::MutationV1::RequestHumanGate {
+            deliberation,
+            request,
+        } => registry::RegistryCommandV1::RequestHumanGate {
+            deliberation: domain::DeliberationIdV1(deliberation.0),
+            request: human_gate_request_domain(request),
+        },
+    }
+}
+
+fn human_gate_request_domain(value: protocol::HumanGateRequestV1) -> domain::HumanGateRequestV1 {
+    domain::HumanGateRequestV1 {
+        id: domain::HumanGateRequestIdV1(value.id.0),
+        reviewer: value.reviewer,
+        finding_digest: value.finding_digest,
+        decision_digest: value.decision_digest,
+        material_revision_digest: value.material_revision_digest,
+        policy_digest: value.policy_digest,
+        requested_at: value.requested_at,
+    }
+}
+
+fn human_gate_disposition_domain(
+    value: protocol::HumanGateDispositionV1,
+) -> domain::HumanGateDispositionV1 {
+    match value {
+        protocol::HumanGateDispositionV1::Approved => domain::HumanGateDispositionV1::Approved,
+        protocol::HumanGateDispositionV1::Rejected => domain::HumanGateDispositionV1::Rejected,
+        protocol::HumanGateDispositionV1::Deferred => domain::HumanGateDispositionV1::Deferred,
+        protocol::HumanGateDispositionV1::ChangesRequested => {
+            domain::HumanGateDispositionV1::ChangesRequested
+        }
     }
 }
 
@@ -303,8 +423,44 @@ fn checkpoint_view(value: domain::DeliberationCheckpointV1) -> protocol::Deliber
         },
         reports: value.reports.into_iter().map(report_view).collect(),
         resolution: value.resolution.map(resolution_view),
+        human_gate_request: value.human_gate_request.map(human_gate_request_view),
+        human_gate_response: value.human_gate_response.map(human_gate_response_view),
         remaining_fuel: value.remaining_fuel,
         phase,
+    }
+}
+
+fn human_gate_request_view(value: domain::HumanGateRequestV1) -> protocol::HumanGateRequestV1 {
+    protocol::HumanGateRequestV1 {
+        id: protocol::HumanGateRequestIdV1(value.id.0),
+        reviewer: value.reviewer,
+        finding_digest: value.finding_digest,
+        decision_digest: value.decision_digest,
+        material_revision_digest: value.material_revision_digest,
+        policy_digest: value.policy_digest,
+        requested_at: value.requested_at,
+    }
+}
+
+fn human_gate_response_view(value: domain::HumanGateResponseV1) -> protocol::HumanGateResponseV1 {
+    protocol::HumanGateResponseV1 {
+        id: protocol::HumanGateResponseIdV1(value.id.0),
+        request: protocol::HumanGateRequestIdV1(value.request.0),
+        disposition: match value.disposition {
+            domain::HumanGateDispositionV1::Approved => protocol::HumanGateDispositionV1::Approved,
+            domain::HumanGateDispositionV1::Rejected => protocol::HumanGateDispositionV1::Rejected,
+            domain::HumanGateDispositionV1::Deferred => protocol::HumanGateDispositionV1::Deferred,
+            domain::HumanGateDispositionV1::ChangesRequested => {
+                protocol::HumanGateDispositionV1::ChangesRequested
+            }
+        },
+        rationale_digest: value.rationale_digest,
+        responded_at: value.responded_at,
+        authority: protocol::HumanGateAuthorityRefV1 {
+            decision: value.authority.decision,
+            subject: value.authority.subject,
+            epoch: value.authority.epoch,
+        },
     }
 }
 
@@ -545,6 +701,13 @@ fn deliberation_refusal(value: domain::DeliberationRefusalV1) -> protocol::Delib
         D::ReportConflict => P::ReportConflict,
         D::AlreadyResolved => P::AlreadyResolved,
         D::ReportsIncomplete => P::ReportsIncomplete,
+        D::GateBeforeResolution => P::GateBeforeResolution,
+        D::InvalidHumanGateRequest => P::InvalidHumanGateRequest,
+        D::HumanGateRequestConflict => P::HumanGateRequestConflict,
+        D::HumanGateNotRequested => P::HumanGateNotRequested,
+        D::InvalidHumanGateResponse => P::InvalidHumanGateResponse,
+        D::HumanGateReviewerMismatch => P::HumanGateReviewerMismatch,
+        D::HumanGateResponseConflict => P::HumanGateResponseConflict,
         D::ResolutionConflict => P::ResolutionConflict,
         D::FrontierMismatch => P::FrontierMismatch,
         D::SelectionOutsideFrontier => P::SelectionOutsideFrontier,

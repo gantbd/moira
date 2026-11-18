@@ -6,8 +6,10 @@ use crate::deliberation::persistence::{
     encode as encode_child,
 };
 
-const MAGIC: &[u8; 8] = b"MOIRADR2";
-const CODEC_VERSION: u8 = 2;
+const MAGIC: &[u8; 8] = b"MOIRADR3";
+const CODEC_VERSION: u8 = 3;
+const LEGACY_MAGIC: &[u8; 8] = b"MOIRADR2";
+const LEGACY_CODEC_VERSION: u8 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CodecLimitsV1 {
@@ -161,9 +163,13 @@ pub fn encode(
 pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV1, CodecErrorV1> {
     validate_codec_limits(limits)?;
     let mut reader = Reader::new(bytes, limits.max_bytes)?;
-    if reader.raw::<8>()? != *MAGIC || reader.byte()? != CODEC_VERSION {
-        return Err(CodecErrorV1::Invalid);
-    }
+    let magic = reader.raw::<8>()?;
+    let version = reader.byte()?;
+    let legacy = match (&magic, version) {
+        (value, CODEC_VERSION) if value == MAGIC => false,
+        (value, LEGACY_CODEC_VERSION) if value == LEGACY_MAGIC => true,
+        _ => return Err(CodecErrorV1::Invalid),
+    };
     let registry_limits = decode_limits(&mut reader, limits.registry)?;
     let revision = RegistryRevisionV1(reader.number()?);
     let count = reader.count(registry_limits.max_deliberations)?;
@@ -187,7 +193,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
         deliberations,
     };
     DeliberationRegistryV1::recover(checkpoint.clone()).map_err(CodecErrorV1::Registry)?;
-    if encode(&checkpoint, limits)? != bytes {
+    if !legacy && encode(&checkpoint, limits)? != bytes {
         return Err(CodecErrorV1::NonCanonical);
     }
     Ok(checkpoint)

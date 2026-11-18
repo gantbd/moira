@@ -4,7 +4,10 @@ use moira_core::deliberation::{
 };
 use moira_host::{DeliberationApplyErrorV1, DeliberationStore};
 use moira_protocol::deliberation::*;
-use moira_service::{AccessV1, deliberation::DeliberationService};
+use moira_service::{
+    AccessV1,
+    deliberation::{DeliberationService, HumanGateAccessV1},
+};
 
 struct Store {
     registry: DeliberationRegistryV1,
@@ -241,4 +244,132 @@ fn domain_refusals_remain_typed_at_the_public_boundary() {
             FrontierRefusalV1::NoCriteria
         )))
     );
+}
+
+#[test]
+fn human_gate_identity_is_injected_by_authority_and_exact_lost_reply_replays() {
+    let mut service = DeliberationService::new(Store::new());
+    service
+        .execute(CommandV1::Apply {
+            expected_revision: 0,
+            mutation: MutationV1::Admit(Box::new(plan(1))),
+        })
+        .unwrap();
+    service
+        .execute(CommandV1::Apply {
+            expected_revision: 1,
+            mutation: MutationV1::SubmitReport {
+                deliberation: DeliberationIdV1([1; 16]),
+                report: report(),
+            },
+        })
+        .unwrap();
+    service
+        .execute(CommandV1::Apply {
+            expected_revision: 2,
+            mutation: MutationV1::Resolve {
+                deliberation: DeliberationIdV1([1; 16]),
+                resolution: ResolutionV1::Maybe(MaybeValueV1::Both),
+            },
+        })
+        .unwrap();
+    service
+        .execute(CommandV1::Apply {
+            expected_revision: 3,
+            mutation: MutationV1::RequestHumanGate {
+                deliberation: DeliberationIdV1([1; 16]),
+                request: HumanGateRequestV1 {
+                    id: HumanGateRequestIdV1([30; 16]),
+                    reviewer: [31; 16],
+                    finding_digest: [32; 32],
+                    decision_digest: [33; 32],
+                    material_revision_digest: [34; 32],
+                    policy_digest: [35; 32],
+                    requested_at: 36,
+                },
+            },
+        })
+        .unwrap();
+    let operation = HumanGateOperationV1 {
+        deliberation: DeliberationIdV1([1; 16]),
+        expected_revision: 4,
+        response: HumanGateResponseSubmissionV1 {
+            id: HumanGateResponseIdV1([37; 16]),
+            request: HumanGateRequestIdV1([30; 16]),
+            disposition: HumanGateDispositionV1::Approved,
+            rationale_digest: [38; 32],
+            responded_at: 39,
+        },
+    };
+
+    assert_eq!(
+        service
+            .execute(CommandV1::RespondHumanGate { operation })
+            .unwrap(),
+        ReplyV1::Refused(RefusalV1::NotAuthorized)
+    );
+    assert_eq!(
+        service
+            .execute_human_gate_authorized(
+                AccessV1 {
+                    read: true,
+                    mutate: true,
+                },
+                HumanGateAccessV1 {
+                    decision: [40; 16],
+                    subject: [41; 16],
+                    epoch: 42,
+                },
+                operation,
+            )
+            .unwrap(),
+        ReplyV1::Refused(RefusalV1::Deliberation(
+            DeliberationRefusalV1::HumanGateReviewerMismatch
+        ))
+    );
+
+    let verified = HumanGateAccessV1 {
+        decision: [40; 16],
+        subject: [31; 16],
+        epoch: 42,
+    };
+    let accepted = service
+        .execute_human_gate_authorized(
+            AccessV1 {
+                read: true,
+                mutate: true,
+            },
+            verified,
+            operation,
+        )
+        .unwrap();
+    assert!(matches!(
+        accepted,
+        ReplyV1::Accepted(OutcomeV1::Applied {
+            revision: 5,
+            replayed: false,
+            ref deliberation,
+        }) if deliberation.human_gate_response.as_ref().is_some_and(|response|
+            response.authority.subject == [31; 16]
+                && response.authority.decision == [40; 16]
+                && response.disposition == HumanGateDispositionV1::Approved)
+    ));
+
+    assert!(matches!(
+        service
+            .execute_human_gate_authorized(
+                AccessV1 {
+                    read: true,
+                    mutate: true,
+                },
+                verified,
+                operation,
+            )
+            .unwrap(),
+        ReplyV1::Accepted(OutcomeV1::Applied {
+            revision: 5,
+            replayed: true,
+            ..
+        })
+    ));
 }

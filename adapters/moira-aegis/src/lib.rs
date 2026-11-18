@@ -21,9 +21,11 @@ use moira_protocol::tool_continuation::{
 };
 use moira_protocol::{
     OperatorOperationV1, SagaCommandV1, SagaReplyV1, agent_participation as participation,
+    deliberation as deliberation_protocol,
 };
 use moira_service::{
     agent_participation::{PermissionAccessV1, PermissionAuthorizer},
+    deliberation::{HumanGateAccessV1, HumanGateAuthorizer},
     saga::{OperatorAccessV1, OperatorAuthorizer, SagaService},
 };
 use sha2::{Digest, Sha256};
@@ -59,6 +61,12 @@ pub enum ToolAuthorizationError<AuthorityError> {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum PermissionAuthorizationError<AuthorityError> {
+    UnexpectedAuthorityReply,
+    AuthorityTransport(AuthorityError),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum HumanGateAuthorizationError<AuthorityError> {
     UnexpectedAuthorityReply,
     AuthorityTransport(AuthorityError),
 }
@@ -433,6 +441,76 @@ impl<P: ServicePort, T: TimeSourceV1> PermissionAuthorizer for AegisPermissionAu
     }
 }
 
+/// Command-scoped Aegis authorization for one exact retained human-gate
+/// request. The response disposition remains the human's choice; the grant
+/// only proves that the named subject may administer this exact gate.
+pub struct AegisHumanGateAuthorizerV1<P, T> {
+    authority: AuthorityClient<P>,
+    grant: GrantHandleV1,
+    subject: [u8; 16],
+    time: T,
+}
+
+impl<P, T> AegisHumanGateAuthorizerV1<P, T> {
+    pub const fn new(
+        authority: AuthorityClient<P>,
+        grant: GrantHandleV1,
+        subject: [u8; 16],
+        time: T,
+    ) -> Self {
+        Self {
+            authority,
+            grant,
+            subject,
+            time,
+        }
+    }
+}
+
+impl<P: ServicePort, T> AegisHumanGateAuthorizerV1<P, T> {
+    pub fn into_parts(self) -> (P, T) {
+        (self.authority.into_port(), self.time)
+    }
+}
+
+impl<P: ServicePort, T: TimeSourceV1> HumanGateAuthorizer for AegisHumanGateAuthorizerV1<P, T> {
+    type Error = HumanGateAuthorizationError<P::Error>;
+
+    fn authorize_human_gate(
+        &mut self,
+        operation: deliberation_protocol::HumanGateOperationV1,
+    ) -> Result<Option<HumanGateAccessV1>, Self::Error> {
+        let now = self.time.now();
+        let reply = self
+            .authority
+            .authorize(
+                self.grant,
+                now,
+                EngineNamespaceV1::Moira,
+                human_gate_resource(operation.deliberation, operation.response.request),
+                ActionV1::Administer,
+            )
+            .map_err(HumanGateAuthorizationError::AuthorityTransport)?;
+        let ReplyV1::Accepted(OutcomeV1::Authorized(decision)) = reply else {
+            return match reply {
+                ReplyV1::Refused(_) => Ok(None),
+                ReplyV1::Accepted(_) => Err(HumanGateAuthorizationError::UnexpectedAuthorityReply),
+            };
+        };
+        if decision.engine != EngineNamespaceV1::Moira
+            || decision.action != ActionV1::Administer
+            || decision.expires_at < now
+        {
+            return Err(HumanGateAuthorizationError::UnexpectedAuthorityReply);
+        }
+        Ok(Some(HumanGateAccessV1 {
+            decision: aegis_decision_id(decision.handle.0),
+            subject: self.subject,
+            epoch: decision.epoch,
+        }))
+    }
+}
+
 /// One authenticated Aegis session and one session-owned grant. Constructing
 /// this value grants no authority; Aegis validates every operation.
 pub struct OperatorAdapter<P> {
@@ -518,6 +596,23 @@ pub fn choice_resource(deliberation: DeliberationIdV1) -> [u8; 16] {
     let mut hash = Sha256::new();
     hash.update(b"MOIRACH1");
     hash.update(deliberation.0);
+    let digest = hash.finalize();
+    let mut resource = [0_u8; 16];
+    resource.copy_from_slice(&digest[..16]);
+    resource
+}
+
+/// Stable domain-separated scope for one exact human-gate request. The
+/// deliberation owner independently verifies that the request is current and
+/// that the authorized subject is its named reviewer.
+pub fn human_gate_resource(
+    deliberation: deliberation_protocol::DeliberationIdV1,
+    request: deliberation_protocol::HumanGateRequestIdV1,
+) -> [u8; 16] {
+    let mut hash = Sha256::new();
+    hash.update(b"MOIRAHG1");
+    hash.update(deliberation.0);
+    hash.update(request.0);
     let digest = hash.finalize();
     let mut resource = [0_u8; 16];
     resource.copy_from_slice(&digest[..16]);

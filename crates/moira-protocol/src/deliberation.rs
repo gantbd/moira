@@ -23,6 +23,8 @@ opaque_id!(AuthoritySubjectIdV1);
 opaque_id!(DeliberationIdV1);
 opaque_id!(EnsembleMemberIdV1);
 opaque_id!(ReportIdV1);
+opaque_id!(HumanGateRequestIdV1);
+opaque_id!(HumanGateResponseIdV1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClaimKindV1 {
@@ -260,6 +262,60 @@ pub struct MemberReportV1 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateRequestV1 {
+    pub id: HumanGateRequestIdV1,
+    pub reviewer: [u8; 16],
+    pub finding_digest: [u8; 32],
+    pub decision_digest: [u8; 32],
+    pub material_revision_digest: [u8; 32],
+    pub policy_digest: [u8; 32],
+    pub requested_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HumanGateDispositionV1 {
+    Approved,
+    Rejected,
+    Deferred,
+    ChangesRequested,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateAuthorityRefV1 {
+    pub decision: [u8; 16],
+    pub subject: [u8; 16],
+    pub epoch: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateResponseV1 {
+    pub id: HumanGateResponseIdV1,
+    pub request: HumanGateRequestIdV1,
+    pub disposition: HumanGateDispositionV1,
+    pub rationale_digest: [u8; 32],
+    pub responded_at: u64,
+    pub authority: HumanGateAuthorityRefV1,
+}
+
+/// Payload proposed by a terminal. Verified reviewer and authority facts are
+/// supplied separately by the command-scoped authorization adapter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateResponseSubmissionV1 {
+    pub id: HumanGateResponseIdV1,
+    pub request: HumanGateRequestIdV1,
+    pub disposition: HumanGateDispositionV1,
+    pub rationale_digest: [u8; 32],
+    pub responded_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateOperationV1 {
+    pub deliberation: DeliberationIdV1,
+    pub expected_revision: u64,
+    pub response: HumanGateResponseSubmissionV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeliberationPhaseV1 {
     Collecting,
     ReadyToResolve,
@@ -273,6 +329,8 @@ pub struct DeliberationViewV1 {
     pub limits: DeliberationLimitsV1,
     pub reports: Vec<MemberReportV1>,
     pub resolution: Option<ResolutionV1>,
+    pub human_gate_request: Option<HumanGateRequestV1>,
+    pub human_gate_response: Option<HumanGateResponseV1>,
     pub remaining_fuel: u32,
     pub phase: DeliberationPhaseV1,
 }
@@ -288,6 +346,10 @@ pub enum MutationV1 {
         deliberation: DeliberationIdV1,
         resolution: ResolutionV1,
     },
+    RequestHumanGate {
+        deliberation: DeliberationIdV1,
+        request: HumanGateRequestV1,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -299,6 +361,9 @@ pub enum CommandV1 {
     Status,
     Deliberation {
         deliberation: DeliberationIdV1,
+    },
+    RespondHumanGate {
+        operation: HumanGateOperationV1,
     },
 }
 
@@ -341,6 +406,13 @@ pub enum DeliberationRefusalV1 {
     ReportConflict,
     AlreadyResolved,
     ReportsIncomplete,
+    GateBeforeResolution,
+    InvalidHumanGateRequest,
+    HumanGateRequestConflict,
+    HumanGateNotRequested,
+    InvalidHumanGateResponse,
+    HumanGateReviewerMismatch,
+    HumanGateResponseConflict,
     ResolutionConflict,
     FrontierMismatch,
     SelectionOutsideFrontier,

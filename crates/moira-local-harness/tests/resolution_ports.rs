@@ -19,7 +19,10 @@ impl Store {
     fn ready() -> Self {
         let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
         registry
-            .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+            .apply(
+                RegistryRevisionV1(0),
+                RegistryCommandV1::Admit(Box::new(plan())),
+            )
             .unwrap();
         registry
             .apply(
@@ -36,7 +39,10 @@ impl Store {
     fn collecting() -> Self {
         let mut registry = DeliberationRegistryV1::try_new(RegistryLimitsV1::default()).unwrap();
         registry
-            .apply(RegistryRevisionV1(0), RegistryCommandV1::Admit(plan()))
+            .apply(
+                RegistryRevisionV1(0),
+                RegistryCommandV1::Admit(Box::new(plan())),
+            )
             .unwrap();
         Self(registry)
     }

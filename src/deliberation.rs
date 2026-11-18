@@ -23,6 +23,8 @@ id!(AuthoritySubjectIdV1);
 id!(DeliberationIdV1);
 id!(EnsembleMemberIdV1);
 id!(ReportIdV1);
+id!(HumanGateRequestIdV1);
+id!(HumanGateResponseIdV1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClaimKindV1 {
@@ -281,6 +283,47 @@ pub struct MemberReportV1 {
     pub dissent_digests: Vec<[u8; 32]>,
 }
 
+/// One exact request for a named human to adjudicate a resolved finding.
+/// Digests bind external owner artifacts without importing their content or
+/// granting the reviewer authority merely because the request exists.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateRequestV1 {
+    pub id: HumanGateRequestIdV1,
+    pub reviewer: [u8; 16],
+    pub finding_digest: [u8; 32],
+    pub decision_digest: [u8; 32],
+    pub material_revision_digest: [u8; 32],
+    pub policy_digest: [u8; 32],
+    pub requested_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HumanGateDispositionV1 {
+    Approved,
+    Rejected,
+    Deferred,
+    ChangesRequested,
+}
+
+/// Verified attribution facts injected by the command-scoped authorization
+/// adapter. The human does not claim these facts in the response payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateAuthorityRefV1 {
+    pub decision: [u8; 16],
+    pub subject: [u8; 16],
+    pub epoch: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateResponseV1 {
+    pub id: HumanGateResponseIdV1,
+    pub request: HumanGateRequestIdV1,
+    pub disposition: HumanGateDispositionV1,
+    pub rationale_digest: [u8; 32],
+    pub responded_at: u64,
+    pub authority: HumanGateAuthorityRefV1,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeliberationPhaseV1 {
     Collecting,
@@ -310,6 +353,13 @@ pub enum DeliberationRefusalV1 {
     ReportConflict,
     AlreadyResolved,
     ReportsIncomplete,
+    GateBeforeResolution,
+    InvalidHumanGateRequest,
+    HumanGateRequestConflict,
+    HumanGateNotRequested,
+    InvalidHumanGateResponse,
+    HumanGateReviewerMismatch,
+    HumanGateResponseConflict,
     ResolutionConflict,
     FrontierMismatch,
     SelectionOutsideFrontier,
@@ -324,6 +374,8 @@ pub struct DeliberationCheckpointV1 {
     pub limits: DeliberationLimitsV1,
     pub reports: Vec<MemberReportV1>,
     pub resolution: Option<ResolutionV1>,
+    pub human_gate_request: Option<HumanGateRequestV1>,
+    pub human_gate_response: Option<HumanGateResponseV1>,
     pub remaining_fuel: u32,
 }
 
@@ -333,6 +385,8 @@ pub struct DeliberationV1 {
     limits: DeliberationLimitsV1,
     reports: Vec<MemberReportV1>,
     resolution: Option<ResolutionV1>,
+    human_gate_request: Option<HumanGateRequestV1>,
+    human_gate_response: Option<HumanGateResponseV1>,
     remaining_fuel: u32,
 }
 
@@ -349,6 +403,8 @@ impl DeliberationV1 {
             limits,
             reports: Vec::new(),
             resolution: None,
+            human_gate_request: None,
+            human_gate_response: None,
             remaining_fuel,
         })
     }
@@ -375,17 +431,19 @@ impl DeliberationV1 {
 
     pub fn checkpoint(&self) -> DeliberationCheckpointV1 {
         DeliberationCheckpointV1 {
-            version: 3,
+            version: 4,
             plan: self.plan.clone(),
             limits: self.limits,
             reports: self.reports.clone(),
             resolution: self.resolution.clone(),
+            human_gate_request: self.human_gate_request,
+            human_gate_response: self.human_gate_response,
             remaining_fuel: self.remaining_fuel,
         }
     }
 
     pub fn recover(checkpoint: DeliberationCheckpointV1) -> Result<Self, DeliberationRefusalV1> {
-        if checkpoint.version != 3 {
+        if checkpoint.version != 4 {
             return Err(DeliberationRefusalV1::UnsupportedVersion);
         }
         let expected = checkpoint.clone();
@@ -395,6 +453,12 @@ impl DeliberationV1 {
         }
         if let Some(resolution) = checkpoint.resolution {
             recovered.resolve(resolution)?;
+        }
+        if let Some(request) = checkpoint.human_gate_request {
+            recovered.request_human_gate(request)?;
+        }
+        if let Some(response) = checkpoint.human_gate_response {
+            recovered.respond_human_gate(response)?;
         }
         if recovered.checkpoint() != expected {
             return Err(DeliberationRefusalV1::CheckpointMismatch);
@@ -464,6 +528,51 @@ impl DeliberationV1 {
             }
         }
         self.resolution = Some(resolution);
+        Ok(())
+    }
+
+    pub fn request_human_gate(
+        &mut self,
+        request: HumanGateRequestV1,
+    ) -> Result<(), DeliberationRefusalV1> {
+        if self.resolution.is_none() {
+            return Err(DeliberationRefusalV1::GateBeforeResolution);
+        }
+        if !valid_human_gate_request(request) {
+            return Err(DeliberationRefusalV1::InvalidHumanGateRequest);
+        }
+        if let Some(existing) = self.human_gate_request {
+            return if existing == request {
+                Ok(())
+            } else {
+                Err(DeliberationRefusalV1::HumanGateRequestConflict)
+            };
+        }
+        self.human_gate_request = Some(request);
+        Ok(())
+    }
+
+    pub fn respond_human_gate(
+        &mut self,
+        response: HumanGateResponseV1,
+    ) -> Result<(), DeliberationRefusalV1> {
+        let request = self
+            .human_gate_request
+            .ok_or(DeliberationRefusalV1::HumanGateNotRequested)?;
+        if !valid_human_gate_response(response) {
+            return Err(DeliberationRefusalV1::InvalidHumanGateResponse);
+        }
+        if response.request != request.id || response.authority.subject != request.reviewer {
+            return Err(DeliberationRefusalV1::HumanGateReviewerMismatch);
+        }
+        if let Some(existing) = self.human_gate_response {
+            return if existing == response {
+                Ok(())
+            } else {
+                Err(DeliberationRefusalV1::HumanGateResponseConflict)
+            };
+        }
+        self.human_gate_response = Some(response);
         Ok(())
     }
 
@@ -567,6 +676,23 @@ fn valid_stakeholder(value: StakeholderRefV1) -> bool {
         StakeholderRepresentationV1::AgentModeledPerspective
         | StakeholderRepresentationV1::TechnicalSme => value.mandate_digest.is_none(),
     }
+}
+
+fn valid_human_gate_request(value: HumanGateRequestV1) -> bool {
+    value.id.0 != [0; 16]
+        && value.reviewer != [0; 16]
+        && value.finding_digest != [0; 32]
+        && value.decision_digest != [0; 32]
+        && value.material_revision_digest != [0; 32]
+        && value.policy_digest != [0; 32]
+}
+
+fn valid_human_gate_response(value: HumanGateResponseV1) -> bool {
+    value.id.0 != [0; 16]
+        && value.request.0 != [0; 16]
+        && value.rationale_digest != [0; 32]
+        && value.authority.decision != [0; 16]
+        && value.authority.subject != [0; 16]
 }
 
 fn validate_resolution(

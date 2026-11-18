@@ -3,9 +3,10 @@ use moira_core::deliberation::{
     ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1, DeliberationIdV1,
     DeliberationLimitsV1, DeliberationPhaseV1, DeliberationPlanV1, DeliberationRefusalV1,
     DeliberationV1, EnsembleAdmissionV1, EnsembleFitnessV1, EnsembleMemberIdV1, EnsembleMemberV1,
-    FrontierRefusalV1, GroundingRefV1, MemberReportV1, MethodRefV1, MuReasonV1,
-    OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1,
-    StakeholderRepresentationV1, SurfaceDepthV1, pareto_frontier,
+    FrontierRefusalV1, GroundingRefV1, HumanGateAuthorityRefV1, HumanGateDispositionV1,
+    HumanGateRequestIdV1, HumanGateRequestV1, HumanGateResponseIdV1, HumanGateResponseV1,
+    MemberReportV1, MethodRefV1, MuReasonV1, OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1,
+    ResolutionV1, StakeholderRefV1, StakeholderRepresentationV1, SurfaceDepthV1, pareto_frontier,
 };
 
 fn criterion(seed: u8, direction: CriterionDirectionV1) -> CriterionV1 {
@@ -72,6 +73,46 @@ fn candidate(seed: u8, scores: &[i64]) -> CandidateV1 {
         id: CandidateIdV1([seed; 16]),
         scores: scores.to_vec(),
     }
+}
+
+fn gate_request() -> HumanGateRequestV1 {
+    HumanGateRequestV1 {
+        id: HumanGateRequestIdV1([31; 16]),
+        reviewer: [32; 16],
+        finding_digest: [33; 32],
+        decision_digest: [34; 32],
+        material_revision_digest: [35; 32],
+        policy_digest: [36; 32],
+        requested_at: 37,
+    }
+}
+
+fn gate_response(disposition: HumanGateDispositionV1) -> HumanGateResponseV1 {
+    HumanGateResponseV1 {
+        id: HumanGateResponseIdV1([38; 16]),
+        request: HumanGateRequestIdV1([31; 16]),
+        disposition,
+        rationale_digest: [39; 32],
+        responded_at: 40,
+        authority: HumanGateAuthorityRefV1 {
+            decision: [41; 16],
+            subject: [32; 16],
+            epoch: 42,
+        },
+    }
+}
+
+fn resolved_deliberation() -> DeliberationV1 {
+    let mut deliberation =
+        DeliberationV1::try_new(plan(4), DeliberationLimitsV1::default()).unwrap();
+    deliberation.submit_report(report(1)).unwrap();
+    deliberation.submit_report(report(2)).unwrap();
+    deliberation
+        .resolve(ResolutionV1::Maybe(
+            moira_core::deliberation::MaybeValueV1::Both,
+        ))
+        .unwrap();
+    deliberation
 }
 
 #[test]
@@ -275,4 +316,70 @@ fn semantic_checkpoint_recovers_exactly_and_refuses_mutated_fuel() {
         DeliberationV1::recover(mutated),
         Err(DeliberationRefusalV1::CheckpointMismatch)
     );
+}
+
+#[test]
+fn human_gate_binds_resolved_material_named_reviewer_and_exact_replay() {
+    let mut unresolved = DeliberationV1::try_new(plan(4), DeliberationLimitsV1::default()).unwrap();
+    assert_eq!(
+        unresolved.request_human_gate(gate_request()),
+        Err(DeliberationRefusalV1::GateBeforeResolution)
+    );
+
+    let mut deliberation = resolved_deliberation();
+    let request = gate_request();
+    deliberation.request_human_gate(request).unwrap();
+    deliberation.request_human_gate(request).unwrap();
+    let mut conflicting_request = request;
+    conflicting_request.material_revision_digest = [43; 32];
+    assert_eq!(
+        deliberation.request_human_gate(conflicting_request),
+        Err(DeliberationRefusalV1::HumanGateRequestConflict)
+    );
+
+    let mut wrong_reviewer = gate_response(HumanGateDispositionV1::Approved);
+    wrong_reviewer.authority.subject = [44; 16];
+    assert_eq!(
+        deliberation.respond_human_gate(wrong_reviewer),
+        Err(DeliberationRefusalV1::HumanGateReviewerMismatch)
+    );
+
+    let response = gate_response(HumanGateDispositionV1::Approved);
+    deliberation.respond_human_gate(response).unwrap();
+    deliberation.respond_human_gate(response).unwrap();
+    let mut conflicting_response = response;
+    conflicting_response.disposition = HumanGateDispositionV1::Rejected;
+    assert_eq!(
+        deliberation.respond_human_gate(conflicting_response),
+        Err(DeliberationRefusalV1::HumanGateResponseConflict)
+    );
+
+    let checkpoint = deliberation.checkpoint();
+    assert_eq!(checkpoint.human_gate_request, Some(request));
+    assert_eq!(checkpoint.human_gate_response, Some(response));
+    assert_eq!(
+        DeliberationV1::recover(checkpoint.clone())
+            .unwrap()
+            .checkpoint(),
+        checkpoint
+    );
+}
+
+#[test]
+fn every_human_disposition_remains_distinct_and_none_is_inferred_as_approval() {
+    for disposition in [
+        HumanGateDispositionV1::Approved,
+        HumanGateDispositionV1::Rejected,
+        HumanGateDispositionV1::Deferred,
+        HumanGateDispositionV1::ChangesRequested,
+    ] {
+        let mut deliberation = resolved_deliberation();
+        deliberation.request_human_gate(gate_request()).unwrap();
+        let response = gate_response(disposition);
+        deliberation.respond_human_gate(response).unwrap();
+        assert_eq!(
+            deliberation.checkpoint().human_gate_response,
+            Some(response)
+        );
+    }
 }

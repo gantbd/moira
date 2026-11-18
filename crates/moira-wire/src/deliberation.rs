@@ -6,9 +6,9 @@ use moira_protocol::deliberation as d;
 /// Deliberation profile V2 adds retained stakeholder standing and cohort
 /// admission evidence. Distinct frame kinds make V1 peers fail closed instead
 /// of decoding the changed plan shape under the old profile.
-pub const DELIBERATION_PROFILE_VERSION: u8 = 2;
-const REQUEST: u8 = 12;
-const REPLY: u8 = 13;
+pub const DELIBERATION_PROFILE_VERSION: u8 = 3;
+const REQUEST: u8 = 14;
+const REPLY: u8 = 15;
 
 pub fn encode_deliberation_request(
     value: &d::CommandV1,
@@ -76,6 +76,10 @@ fn command(w: &mut Writer, value: &d::CommandV1) -> Result<(), CodecErrorV1> {
             w.byte(2)?;
             w.raw(&deliberation.0)
         }
+        d::CommandV1::RespondHumanGate { operation } => {
+            w.byte(3)?;
+            human_gate_operation(w, *operation)
+        }
     }
 }
 
@@ -88,6 +92,9 @@ fn read_command(r: &mut Reader<'_>) -> Result<d::CommandV1, CodecErrorV1> {
         1 => Ok(d::CommandV1::Status),
         2 => Ok(d::CommandV1::Deliberation {
             deliberation: d::DeliberationIdV1(r.raw()?),
+        }),
+        3 => Ok(d::CommandV1::RespondHumanGate {
+            operation: read_human_gate_operation(r)?,
         }),
         _ => Err(CodecErrorV1::Unsupported),
     }
@@ -115,6 +122,14 @@ fn mutation(w: &mut Writer, value: &d::MutationV1) -> Result<(), CodecErrorV1> {
             w.raw(&deliberation.0)?;
             resolution(w, value)
         }
+        d::MutationV1::RequestHumanGate {
+            deliberation,
+            request,
+        } => {
+            w.byte(3)?;
+            w.raw(&deliberation.0)?;
+            human_gate_request(w, *request)
+        }
     }
 }
 
@@ -128,6 +143,10 @@ fn read_mutation(r: &mut Reader<'_>) -> Result<d::MutationV1, CodecErrorV1> {
         2 => Ok(d::MutationV1::Resolve {
             deliberation: d::DeliberationIdV1(r.raw()?),
             resolution: read_resolution(r)?,
+        }),
+        3 => Ok(d::MutationV1::RequestHumanGate {
+            deliberation: d::DeliberationIdV1(r.raw()?),
+            request: read_human_gate_request(r)?,
         }),
         _ => Err(CodecErrorV1::Unsupported),
     }
@@ -184,6 +203,12 @@ fn view(w: &mut Writer, value: &d::DeliberationViewV1) -> Result<(), CodecErrorV
         report(w, value)?;
     }
     w.option(value.resolution.as_ref(), resolution)?;
+    w.option(value.human_gate_request.as_ref(), |w, value| {
+        human_gate_request(w, *value)
+    })?;
+    w.option(value.human_gate_response.as_ref(), |w, value| {
+        human_gate_response(w, *value)
+    })?;
     w.u32(value.remaining_fuel)?;
     w.byte(phase_tag(value.phase))
 }
@@ -195,9 +220,124 @@ fn read_view(r: &mut Reader<'_>) -> Result<d::DeliberationViewV1, CodecErrorV1> 
         limits: read_limits(r)?,
         reports: read_many(r, read_report)?,
         resolution: r.option(read_resolution)?,
+        human_gate_request: r.option(read_human_gate_request)?,
+        human_gate_response: r.option(read_human_gate_response)?,
         remaining_fuel: r.u32()?,
         phase: read_phase(r.byte()?)?,
     })
+}
+
+fn human_gate_request(w: &mut Writer, value: d::HumanGateRequestV1) -> Result<(), CodecErrorV1> {
+    w.raw(&value.id.0)?;
+    w.raw(&value.reviewer)?;
+    w.raw(&value.finding_digest)?;
+    w.raw(&value.decision_digest)?;
+    w.raw(&value.material_revision_digest)?;
+    w.raw(&value.policy_digest)?;
+    w.u64(value.requested_at)
+}
+
+fn read_human_gate_request(r: &mut Reader<'_>) -> Result<d::HumanGateRequestV1, CodecErrorV1> {
+    Ok(d::HumanGateRequestV1 {
+        id: d::HumanGateRequestIdV1(r.raw()?),
+        reviewer: r.raw()?,
+        finding_digest: r.raw()?,
+        decision_digest: r.raw()?,
+        material_revision_digest: r.raw()?,
+        policy_digest: r.raw()?,
+        requested_at: r.u64()?,
+    })
+}
+
+fn human_gate_submission(
+    w: &mut Writer,
+    value: d::HumanGateResponseSubmissionV1,
+) -> Result<(), CodecErrorV1> {
+    w.raw(&value.id.0)?;
+    w.raw(&value.request.0)?;
+    w.byte(human_gate_disposition_tag(value.disposition))?;
+    w.raw(&value.rationale_digest)?;
+    w.u64(value.responded_at)
+}
+
+fn read_human_gate_submission(
+    r: &mut Reader<'_>,
+) -> Result<d::HumanGateResponseSubmissionV1, CodecErrorV1> {
+    Ok(d::HumanGateResponseSubmissionV1 {
+        id: d::HumanGateResponseIdV1(r.raw()?),
+        request: d::HumanGateRequestIdV1(r.raw()?),
+        disposition: read_human_gate_disposition(r.byte()?)?,
+        rationale_digest: r.raw()?,
+        responded_at: r.u64()?,
+    })
+}
+
+fn human_gate_operation(
+    w: &mut Writer,
+    value: d::HumanGateOperationV1,
+) -> Result<(), CodecErrorV1> {
+    w.raw(&value.deliberation.0)?;
+    w.u64(value.expected_revision)?;
+    human_gate_submission(w, value.response)
+}
+
+fn read_human_gate_operation(r: &mut Reader<'_>) -> Result<d::HumanGateOperationV1, CodecErrorV1> {
+    Ok(d::HumanGateOperationV1 {
+        deliberation: d::DeliberationIdV1(r.raw()?),
+        expected_revision: r.u64()?,
+        response: read_human_gate_submission(r)?,
+    })
+}
+
+fn human_gate_response(w: &mut Writer, value: d::HumanGateResponseV1) -> Result<(), CodecErrorV1> {
+    human_gate_submission(
+        w,
+        d::HumanGateResponseSubmissionV1 {
+            id: value.id,
+            request: value.request,
+            disposition: value.disposition,
+            rationale_digest: value.rationale_digest,
+            responded_at: value.responded_at,
+        },
+    )?;
+    w.raw(&value.authority.decision)?;
+    w.raw(&value.authority.subject)?;
+    w.u64(value.authority.epoch)
+}
+
+fn read_human_gate_response(r: &mut Reader<'_>) -> Result<d::HumanGateResponseV1, CodecErrorV1> {
+    let value = read_human_gate_submission(r)?;
+    Ok(d::HumanGateResponseV1 {
+        id: value.id,
+        request: value.request,
+        disposition: value.disposition,
+        rationale_digest: value.rationale_digest,
+        responded_at: value.responded_at,
+        authority: d::HumanGateAuthorityRefV1 {
+            decision: r.raw()?,
+            subject: r.raw()?,
+            epoch: r.u64()?,
+        },
+    })
+}
+
+fn human_gate_disposition_tag(value: d::HumanGateDispositionV1) -> u8 {
+    match value {
+        d::HumanGateDispositionV1::Approved => 0,
+        d::HumanGateDispositionV1::Rejected => 1,
+        d::HumanGateDispositionV1::Deferred => 2,
+        d::HumanGateDispositionV1::ChangesRequested => 3,
+    }
+}
+
+fn read_human_gate_disposition(value: u8) -> Result<d::HumanGateDispositionV1, CodecErrorV1> {
+    match value {
+        0 => Ok(d::HumanGateDispositionV1::Approved),
+        1 => Ok(d::HumanGateDispositionV1::Rejected),
+        2 => Ok(d::HumanGateDispositionV1::Deferred),
+        3 => Ok(d::HumanGateDispositionV1::ChangesRequested),
+        _ => Err(CodecErrorV1::Unsupported),
+    }
 }
 
 fn plan(w: &mut Writer, value: &d::DeliberationPlanV1) -> Result<(), CodecErrorV1> {
@@ -597,6 +737,13 @@ fn deliberation_refusal(
         d::DeliberationRefusalV1::ReportConflict => 14,
         d::DeliberationRefusalV1::AlreadyResolved => 15,
         d::DeliberationRefusalV1::ReportsIncomplete => 16,
+        d::DeliberationRefusalV1::GateBeforeResolution => 25,
+        d::DeliberationRefusalV1::InvalidHumanGateRequest => 26,
+        d::DeliberationRefusalV1::HumanGateRequestConflict => 27,
+        d::DeliberationRefusalV1::HumanGateNotRequested => 28,
+        d::DeliberationRefusalV1::InvalidHumanGateResponse => 29,
+        d::DeliberationRefusalV1::HumanGateReviewerMismatch => 30,
+        d::DeliberationRefusalV1::HumanGateResponseConflict => 31,
         d::DeliberationRefusalV1::ResolutionConflict => 17,
         d::DeliberationRefusalV1::FrontierMismatch => 18,
         d::DeliberationRefusalV1::SelectionOutsideFrontier => 19,
@@ -628,6 +775,13 @@ fn read_deliberation_refusal(r: &mut Reader<'_>) -> Result<d::DeliberationRefusa
         14 => d::DeliberationRefusalV1::ReportConflict,
         15 => d::DeliberationRefusalV1::AlreadyResolved,
         16 => d::DeliberationRefusalV1::ReportsIncomplete,
+        25 => d::DeliberationRefusalV1::GateBeforeResolution,
+        26 => d::DeliberationRefusalV1::InvalidHumanGateRequest,
+        27 => d::DeliberationRefusalV1::HumanGateRequestConflict,
+        28 => d::DeliberationRefusalV1::HumanGateNotRequested,
+        29 => d::DeliberationRefusalV1::InvalidHumanGateResponse,
+        30 => d::DeliberationRefusalV1::HumanGateReviewerMismatch,
+        31 => d::DeliberationRefusalV1::HumanGateResponseConflict,
         17 => d::DeliberationRefusalV1::ResolutionConflict,
         18 => d::DeliberationRefusalV1::FrontierMismatch,
         19 => d::DeliberationRefusalV1::SelectionOutsideFrontier,
