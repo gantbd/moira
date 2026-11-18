@@ -3,9 +3,9 @@ use moira_client::{
     DeliberationServicePort,
 };
 use moira_protocol::deliberation::{
-    CommandV1, DeliberationIdV1, HumanGateDispositionV1, HumanGateOperationV1,
-    HumanGateRequestIdV1, HumanGateResponseIdV1, HumanGateResponseSubmissionV1, MutationV1,
-    RefusalV1, ReplyV1,
+    CommandV1, DeliberationIdV1, HumanGateDispositionV1, HumanGateMaterialRefV1,
+    HumanGateOperationV1, HumanGateRequestIdV1, HumanGateResponseIdV1,
+    HumanGateResponseSubmissionV1, MutationV1, RefusalV1, ReplyV1,
 };
 
 #[derive(Default)]
@@ -59,6 +59,12 @@ fn capability_clients_emit_only_their_closed_command_shapes() {
             request: HumanGateRequestIdV1([3; 16]),
             disposition: HumanGateDispositionV1::ChangesRequested,
             rationale_digest: [4; 32],
+            rationale: HumanGateMaterialRefV1 {
+                owner_route: [5; 16],
+                artifact_route: [6; 16],
+                expected_revision: 7,
+                expected_sha256: [8; 32],
+            },
             responded_at: 9,
         },
     })

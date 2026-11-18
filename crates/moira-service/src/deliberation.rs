@@ -122,6 +122,7 @@ impl<S: DeliberationStore> DeliberationService<S> {
             request: domain::HumanGateRequestIdV1(operation.response.request.0),
             disposition: human_gate_disposition_domain(operation.response.disposition),
             rationale_digest: operation.response.rationale_digest,
+            rationale: human_gate_material_ref_domain(operation.response.rationale),
             responded_at: operation.response.responded_at,
             authority: domain::HumanGateAuthorityRefV1 {
                 decision: verified.decision,
@@ -203,7 +204,19 @@ fn human_gate_request_domain(value: protocol::HumanGateRequestV1) -> domain::Hum
         decision_digest: value.decision_digest,
         material_revision_digest: value.material_revision_digest,
         policy_digest: value.policy_digest,
+        decision_packet: human_gate_material_ref_domain(value.decision_packet),
         requested_at: value.requested_at,
+    }
+}
+
+fn human_gate_material_ref_domain(
+    value: protocol::HumanGateMaterialRefV1,
+) -> domain::HumanGateMaterialRefV1 {
+    domain::HumanGateMaterialRefV1 {
+        owner_route: value.owner_route,
+        artifact_route: value.artifact_route,
+        expected_revision: value.expected_revision,
+        expected_sha256: value.expected_sha256,
     }
 }
 
@@ -438,7 +451,19 @@ fn human_gate_request_view(value: domain::HumanGateRequestV1) -> protocol::Human
         decision_digest: value.decision_digest,
         material_revision_digest: value.material_revision_digest,
         policy_digest: value.policy_digest,
+        decision_packet: human_gate_material_ref_view(value.decision_packet),
         requested_at: value.requested_at,
+    }
+}
+
+fn human_gate_material_ref_view(
+    value: domain::HumanGateMaterialRefV1,
+) -> protocol::HumanGateMaterialRefV1 {
+    protocol::HumanGateMaterialRefV1 {
+        owner_route: value.owner_route,
+        artifact_route: value.artifact_route,
+        expected_revision: value.expected_revision,
+        expected_sha256: value.expected_sha256,
     }
 }
 
@@ -455,6 +480,7 @@ fn human_gate_response_view(value: domain::HumanGateResponseV1) -> protocol::Hum
             }
         },
         rationale_digest: value.rationale_digest,
+        rationale: human_gate_material_ref_view(value.rationale),
         responded_at: value.responded_at,
         authority: protocol::HumanGateAuthorityRefV1 {
             decision: value.authority.decision,

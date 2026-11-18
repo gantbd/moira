@@ -237,7 +237,8 @@ fn packet_fixture(
     )
     .unwrap();
     let reference = DecisionPacketRefV1 {
-        target,
+        owner_route: target.workspace,
+        artifact_route: target.document,
         expected_revision: revision,
         expected_sha256: Sha256::digest(text.as_bytes()).into(),
     };

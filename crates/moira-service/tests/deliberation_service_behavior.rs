@@ -285,6 +285,12 @@ fn human_gate_identity_is_injected_by_authority_and_exact_lost_reply_replays() {
                     decision_digest: [33; 32],
                     material_revision_digest: [34; 32],
                     policy_digest: [35; 32],
+                    decision_packet: HumanGateMaterialRefV1 {
+                        owner_route: [42; 16],
+                        artifact_route: [43; 16],
+                        expected_revision: 7,
+                        expected_sha256: [44; 32],
+                    },
                     requested_at: 36,
                 },
             },
@@ -298,6 +304,12 @@ fn human_gate_identity_is_injected_by_authority_and_exact_lost_reply_replays() {
             request: HumanGateRequestIdV1([30; 16]),
             disposition: HumanGateDispositionV1::Approved,
             rationale_digest: [38; 32],
+            rationale: HumanGateMaterialRefV1 {
+                owner_route: [45; 16],
+                artifact_route: [46; 16],
+                expected_revision: 8,
+                expected_sha256: [47; 32],
+            },
             responded_at: 39,
         },
     };

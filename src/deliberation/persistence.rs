@@ -2,8 +2,8 @@
 
 use super::*;
 
-const MAGIC: &[u8; 8] = b"MOIRADL4";
-const CODEC_VERSION: u8 = 4;
+const MAGIC: &[u8; 8] = b"MOIRADL5";
+const CODEC_VERSION: u8 = 5;
 const LEGACY_MAGIC: &[u8; 8] = b"MOIRADL3";
 const LEGACY_CODEC_VERSION: u8 = 3;
 
@@ -593,6 +593,7 @@ fn encode_human_gate_request(
     writer.digest(request.decision_digest)?;
     writer.digest(request.material_revision_digest)?;
     writer.digest(request.policy_digest)?;
+    encode_human_gate_material_ref(writer, request.decision_packet)?;
     writer.number(request.requested_at)
 }
 
@@ -608,6 +609,7 @@ fn decode_human_gate_request(
             decision_digest: reader.digest()?,
             material_revision_digest: reader.digest()?,
             policy_digest: reader.digest()?,
+            decision_packet: decode_human_gate_material_ref(reader)?,
             requested_at: reader.number()?,
         })),
         _ => Err(CodecErrorV1::Invalid),
@@ -626,6 +628,7 @@ fn encode_human_gate_response(
     writer.id(response.request.0)?;
     writer.byte(human_gate_disposition_tag(response.disposition))?;
     writer.digest(response.rationale_digest)?;
+    encode_human_gate_material_ref(writer, response.rationale)?;
     writer.number(response.responded_at)?;
     writer.id(response.authority.decision)?;
     writer.id(response.authority.subject)?;
@@ -642,6 +645,7 @@ fn decode_human_gate_response(
             request: HumanGateRequestIdV1(reader.id()?),
             disposition: read_human_gate_disposition(reader.byte()?)?,
             rationale_digest: reader.digest()?,
+            rationale: decode_human_gate_material_ref(reader)?,
             responded_at: reader.number()?,
             authority: HumanGateAuthorityRefV1 {
                 decision: reader.id()?,
@@ -651,6 +655,27 @@ fn decode_human_gate_response(
         })),
         _ => Err(CodecErrorV1::Invalid),
     }
+}
+
+fn encode_human_gate_material_ref(
+    writer: &mut Writer,
+    value: HumanGateMaterialRefV1,
+) -> Result<(), CodecErrorV1> {
+    writer.id(value.owner_route)?;
+    writer.id(value.artifact_route)?;
+    writer.number(value.expected_revision)?;
+    writer.digest(value.expected_sha256)
+}
+
+fn decode_human_gate_material_ref(
+    reader: &mut Reader<'_>,
+) -> Result<HumanGateMaterialRefV1, CodecErrorV1> {
+    Ok(HumanGateMaterialRefV1 {
+        owner_route: reader.id()?,
+        artifact_route: reader.id()?,
+        expected_revision: reader.number()?,
+        expected_sha256: reader.digest()?,
+    })
 }
 
 fn human_gate_disposition_tag(value: HumanGateDispositionV1) -> u8 {

@@ -234,6 +234,7 @@ fn human_gate_request(w: &mut Writer, value: d::HumanGateRequestV1) -> Result<()
     w.raw(&value.decision_digest)?;
     w.raw(&value.material_revision_digest)?;
     w.raw(&value.policy_digest)?;
+    human_gate_material_ref(w, value.decision_packet)?;
     w.u64(value.requested_at)
 }
 
@@ -245,7 +246,29 @@ fn read_human_gate_request(r: &mut Reader<'_>) -> Result<d::HumanGateRequestV1, 
         decision_digest: r.raw()?,
         material_revision_digest: r.raw()?,
         policy_digest: r.raw()?,
+        decision_packet: read_human_gate_material_ref(r)?,
         requested_at: r.u64()?,
+    })
+}
+
+fn human_gate_material_ref(
+    w: &mut Writer,
+    value: d::HumanGateMaterialRefV1,
+) -> Result<(), CodecErrorV1> {
+    w.raw(&value.owner_route)?;
+    w.raw(&value.artifact_route)?;
+    w.u64(value.expected_revision)?;
+    w.raw(&value.expected_sha256)
+}
+
+fn read_human_gate_material_ref(
+    r: &mut Reader<'_>,
+) -> Result<d::HumanGateMaterialRefV1, CodecErrorV1> {
+    Ok(d::HumanGateMaterialRefV1 {
+        owner_route: r.raw()?,
+        artifact_route: r.raw()?,
+        expected_revision: r.u64()?,
+        expected_sha256: r.raw()?,
     })
 }
 
@@ -257,6 +280,7 @@ fn human_gate_submission(
     w.raw(&value.request.0)?;
     w.byte(human_gate_disposition_tag(value.disposition))?;
     w.raw(&value.rationale_digest)?;
+    human_gate_material_ref(w, value.rationale)?;
     w.u64(value.responded_at)
 }
 
@@ -268,6 +292,7 @@ fn read_human_gate_submission(
         request: d::HumanGateRequestIdV1(r.raw()?),
         disposition: read_human_gate_disposition(r.byte()?)?,
         rationale_digest: r.raw()?,
+        rationale: read_human_gate_material_ref(r)?,
         responded_at: r.u64()?,
     })
 }
@@ -297,6 +322,7 @@ fn human_gate_response(w: &mut Writer, value: d::HumanGateResponseV1) -> Result<
             request: value.request,
             disposition: value.disposition,
             rationale_digest: value.rationale_digest,
+            rationale: value.rationale,
             responded_at: value.responded_at,
         },
     )?;
@@ -312,6 +338,7 @@ fn read_human_gate_response(r: &mut Reader<'_>) -> Result<d::HumanGateResponseV1
         request: value.request,
         disposition: value.disposition,
         rationale_digest: value.rationale_digest,
+        rationale: value.rationale,
         responded_at: value.responded_at,
         authority: d::HumanGateAuthorityRefV1 {
             decision: r.raw()?,

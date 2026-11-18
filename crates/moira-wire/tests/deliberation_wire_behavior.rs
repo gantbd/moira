@@ -100,6 +100,15 @@ fn choice() -> d::ResolutionV1 {
     }
 }
 
+fn material(seed: u8, revision: u64) -> d::HumanGateMaterialRefV1 {
+    d::HumanGateMaterialRefV1 {
+        owner_route: [seed; 16],
+        artifact_route: [seed.wrapping_add(1); 16],
+        expected_revision: revision,
+        expected_sha256: [seed.wrapping_add(2); 32],
+    }
+}
+
 fn view(resolution: Option<d::ResolutionV1>) -> d::DeliberationViewV1 {
     d::DeliberationViewV1 {
         version: 1,
@@ -122,6 +131,7 @@ fn view(resolution: Option<d::ResolutionV1>) -> d::DeliberationViewV1 {
             decision_digest: [36; 32],
             material_revision_digest: [37; 32],
             policy_digest: [38; 32],
+            decision_packet: material(45, 5),
             requested_at: 39,
         }),
         human_gate_response: Some(d::HumanGateResponseV1 {
@@ -129,6 +139,7 @@ fn view(resolution: Option<d::ResolutionV1>) -> d::DeliberationViewV1 {
             request: d::HumanGateRequestIdV1([33; 16]),
             disposition: d::HumanGateDispositionV1::ChangesRequested,
             rationale_digest: [41; 32],
+            rationale: material(48, 6),
             responded_at: 42,
             authority: d::HumanGateAuthorityRefV1 {
                 decision: [43; 16],
@@ -160,6 +171,7 @@ fn every_command_family_roundtrips_exactly() {
                     decision_digest: [36; 32],
                     material_revision_digest: [37; 32],
                     policy_digest: [38; 32],
+                    decision_packet: material(45, 5),
                     requested_at: 39,
                 },
             },
@@ -173,6 +185,7 @@ fn every_command_family_roundtrips_exactly() {
                     request: d::HumanGateRequestIdV1([33; 16]),
                     disposition: d::HumanGateDispositionV1::Approved,
                     rationale_digest: [41; 32],
+                    rationale: material(48, 6),
                     responded_at: 42,
                 },
             },

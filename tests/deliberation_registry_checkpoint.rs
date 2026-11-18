@@ -101,7 +101,7 @@ fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
     let current = encode(&expected, limits).unwrap();
     let child_start = current
         .windows(8)
-        .position(|window| window == b"MOIRADL4")
+        .position(|window| window == b"MOIRADL5")
         .unwrap();
     let length_start = child_start - 8;
     let child_length = usize::try_from(u64::from_be_bytes(
@@ -125,7 +125,7 @@ fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
 
     let migrated = decode(&legacy, limits).unwrap();
     assert_eq!(migrated.version, 3);
-    assert_eq!(migrated.deliberations[0].version, 4);
+    assert_eq!(migrated.deliberations[0].version, 5);
     assert_eq!(migrated.deliberations[0].human_gate_request, None);
     assert_eq!(migrated.deliberations[0].human_gate_response, None);
     assert_eq!(migrated, expected);

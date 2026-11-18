@@ -287,6 +287,15 @@ pub struct MemberReportV1 {
 /// Digests bind external owner artifacts without importing their content or
 /// granting the reviewer authority merely because the request exists.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateMaterialRefV1 {
+    /// Opaque route resolved only by the selected artifact-owner adapter.
+    pub owner_route: [u8; 16],
+    pub artifact_route: [u8; 16],
+    pub expected_revision: u64,
+    pub expected_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HumanGateRequestV1 {
     pub id: HumanGateRequestIdV1,
     pub reviewer: [u8; 16],
@@ -294,6 +303,7 @@ pub struct HumanGateRequestV1 {
     pub decision_digest: [u8; 32],
     pub material_revision_digest: [u8; 32],
     pub policy_digest: [u8; 32],
+    pub decision_packet: HumanGateMaterialRefV1,
     pub requested_at: u64,
 }
 
@@ -320,6 +330,7 @@ pub struct HumanGateResponseV1 {
     pub request: HumanGateRequestIdV1,
     pub disposition: HumanGateDispositionV1,
     pub rationale_digest: [u8; 32],
+    pub rationale: HumanGateMaterialRefV1,
     pub responded_at: u64,
     pub authority: HumanGateAuthorityRefV1,
 }
@@ -431,7 +442,7 @@ impl DeliberationV1 {
 
     pub fn checkpoint(&self) -> DeliberationCheckpointV1 {
         DeliberationCheckpointV1 {
-            version: 4,
+            version: 5,
             plan: self.plan.clone(),
             limits: self.limits,
             reports: self.reports.clone(),
@@ -443,7 +454,7 @@ impl DeliberationV1 {
     }
 
     pub fn recover(checkpoint: DeliberationCheckpointV1) -> Result<Self, DeliberationRefusalV1> {
-        if checkpoint.version != 4 {
+        if checkpoint.version != 5 {
             return Err(DeliberationRefusalV1::UnsupportedVersion);
         }
         let expected = checkpoint.clone();
@@ -685,14 +696,23 @@ fn valid_human_gate_request(value: HumanGateRequestV1) -> bool {
         && value.decision_digest != [0; 32]
         && value.material_revision_digest != [0; 32]
         && value.policy_digest != [0; 32]
+        && valid_human_gate_material_ref(value.decision_packet)
 }
 
 fn valid_human_gate_response(value: HumanGateResponseV1) -> bool {
     value.id.0 != [0; 16]
         && value.request.0 != [0; 16]
         && value.rationale_digest != [0; 32]
+        && valid_human_gate_material_ref(value.rationale)
         && value.authority.decision != [0; 16]
         && value.authority.subject != [0; 16]
+}
+
+fn valid_human_gate_material_ref(value: HumanGateMaterialRefV1) -> bool {
+    value.owner_route != [0; 16]
+        && value.artifact_route != [0; 16]
+        && value.expected_revision != 0
+        && value.expected_sha256 != [0; 32]
 }
 
 fn validate_resolution(

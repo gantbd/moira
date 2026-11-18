@@ -262,6 +262,14 @@ pub struct MemberReportV1 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanGateMaterialRefV1 {
+    pub owner_route: [u8; 16],
+    pub artifact_route: [u8; 16],
+    pub expected_revision: u64,
+    pub expected_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HumanGateRequestV1 {
     pub id: HumanGateRequestIdV1,
     pub reviewer: [u8; 16],
@@ -269,6 +277,7 @@ pub struct HumanGateRequestV1 {
     pub decision_digest: [u8; 32],
     pub material_revision_digest: [u8; 32],
     pub policy_digest: [u8; 32],
+    pub decision_packet: HumanGateMaterialRefV1,
     pub requested_at: u64,
 }
 
@@ -293,6 +302,7 @@ pub struct HumanGateResponseV1 {
     pub request: HumanGateRequestIdV1,
     pub disposition: HumanGateDispositionV1,
     pub rationale_digest: [u8; 32],
+    pub rationale: HumanGateMaterialRefV1,
     pub responded_at: u64,
     pub authority: HumanGateAuthorityRefV1,
 }
@@ -305,6 +315,7 @@ pub struct HumanGateResponseSubmissionV1 {
     pub request: HumanGateRequestIdV1,
     pub disposition: HumanGateDispositionV1,
     pub rationale_digest: [u8; 32],
+    pub rationale: HumanGateMaterialRefV1,
     pub responded_at: u64,
 }
 

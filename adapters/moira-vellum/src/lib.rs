@@ -6,7 +6,7 @@
 
 #![forbid(unsafe_code)]
 
-use moira_protocol::EffectIdV1;
+use moira_protocol::{EffectIdV1, deliberation::HumanGateMaterialRefV1};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use vellum_client::Client;
@@ -31,12 +31,7 @@ pub struct DocumentRouteV1 {
 /// One externally stable decision-packet identity bound to the exact Vellum
 /// revision and UTF-8 bytes a human must review. The route remains private to
 /// trusted composition; Moira need not import Vellum workspace identities.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DecisionPacketRefV1 {
-    pub target: ExternalDocumentRefV1,
-    pub expected_revision: u64,
-    pub expected_sha256: [u8; 32],
-}
+pub type DecisionPacketRefV1 = HumanGateMaterialRefV1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecisionPacketV1 {
@@ -86,9 +81,13 @@ impl<P: ServicePort> DecisionPacketAdapter<P> {
         if reference.expected_revision == 0 || self.max_packet_bytes == 0 {
             return Err(DecisionPacketErrorV1::InvalidInput);
         }
+        let target = ExternalDocumentRefV1 {
+            workspace: reference.owner_route,
+            document: reference.artifact_route,
+        };
         let route = self
             .routes
-            .get(&reference.target)
+            .get(&target)
             .copied()
             .ok_or(DecisionPacketErrorV1::UnknownTarget)?;
         if route.document.workspace() != route.workspace {

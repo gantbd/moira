@@ -390,6 +390,12 @@ fn human_gate_authorizer_scopes_aegis_to_one_exact_request() {
             request,
             disposition: deliberation_protocol::HumanGateDispositionV1::Deferred,
             rationale_digest: [87; 32],
+            rationale: deliberation_protocol::HumanGateMaterialRefV1 {
+                owner_route: [89; 16],
+                artifact_route: [90; 16],
+                expected_revision: 91,
+                expected_sha256: [92; 32],
+            },
             responded_at: 88,
         },
     };

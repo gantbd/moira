@@ -4,9 +4,10 @@ use moira_core::deliberation::{
     DeliberationLimitsV1, DeliberationPhaseV1, DeliberationPlanV1, DeliberationRefusalV1,
     DeliberationV1, EnsembleAdmissionV1, EnsembleFitnessV1, EnsembleMemberIdV1, EnsembleMemberV1,
     FrontierRefusalV1, GroundingRefV1, HumanGateAuthorityRefV1, HumanGateDispositionV1,
-    HumanGateRequestIdV1, HumanGateRequestV1, HumanGateResponseIdV1, HumanGateResponseV1,
-    MemberReportV1, MethodRefV1, MuReasonV1, OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1,
-    ResolutionV1, StakeholderRefV1, StakeholderRepresentationV1, SurfaceDepthV1, pareto_frontier,
+    HumanGateMaterialRefV1, HumanGateRequestIdV1, HumanGateRequestV1, HumanGateResponseIdV1,
+    HumanGateResponseV1, MemberReportV1, MethodRefV1, MuReasonV1, OrthogonalityEvidenceV1,
+    PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1, StakeholderRepresentationV1,
+    SurfaceDepthV1, pareto_frontier,
 };
 
 fn criterion(seed: u8, direction: CriterionDirectionV1) -> CriterionV1 {
@@ -75,6 +76,15 @@ fn candidate(seed: u8, scores: &[i64]) -> CandidateV1 {
     }
 }
 
+fn material(seed: u8) -> HumanGateMaterialRefV1 {
+    HumanGateMaterialRefV1 {
+        owner_route: [seed; 16],
+        artifact_route: [seed.wrapping_add(1); 16],
+        expected_revision: u64::from(seed),
+        expected_sha256: [seed.wrapping_add(2); 32],
+    }
+}
+
 fn gate_request() -> HumanGateRequestV1 {
     HumanGateRequestV1 {
         id: HumanGateRequestIdV1([31; 16]),
@@ -83,6 +93,7 @@ fn gate_request() -> HumanGateRequestV1 {
         decision_digest: [34; 32],
         material_revision_digest: [35; 32],
         policy_digest: [36; 32],
+        decision_packet: material(43),
         requested_at: 37,
     }
 }
@@ -93,6 +104,7 @@ fn gate_response(disposition: HumanGateDispositionV1) -> HumanGateResponseV1 {
         request: HumanGateRequestIdV1([31; 16]),
         disposition,
         rationale_digest: [39; 32],
+        rationale: material(46),
         responded_at: 40,
         authority: HumanGateAuthorityRefV1 {
             decision: [41; 16],
@@ -328,6 +340,12 @@ fn human_gate_binds_resolved_material_named_reviewer_and_exact_replay() {
 
     let mut deliberation = resolved_deliberation();
     let request = gate_request();
+    let mut unresolved_packet = request;
+    unresolved_packet.decision_packet.owner_route = [0; 16];
+    assert_eq!(
+        deliberation.request_human_gate(unresolved_packet),
+        Err(DeliberationRefusalV1::InvalidHumanGateRequest)
+    );
     deliberation.request_human_gate(request).unwrap();
     deliberation.request_human_gate(request).unwrap();
     let mut conflicting_request = request;
@@ -342,6 +360,13 @@ fn human_gate_binds_resolved_material_named_reviewer_and_exact_replay() {
     assert_eq!(
         deliberation.respond_human_gate(wrong_reviewer),
         Err(DeliberationRefusalV1::HumanGateReviewerMismatch)
+    );
+
+    let mut unresolved_rationale = gate_response(HumanGateDispositionV1::Approved);
+    unresolved_rationale.rationale.expected_revision = 0;
+    assert_eq!(
+        deliberation.respond_human_gate(unresolved_rationale),
+        Err(DeliberationRefusalV1::InvalidHumanGateResponse)
     );
 
     let response = gate_response(HumanGateDispositionV1::Approved);
