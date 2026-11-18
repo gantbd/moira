@@ -2,8 +2,8 @@
 
 use super::*;
 
-const MAGIC: &[u8; 8] = b"MOIRADL2";
-const CODEC_VERSION: u8 = 2;
+const MAGIC: &[u8; 8] = b"MOIRADL3";
+const CODEC_VERSION: u8 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CodecLimitsV1 {
@@ -239,8 +239,20 @@ fn encode_plan(writer: &mut Writer, plan: &DeliberationPlanV1) -> Result<(), Cod
         }
     }
     writer.count(plan.members.len())?;
+    writer.digest(plan.admission.affected_population_digest)?;
+    writer.digest(plan.admission.stakeholder_map_digest)?;
+    writer.digest(plan.admission.coverage_manifest_digest)?;
+    writer.digest(plan.admission.equity_assessment_digest)?;
+    writer.id(plan.admission.assessor_principal)?;
+    writer.byte(fitness_tag(plan.admission.fitness))?;
     for member in &plan.members {
         writer.id(member.id.0)?;
+        writer.id(member.stakeholder.principal)?;
+        writer.digest(member.stakeholder.constituency_digest)?;
+        writer.byte(representation_tag(member.stakeholder.representation))?;
+        write_optional_id(writer, member.stakeholder.accountable_principal)?;
+        write_optional_digest(writer, member.stakeholder.mandate_digest)?;
+        write_optional_digest(writer, member.stakeholder.conflict_digest)?;
         writer.byte(lens_tag(member.lens))?;
         writer.digest(member.concern_root_digest)?;
         writer.digest(member.grounding.authority_digest)?;
@@ -303,6 +315,14 @@ fn decode_plan(
         });
     }
     let member_count = reader.count(limits.max_members)?;
+    let admission = EnsembleAdmissionV1 {
+        affected_population_digest: reader.digest()?,
+        stakeholder_map_digest: reader.digest()?,
+        coverage_manifest_digest: reader.digest()?,
+        equity_assessment_digest: reader.digest()?,
+        assessor_principal: reader.id()?,
+        fitness: read_fitness(reader.byte()?)?,
+    };
     let mut members = Vec::new();
     members
         .try_reserve(member_count)
@@ -310,6 +330,14 @@ fn decode_plan(
     for _ in 0..member_count {
         members.push(EnsembleMemberV1 {
             id: EnsembleMemberIdV1(reader.id()?),
+            stakeholder: StakeholderRefV1 {
+                principal: reader.id()?,
+                constituency_digest: reader.digest()?,
+                representation: read_representation(reader.byte()?)?,
+                accountable_principal: read_optional_id(reader)?,
+                mandate_digest: read_optional_digest(reader)?,
+                conflict_digest: read_optional_digest(reader)?,
+            },
             lens: read_lens(reader.byte()?)?,
             concern_root_digest: reader.digest()?,
             grounding: GroundingRefV1 {
@@ -331,10 +359,79 @@ fn decode_plan(
         claims,
         criteria,
         candidates,
+        admission,
         members,
         orthogonality,
         fuel: to_u32(reader.number()?)?,
     })
+}
+
+fn write_optional_id(writer: &mut Writer, value: Option<[u8; 16]>) -> Result<(), CodecErrorV1> {
+    writer.byte(u8::from(value.is_some()))?;
+    if let Some(value) = value {
+        writer.id(value)?;
+    }
+    Ok(())
+}
+
+fn read_optional_id(reader: &mut Reader<'_>) -> Result<Option<[u8; 16]>, CodecErrorV1> {
+    match reader.byte()? {
+        0 => Ok(None),
+        1 => Ok(Some(reader.id()?)),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn write_optional_digest(writer: &mut Writer, value: Option<[u8; 32]>) -> Result<(), CodecErrorV1> {
+    writer.byte(u8::from(value.is_some()))?;
+    if let Some(value) = value {
+        writer.digest(value)?;
+    }
+    Ok(())
+}
+
+fn read_optional_digest(reader: &mut Reader<'_>) -> Result<Option<[u8; 32]>, CodecErrorV1> {
+    match reader.byte()? {
+        0 => Ok(None),
+        1 => Ok(Some(reader.digest()?)),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn representation_tag(value: StakeholderRepresentationV1) -> u8 {
+    match value {
+        StakeholderRepresentationV1::ActualStakeholder => 0,
+        StakeholderRepresentationV1::AuthorizedRepresentative => 1,
+        StakeholderRepresentationV1::AgentModeledPerspective => 2,
+        StakeholderRepresentationV1::TechnicalSme => 3,
+    }
+}
+
+fn read_representation(value: u8) -> Result<StakeholderRepresentationV1, CodecErrorV1> {
+    match value {
+        0 => Ok(StakeholderRepresentationV1::ActualStakeholder),
+        1 => Ok(StakeholderRepresentationV1::AuthorizedRepresentative),
+        2 => Ok(StakeholderRepresentationV1::AgentModeledPerspective),
+        3 => Ok(StakeholderRepresentationV1::TechnicalSme),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn fitness_tag(value: EnsembleFitnessV1) -> u8 {
+    match value {
+        EnsembleFitnessV1::Yes => 0,
+        EnsembleFitnessV1::No => 1,
+        EnsembleFitnessV1::Contested => 2,
+    }
+}
+
+fn read_fitness(value: u8) -> Result<EnsembleFitnessV1, CodecErrorV1> {
+    match value {
+        0 => Ok(EnsembleFitnessV1::Yes),
+        1 => Ok(EnsembleFitnessV1::No),
+        2 => Ok(EnsembleFitnessV1::Contested),
+        _ => Err(CodecErrorV1::Invalid),
+    }
 }
 
 fn encode_report(writer: &mut Writer, report: &MemberReportV1) -> Result<(), CodecErrorV1> {

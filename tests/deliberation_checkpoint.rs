@@ -1,9 +1,10 @@
 use moira_core::deliberation::{
     AuthorityDecisionIdV1, AuthorityRefV1, AuthoritySubjectIdV1, CandidateIdV1, CandidateV1,
     ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1, DeliberationIdV1,
-    DeliberationLimitsV1, DeliberationPlanV1, DeliberationV1, EnsembleMemberIdV1, EnsembleMemberV1,
-    GroundingRefV1, MemberReportV1, MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1,
-    ReportIdV1, ResolutionV1, SurfaceDepthV1,
+    DeliberationLimitsV1, DeliberationPlanV1, DeliberationV1, EnsembleAdmissionV1,
+    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, MemberReportV1, MethodRefV1,
+    OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1,
+    SurfaceDepthV1,
     persistence::{CodecErrorV1, CodecLimitsV1, decode, encode},
 };
 
@@ -36,6 +37,7 @@ fn plan() -> DeliberationPlanV1 {
                 scores: vec![5, -7],
             },
         ],
+        admission: EnsembleAdmissionV1::affirmed([10; 32], [11; 32], [12; 32], [13; 32], [14; 16]),
         members: vec![
             member(1, PersonaLensV1::Historian, SurfaceDepthV1::Activated),
             member(2, PersonaLensV1::RigorReviewer, SurfaceDepthV1::Reference),
@@ -52,6 +54,7 @@ fn plan() -> DeliberationPlanV1 {
 fn member(seed: u8, lens: PersonaLensV1, depth: SurfaceDepthV1) -> EnsembleMemberV1 {
     EnsembleMemberV1 {
         id: EnsembleMemberIdV1([seed; 16]),
+        stakeholder: StakeholderRefV1::technical_sme([seed; 16], [seed; 32]),
         lens,
         concern_root_digest: [seed; 32],
         grounding: GroundingRefV1 {

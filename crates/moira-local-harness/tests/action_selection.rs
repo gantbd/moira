@@ -33,8 +33,14 @@ fn plan() -> DeliberationPlanV1 {
             id: CandidateIdV1([23; 16]),
             scores: vec![1],
         }],
+        admission: moira_core::deliberation::EnsembleAdmissionV1::affirmed(
+            [24; 32], [25; 32], [26; 32], [27; 32], [28; 16],
+        ),
         members: vec![EnsembleMemberV1 {
             id: EnsembleMemberIdV1([5; 16]),
+            stakeholder: moira_core::deliberation::StakeholderRefV1::technical_sme(
+                [5; 16], [6; 32],
+            ),
             lens: PersonaLensV1::Researcher,
             concern_root_digest: [6; 32],
             grounding: GroundingRefV1 {

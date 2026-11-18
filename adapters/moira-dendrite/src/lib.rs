@@ -5,7 +5,8 @@
 
 use moira_core::deliberation::{
     CandidateV1, ClaimKindV1, CriterionV1, DeliberationIdV1, DeliberationPlanV1,
-    EnsembleMemberIdV1, MethodRefV1, PersonaLensV1, SurfaceDepthV1,
+    EnsembleAdmissionV1, EnsembleMemberIdV1, MethodRefV1, PersonaLensV1, StakeholderRefV1,
+    SurfaceDepthV1,
     grounding::{
         self, FoldGroundingV1, GroundingRefusalV1, MemberIntentV1, OrthogonalityPacketV1,
         SurfaceEvidenceV1,
@@ -54,6 +55,7 @@ pub enum ClientErrorV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GroundedMemberRequestV1 {
     pub id: EnsembleMemberIdV1,
+    pub stakeholder: StakeholderRefV1,
     pub lens: PersonaLensV1,
     pub fold_target: String,
     pub orthogonality_role: String,
@@ -72,6 +74,7 @@ pub struct PlanGroundingRequestV1 {
     pub claims: Vec<ClaimKindV1>,
     pub criteria: Vec<CriterionV1>,
     pub candidates: Vec<CandidateV1>,
+    pub admission: EnsembleAdmissionV1,
     pub members: Vec<GroundedMemberRequestV1>,
     pub fuel: u32,
 }
@@ -407,6 +410,7 @@ impl DendriteClient {
             .map(|member| {
                 Ok(MemberIntentV1 {
                     id: member.id,
+                    stakeholder: member.stakeholder,
                     lens: member.lens,
                     concern_root_digest: concern_root_digest(
                         lattice_digest,
@@ -423,6 +427,7 @@ impl DendriteClient {
             claims: request.claims,
             criteria: request.criteria,
             candidates: request.candidates,
+            admission: request.admission,
             members: ensemble.members,
             orthogonality: ensemble.orthogonality,
             fuel: request.fuel,

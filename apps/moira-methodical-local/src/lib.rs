@@ -12,8 +12,9 @@ use moira_chronos::{AttemptBindingV1, CurrentAttemptObserverV1};
 use moira_client::{ToolContinuationMutationClient, ToolContinuationServicePort};
 use moira_core::deliberation::{
     CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1,
-    DeliberationIdV1, DeliberationLimitsV1, EnsembleMemberIdV1, MaybeValueV1, MuReasonV1,
-    PersonaLensV1, ReportIdV1, ResolutionV1, SurfaceDepthV1,
+    DeliberationIdV1, DeliberationLimitsV1, EnsembleAdmissionV1, EnsembleFitnessV1,
+    EnsembleMemberIdV1, MaybeValueV1, MuReasonV1, PersonaLensV1, ReportIdV1, ResolutionV1,
+    StakeholderRefV1, StakeholderRepresentationV1, SurfaceDepthV1,
     registry::{RegistryLimitsV1, persistence::CodecLimitsV1},
 };
 use moira_daimon::{
@@ -150,6 +151,7 @@ pub struct PlanConfigV1 {
     pub claims: Vec<ClaimConfigV1>,
     pub criteria: Vec<CriterionConfigV1>,
     pub candidates: Vec<CandidateConfigV1>,
+    pub admission: AdmissionConfigV1,
     pub members: Vec<MemberConfigV1>,
     pub fuel: u32,
 }
@@ -189,10 +191,47 @@ pub struct CandidateConfigV1 {
 #[serde(deny_unknown_fields)]
 pub struct MemberConfigV1 {
     pub id: String,
+    pub principal: String,
+    pub constituency_digest: String,
+    pub representation: RepresentationConfigV1,
+    #[serde(default)]
+    pub accountable_principal: Option<String>,
+    #[serde(default)]
+    pub mandate_digest: Option<String>,
+    #[serde(default)]
+    pub conflict_digest: Option<String>,
     pub lens: LensConfigV1,
     pub fold_target: String,
     pub orthogonality_role: String,
     pub depth: DepthConfigV1,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdmissionConfigV1 {
+    pub affected_population_digest: String,
+    pub stakeholder_map_digest: String,
+    pub coverage_manifest_digest: String,
+    pub equity_assessment_digest: String,
+    pub assessor_principal: String,
+    pub fitness: FitnessConfigV1,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FitnessConfigV1 {
+    Yes,
+    No,
+    Contested,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepresentationConfigV1 {
+    ActualStakeholder,
+    AuthorizedRepresentative,
+    AgentModeledPerspective,
+    TechnicalSme,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -807,6 +846,18 @@ pub fn validate(raw: ConfigV1) -> Result<ValidatedConfigV1, ErrorV1> {
     {
         return Err(ErrorV1::InvalidConfig);
     }
+    let admission = EnsembleAdmissionV1 {
+        affected_population_digest: digest(&raw.plan.admission.affected_population_digest)?,
+        stakeholder_map_digest: digest(&raw.plan.admission.stakeholder_map_digest)?,
+        coverage_manifest_digest: digest(&raw.plan.admission.coverage_manifest_digest)?,
+        equity_assessment_digest: digest(&raw.plan.admission.equity_assessment_digest)?,
+        assessor_principal: id(&raw.plan.admission.assessor_principal)?,
+        fitness: match raw.plan.admission.fitness {
+            FitnessConfigV1::Yes => EnsembleFitnessV1::Yes,
+            FitnessConfigV1::No => EnsembleFitnessV1::No,
+            FitnessConfigV1::Contested => EnsembleFitnessV1::Contested,
+        },
+    };
     let members = raw
         .plan
         .members
@@ -817,6 +868,31 @@ pub fn validate(raw: ConfigV1) -> Result<ValidatedConfigV1, ErrorV1> {
             }
             Ok(GroundedMemberRequestV1 {
                 id: EnsembleMemberIdV1(id(&value.id)?),
+                stakeholder: StakeholderRefV1 {
+                    principal: id(&value.principal)?,
+                    constituency_digest: digest(&value.constituency_digest)?,
+                    representation: match value.representation {
+                        RepresentationConfigV1::ActualStakeholder => {
+                            StakeholderRepresentationV1::ActualStakeholder
+                        }
+                        RepresentationConfigV1::AuthorizedRepresentative => {
+                            StakeholderRepresentationV1::AuthorizedRepresentative
+                        }
+                        RepresentationConfigV1::AgentModeledPerspective => {
+                            StakeholderRepresentationV1::AgentModeledPerspective
+                        }
+                        RepresentationConfigV1::TechnicalSme => {
+                            StakeholderRepresentationV1::TechnicalSme
+                        }
+                    },
+                    accountable_principal: value
+                        .accountable_principal
+                        .as_deref()
+                        .map(id)
+                        .transpose()?,
+                    mandate_digest: value.mandate_digest.as_deref().map(digest).transpose()?,
+                    conflict_digest: value.conflict_digest.as_deref().map(digest).transpose()?,
+                },
                 lens: lens(value.lens),
                 fold_target: value.fold_target.clone(),
                 orthogonality_role: value.orthogonality_role.clone(),
@@ -890,6 +966,7 @@ pub fn validate(raw: ConfigV1) -> Result<ValidatedConfigV1, ErrorV1> {
             claims: raw.plan.claims.into_iter().map(claim).collect(),
             criteria,
             candidates,
+            admission,
             members,
             fuel: raw.plan.fuel,
         },
@@ -1589,6 +1666,21 @@ fn id(value: &str) -> Result<[u8; 16], ErrorV1> {
     Ok(result)
 }
 
+fn digest(value: &str) -> Result<[u8; 32], ErrorV1> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(ErrorV1::InvalidConfig);
+    }
+    let mut result = [0_u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        result[index] = (hex(pair[0])? << 4) | hex(pair[1])?;
+    }
+    Ok(result)
+}
+
 fn hex(value: u8) -> Result<u8, ErrorV1> {
     match value {
         b'0'..=b'9' => Ok(value - b'0'),
@@ -1924,6 +2016,7 @@ mod tests {
     fn ready_resolution_store(path: &Path) -> DeliberationSqliteStore {
         let member = |value| EnsembleMemberV1 {
             id: EnsembleMemberIdV1([value; 16]),
+            stakeholder: StakeholderRefV1::technical_sme([value; 16], [value; 32]),
             lens: PersonaLensV1::Theorist,
             concern_root_digest: [value; 32],
             grounding: GroundingRefV1 {
@@ -1948,6 +2041,9 @@ mod tests {
                 id: CandidateIdV1([6; 16]),
                 scores: vec![1],
             }],
+            admission: EnsembleAdmissionV1::affirmed(
+                [12; 32], [13; 32], [14; 32], [15; 32], [16; 16],
+            ),
             members: vec![member(7), member(8)],
             orthogonality: OrthogonalityEvidenceV1 {
                 query_digest: [9; 32],
@@ -2005,9 +2101,20 @@ mod tests {
                     "id": "04040404040404040404040404040404",
                     "scores": [1]
                 }],
+                "admission": {
+                    "affected_population_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "stakeholder_map_digest": "1212121212121212121212121212121212121212121212121212121212121212",
+                    "coverage_manifest_digest": "1313131313131313131313131313131313131313131313131313131313131313",
+                    "equity_assessment_digest": "1414141414141414141414141414141414141414141414141414141414141414",
+                    "assessor_principal": "15151515151515151515151515151515",
+                    "fitness": "yes"
+                },
                 "members": [
                     {
                         "id": "05050505050505050505050505050505",
+                        "principal": "40404040404040404040404040404040",
+                        "constituency_digest": "5151515151515151515151515151515151515151515151515151515151515151",
+                        "representation": "technical_sme",
                         "lens": "theorist",
                         "fold_target": "rune:architecture",
                         "orthogonality_role": "rune:architecture",
@@ -2015,6 +2122,9 @@ mod tests {
                     },
                     {
                         "id": "06060606060606060606060606060606",
+                        "principal": "40404040404040404040404040404040",
+                        "constituency_digest": "5252525252525252525252525252525252525252525252525252525252525252",
+                        "representation": "technical_sme",
                         "lens": "rigor_reviewer",
                         "fold_target": "rune:network",
                         "orthogonality_role": "rune:network",
@@ -2022,6 +2132,9 @@ mod tests {
                     },
                     {
                         "id": "07070707070707070707070707070707",
+                        "principal": "40404040404040404040404040404040",
+                        "constituency_digest": "5353535353535353535353535353535353535353535353535353535353535353",
+                        "representation": "technical_sme",
                         "lens": "researcher",
                         "fold_target": "rune:identity",
                         "orthogonality_role": "rune:identity",
@@ -2029,6 +2142,9 @@ mod tests {
                     },
                     {
                         "id": "08080808080808080808080808080808",
+                        "principal": "40404040404040404040404040404040",
+                        "constituency_digest": "5454545454545454545454545454545454545454545454545454545454545454",
+                        "representation": "technical_sme",
                         "lens": "historian",
                         "fold_target": "rune:data",
                         "orthogonality_role": "rune:data",
@@ -2124,6 +2240,9 @@ mod tests {
         value["plan"]["fold_tags"] = serde_json::json!(["test-oracle-design"]);
         value["plan"]["members"] = serde_json::json!([{
             "id": "05050505050505050505050505050505",
+            "principal": "40404040404040404040404040404040",
+            "constituency_digest": "5151515151515151515151515151515151515151515151515151515151515151",
+            "representation": "technical_sme",
             "lens": "rigor_reviewer",
             "fold_target": "rune:tester",
             "orthogonality_role": "rune:tester",

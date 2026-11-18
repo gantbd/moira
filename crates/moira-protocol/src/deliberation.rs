@@ -44,6 +44,84 @@ pub enum PersonaLensV1 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StakeholderRepresentationV1 {
+    ActualStakeholder,
+    AuthorizedRepresentative,
+    AgentModeledPerspective,
+    TechnicalSme,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StakeholderRefV1 {
+    pub principal: [u8; 16],
+    pub constituency_digest: [u8; 32],
+    pub representation: StakeholderRepresentationV1,
+    pub accountable_principal: Option<[u8; 16]>,
+    pub mandate_digest: Option<[u8; 32]>,
+    pub conflict_digest: Option<[u8; 32]>,
+}
+
+impl StakeholderRefV1 {
+    pub fn technical_sme(principal: [u8; 16], domain_digest: [u8; 32]) -> Self {
+        Self {
+            principal,
+            constituency_digest: domain_digest,
+            representation: StakeholderRepresentationV1::TechnicalSme,
+            accountable_principal: None,
+            mandate_digest: None,
+            conflict_digest: None,
+        }
+    }
+
+    pub fn agent_modeled(principal: [u8; 16], constituency_digest: [u8; 32]) -> Self {
+        Self {
+            principal,
+            constituency_digest,
+            representation: StakeholderRepresentationV1::AgentModeledPerspective,
+            accountable_principal: None,
+            mandate_digest: None,
+            conflict_digest: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EnsembleFitnessV1 {
+    Yes,
+    No,
+    Contested,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EnsembleAdmissionV1 {
+    pub affected_population_digest: [u8; 32],
+    pub stakeholder_map_digest: [u8; 32],
+    pub coverage_manifest_digest: [u8; 32],
+    pub equity_assessment_digest: [u8; 32],
+    pub assessor_principal: [u8; 16],
+    pub fitness: EnsembleFitnessV1,
+}
+
+impl EnsembleAdmissionV1 {
+    pub fn affirmed(
+        affected_population_digest: [u8; 32],
+        stakeholder_map_digest: [u8; 32],
+        coverage_manifest_digest: [u8; 32],
+        equity_assessment_digest: [u8; 32],
+        assessor_principal: [u8; 16],
+    ) -> Self {
+        Self {
+            affected_population_digest,
+            stakeholder_map_digest,
+            coverage_manifest_digest,
+            equity_assessment_digest,
+            assessor_principal,
+            fitness: EnsembleFitnessV1::Yes,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SurfaceDepthV1 {
     Ambient,
     Activated,
@@ -66,6 +144,7 @@ pub struct MethodRefV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnsembleMemberV1 {
     pub id: EnsembleMemberIdV1,
+    pub stakeholder: StakeholderRefV1,
     pub lens: PersonaLensV1,
     pub concern_root_digest: [u8; 32],
     pub grounding: GroundingRefV1,
@@ -165,6 +244,7 @@ pub struct DeliberationPlanV1 {
     pub claims: Vec<ClaimKindV1>,
     pub criteria: Vec<CriterionV1>,
     pub candidates: Vec<CandidateV1>,
+    pub admission: EnsembleAdmissionV1,
     pub members: Vec<EnsembleMemberV1>,
     pub orthogonality: OrthogonalityEvidenceV1,
     pub fuel: u32,
@@ -250,6 +330,9 @@ pub enum DeliberationRefusalV1 {
     EmptyEnsemble,
     MemberLimit,
     DuplicateMember,
+    InvalidStakeholder,
+    InvalidEnsembleAdmission,
+    EnsembleNotAdmitted,
     NonOrthogonalEnsemble,
     FuelInvalid,
     Frontier(FrontierRefusalV1),

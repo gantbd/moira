@@ -39,6 +39,9 @@ fn plan() -> d::DeliberationPlanV1 {
                 scores: vec![11, -12],
             },
         ],
+        admission: d::EnsembleAdmissionV1::affirmed(
+            [24; 32], [25; 32], [26; 32], [27; 32], [28; 16],
+        ),
         members: vec![
             member(13, d::PersonaLensV1::Historian, d::SurfaceDepthV1::Ambient),
             member(
@@ -64,6 +67,7 @@ fn plan() -> d::DeliberationPlanV1 {
 fn member(seed: u8, lens: d::PersonaLensV1, depth: d::SurfaceDepthV1) -> d::EnsembleMemberV1 {
     d::EnsembleMemberV1 {
         id: d::EnsembleMemberIdV1([seed; 16]),
+        stakeholder: d::StakeholderRefV1::technical_sme([seed; 16], [seed; 32]),
         lens,
         concern_root_digest: [seed.wrapping_add(1); 32],
         grounding: d::GroundingRefV1 {
@@ -151,6 +155,32 @@ fn every_command_family_roundtrips_exactly() {
             Err(CodecErrorV1::Unsupported)
         );
     }
+}
+
+#[test]
+fn prior_deliberation_profile_frames_refuse_instead_of_reinterpreting_stakeholder_evidence() {
+    assert_eq!(moira_wire::DELIBERATION_PROFILE_VERSION, 2);
+    let limits = LimitsV1::default();
+    let mut request = encode_deliberation_request(&d::CommandV1::Status, limits).unwrap();
+    request[8] = 10;
+    assert_eq!(
+        decode_deliberation_request(&request, limits),
+        Err(CodecErrorV1::Unsupported)
+    );
+
+    let mut reply = encode_deliberation_reply(
+        &d::ReplyV1::Accepted(d::OutcomeV1::Status(d::StatusV1 {
+            revision: 0,
+            needs_reopen: false,
+        })),
+        limits,
+    )
+    .unwrap();
+    reply[8] = 11;
+    assert_eq!(
+        decode_deliberation_reply(&reply, limits),
+        Err(CodecErrorV1::Unsupported)
+    );
 }
 
 #[test]

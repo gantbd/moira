@@ -39,9 +39,20 @@
         "scores": [1]
       }
     ],
+    "admission": {
+      "affected_population_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "stakeholder_map_digest": "1212121212121212121212121212121212121212121212121212121212121212",
+      "coverage_manifest_digest": "1313131313131313131313131313131313131313131313131313131313131313",
+      "equity_assessment_digest": "1414141414141414141414141414141414141414141414141414141414141414",
+      "assessor_principal": "15151515151515151515151515151515",
+      "fitness": "yes"
+    },
     "members": [
       {
         "id": "05050505050505050505050505050505",
+        "principal": "40404040404040404040404040404040",
+        "constituency_digest": "5151515151515151515151515151515151515151515151515151515151515151",
+        "representation": "technical_sme",
         "lens": "theorist",
         "fold_target": "rune:architecture",
         "orthogonality_role": "rune:architecture",
@@ -49,6 +60,9 @@
       },
       {
         "id": "06060606060606060606060606060606",
+        "principal": "40404040404040404040404040404040",
+        "constituency_digest": "5252525252525252525252525252525252525252525252525252525252525252",
+        "representation": "technical_sme",
         "lens": "rigor_reviewer",
         "fold_target": "rune:network",
         "orthogonality_role": "rune:network",
@@ -56,6 +70,9 @@
       },
       {
         "id": "07070707070707070707070707070707",
+        "principal": "40404040404040404040404040404040",
+        "constituency_digest": "5353535353535353535353535353535353535353535353535353535353535353",
+        "representation": "technical_sme",
         "lens": "researcher",
         "fold_target": "rune:identity",
         "orthogonality_role": "rune:identity",
@@ -63,6 +80,9 @@
       },
       {
         "id": "08080808080808080808080808080808",
+        "principal": "40404040404040404040404040404040",
+        "constituency_digest": "5454545454545454545454545454545454545454545454545454545454545454",
+        "representation": "technical_sme",
         "lens": "historian",
         "fold_target": "rune:data",
         "orthogonality_role": "rune:data",

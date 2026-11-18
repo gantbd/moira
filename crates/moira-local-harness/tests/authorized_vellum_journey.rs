@@ -314,6 +314,10 @@ fn unresolved_outcome() -> (DeliberationPlanV1, Vec<MemberReportV1>, MemberOutco
     let candidate = CandidateIdV1([2; 16]);
     let member = |id, lens| EnsembleMemberV1 {
         id: EnsembleMemberIdV1([id; 16]),
+        stakeholder: moira_core::deliberation::StakeholderRefV1::technical_sme(
+            [id; 16],
+            [id + 20; 32],
+        ),
         lens,
         concern_root_digest: [id + 20; 32],
         grounding: GroundingRefV1 {
@@ -338,6 +342,9 @@ fn unresolved_outcome() -> (DeliberationPlanV1, Vec<MemberReportV1>, MemberOutco
             id: candidate,
             scores: vec![1],
         }],
+        admission: moira_core::deliberation::EnsembleAdmissionV1::affirmed(
+            [7; 32], [8; 32], [9; 32], [10; 32], [13; 16],
+        ),
         members: vec![
             member(11, PersonaLensV1::Theorist),
             member(12, PersonaLensV1::RigorReviewer),

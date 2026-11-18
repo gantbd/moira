@@ -672,8 +672,14 @@ mod tests {
                 id: CandidateIdV1([7; 16]),
                 scores: vec![1],
             }],
+            admission: moira_core::deliberation::EnsembleAdmissionV1::affirmed(
+                [13; 32], [14; 32], [15; 32], [16; 32], [17; 16],
+            ),
             members: vec![EnsembleMemberV1 {
                 id: member,
+                stakeholder: moira_core::deliberation::StakeholderRefV1::technical_sme(
+                    member.0, [8; 32],
+                ),
                 lens: PersonaLensV1::Researcher,
                 concern_root_digest: [8; 32],
                 grounding: GroundingRefV1 {

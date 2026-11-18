@@ -24,6 +24,7 @@ pub struct SurfaceEvidenceV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MemberIntentV1 {
     pub id: EnsembleMemberIdV1,
+    pub stakeholder: StakeholderRefV1,
     pub lens: PersonaLensV1,
     pub concern_root_digest: [u8; 32],
 }
@@ -90,6 +91,7 @@ pub fn assemble(
         }
         members.push(EnsembleMemberV1 {
             id: intent.id,
+            stakeholder: intent.stakeholder,
             lens: intent.lens,
             concern_root_digest: intent.concern_root_digest,
             grounding: GroundingRefV1 {

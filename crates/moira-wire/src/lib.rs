@@ -17,8 +17,8 @@ pub use agent_participation::{
 };
 mod deliberation;
 pub use deliberation::{
-    decode_deliberation_reply, decode_deliberation_request, encode_deliberation_reply,
-    encode_deliberation_request,
+    DELIBERATION_PROFILE_VERSION, decode_deliberation_reply, decode_deliberation_request,
+    encode_deliberation_reply, encode_deliberation_request,
 };
 mod saga;
 pub use saga::{decode_saga_reply, decode_saga_request, encode_saga_reply, encode_saga_request};

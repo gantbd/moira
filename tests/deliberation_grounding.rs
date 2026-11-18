@@ -1,11 +1,12 @@
 use moira_core::deliberation::{
-    EnsembleMemberIdV1, PersonaLensV1, SurfaceDepthV1,
+    EnsembleMemberIdV1, PersonaLensV1, StakeholderRefV1, SurfaceDepthV1,
     grounding::{self, *},
 };
 
 fn intent(id: u8) -> MemberIntentV1 {
     MemberIntentV1 {
         id: EnsembleMemberIdV1([id; 16]),
+        stakeholder: StakeholderRefV1::technical_sme([id; 16], [id; 32]),
         lens: PersonaLensV1::Researcher,
         concern_root_digest: [id; 32],
     }

@@ -666,6 +666,9 @@ fn plan() -> DeliberationPlanV1 {
             id: CandidateIdV1([3; 16]),
             scores: vec![1],
         }],
+        admission: moira_core::deliberation::EnsembleAdmissionV1::affirmed(
+            [72; 32], [73; 32], [74; 32], [75; 32], [76; 16],
+        ),
         members: vec![member(0), member(10)],
         orthogonality: OrthogonalityEvidenceV1 {
             query_digest: [70; 32],
@@ -679,6 +682,10 @@ fn plan() -> DeliberationPlanV1 {
 fn member(offset: u8) -> EnsembleMemberV1 {
     EnsembleMemberV1 {
         id: EnsembleMemberIdV1([offset + 5; 16]),
+        stakeholder: moira_core::deliberation::StakeholderRefV1::technical_sme(
+            [offset + 5; 16],
+            [offset + 80; 32],
+        ),
         lens: if offset == 0 {
             PersonaLensV1::Historian
         } else {

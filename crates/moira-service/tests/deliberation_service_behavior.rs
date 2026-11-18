@@ -66,8 +66,10 @@ fn plan(seed: u8) -> DeliberationPlanV1 {
             id: CandidateIdV1([13; 16]),
             scores: vec![7],
         }],
+        admission: EnsembleAdmissionV1::affirmed([21; 32], [22; 32], [23; 32], [24; 32], [25; 16]),
         members: vec![EnsembleMemberV1 {
             id: EnsembleMemberIdV1([14; 16]),
+            stakeholder: StakeholderRefV1::technical_sme([14; 16], [15; 32]),
             lens: PersonaLensV1::Historian,
             concern_root_digest: [15; 32],
             grounding: GroundingRefV1 {

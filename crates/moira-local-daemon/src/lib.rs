@@ -50,8 +50,8 @@ where
     )
 }
 
-/// Methodical-deliberation profile. Its distinct frame kind prevents a
-/// deliberation view or mutation from crossing another Moira service family.
+/// Methodical-deliberation profile V2. Its versioned, distinct frame kinds
+/// prevent both V1 reinterpretation and crossing another Moira service family.
 pub fn serve_deliberation_up_to<IO, F, E>(
     io: &mut IO,
     limits: LimitsV1,

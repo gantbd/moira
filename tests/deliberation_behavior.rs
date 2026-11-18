@@ -2,9 +2,10 @@ use moira_core::deliberation::{
     AuthorityDecisionIdV1, AuthorityRefV1, AuthoritySubjectIdV1, CandidateIdV1, CandidateV1,
     ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1, DeliberationIdV1,
     DeliberationLimitsV1, DeliberationPhaseV1, DeliberationPlanV1, DeliberationRefusalV1,
-    DeliberationV1, EnsembleMemberIdV1, EnsembleMemberV1, FrontierRefusalV1, GroundingRefV1,
-    MemberReportV1, MethodRefV1, MuReasonV1, OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1,
-    ResolutionV1, SurfaceDepthV1, pareto_frontier,
+    DeliberationV1, EnsembleAdmissionV1, EnsembleFitnessV1, EnsembleMemberIdV1, EnsembleMemberV1,
+    FrontierRefusalV1, GroundingRefV1, MemberReportV1, MethodRefV1, MuReasonV1,
+    OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1,
+    StakeholderRepresentationV1, SurfaceDepthV1, pareto_frontier,
 };
 
 fn criterion(seed: u8, direction: CriterionDirectionV1) -> CriterionV1 {
@@ -17,6 +18,7 @@ fn criterion(seed: u8, direction: CriterionDirectionV1) -> CriterionV1 {
 fn member(seed: u8, lens: PersonaLensV1) -> EnsembleMemberV1 {
     EnsembleMemberV1 {
         id: EnsembleMemberIdV1([seed; 16]),
+        stakeholder: StakeholderRefV1::technical_sme([seed; 16], [seed; 32]),
         lens,
         concern_root_digest: [seed; 32],
         grounding: GroundingRefV1 {
@@ -41,6 +43,7 @@ fn plan(fuel: u32) -> DeliberationPlanV1 {
             criterion(2, CriterionDirectionV1::Minimize),
         ],
         candidates: vec![candidate(1, &[10, 10]), candidate(2, &[5, 1])],
+        admission: EnsembleAdmissionV1::affirmed([10; 32], [11; 32], [12; 32], [13; 32], [14; 16]),
         members: vec![
             member(1, PersonaLensV1::Historian),
             member(2, PersonaLensV1::RigorReviewer),
@@ -69,6 +72,50 @@ fn candidate(seed: u8, scores: &[i64]) -> CandidateV1 {
         id: CandidateIdV1([seed; 16]),
         scores: scores.to_vec(),
     }
+}
+
+#[test]
+fn unfit_or_contested_ensemble_is_retained_but_cannot_submit_substantive_reports() {
+    for fitness in [EnsembleFitnessV1::No, EnsembleFitnessV1::Contested] {
+        let mut value = plan(3);
+        value.admission.fitness = fitness;
+        let mut deliberation = DeliberationV1::try_new(value, DeliberationLimitsV1::default())
+            .expect("the cohort problem must remain inspectable");
+        assert_eq!(
+            deliberation.submit_report(report(1)),
+            Err(DeliberationRefusalV1::EnsembleNotAdmitted)
+        );
+        deliberation
+            .resolve(ResolutionV1::Mu(MuReasonV1::WrongEnsemble))
+            .expect("the retained review can terminate honestly as the wrong ensemble");
+    }
+}
+
+#[test]
+fn stakeholder_standing_cannot_be_fabricated_from_a_persona() {
+    let mut value = plan(3);
+    value.members[0].stakeholder = StakeholderRefV1 {
+        principal: [1; 16],
+        constituency_digest: [2; 32],
+        representation: StakeholderRepresentationV1::AgentModeledPerspective,
+        accountable_principal: None,
+        mandate_digest: Some([3; 32]),
+        conflict_digest: None,
+    };
+    assert_eq!(
+        DeliberationV1::try_new(value, DeliberationLimitsV1::default()),
+        Err(DeliberationRefusalV1::InvalidStakeholder)
+    );
+}
+
+#[test]
+fn ensemble_admission_requires_exact_nonzero_equity_evidence() {
+    let mut value = plan(3);
+    value.admission.equity_assessment_digest = [0; 32];
+    assert_eq!(
+        DeliberationV1::try_new(value, DeliberationLimitsV1::default()),
+        Err(DeliberationRefusalV1::InvalidEnsembleAdmission)
+    );
 }
 
 #[test]

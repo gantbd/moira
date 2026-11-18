@@ -282,6 +282,9 @@ fn plan() -> DeliberationPlanV1 {
             id: CandidateIdV1([5; 16]),
             scores: vec![1],
         }],
+        admission: moira_core::deliberation::EnsembleAdmissionV1::affirmed(
+            [16; 32], [17; 32], [18; 32], [19; 32], [20; 16],
+        ),
         members: vec![member(6), member(10)],
         orthogonality: OrthogonalityEvidenceV1 {
             query_digest: [14; 32],
@@ -295,6 +298,10 @@ fn plan() -> DeliberationPlanV1 {
 fn member(seed: u8) -> EnsembleMemberV1 {
     EnsembleMemberV1 {
         id: EnsembleMemberIdV1([seed; 16]),
+        stakeholder: moira_core::deliberation::StakeholderRefV1::technical_sme(
+            [seed; 16],
+            [seed + 1; 32],
+        ),
         lens: PersonaLensV1::RigorReviewer,
         concern_root_digest: [seed + 1; 32],
         grounding: GroundingRefV1 {

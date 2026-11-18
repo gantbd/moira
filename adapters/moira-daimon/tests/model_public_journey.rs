@@ -8,9 +8,9 @@ use daimon_protocol as daimon;
 use daimon_service::{ServiceLimitsV1, model::ModelService};
 use moira_core::deliberation::{
     CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1,
-    DeliberationIdV1, DeliberationPlanV1, EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1,
-    MaybeValueV1, MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1,
-    SurfaceDepthV1,
+    DeliberationIdV1, DeliberationPlanV1, EnsembleAdmissionV1, EnsembleMemberIdV1,
+    EnsembleMemberV1, GroundingRefV1, MaybeValueV1, MethodRefV1, OrthogonalityEvidenceV1,
+    PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1, SurfaceDepthV1,
     registry::{DeliberationRegistryV1, RegistryCommandV1, RegistryLimitsV1, RegistryRevisionV1},
 };
 use moira_daimon::{
@@ -225,9 +225,11 @@ fn ensemble_plan() -> DeliberationPlanV1 {
             id: CandidateIdV1([34; 16]),
             scores: vec![1],
         }],
+        admission: EnsembleAdmissionV1::affirmed([45; 32], [46; 32], [47; 32], [48; 32], [49; 16]),
         members: vec![
             EnsembleMemberV1 {
                 id: EnsembleMemberIdV1([35; 16]),
+                stakeholder: StakeholderRefV1::technical_sme([35; 16], [36; 32]),
                 lens: PersonaLensV1::Researcher,
                 concern_root_digest: [36; 32],
                 grounding: GroundingRefV1 {
@@ -238,6 +240,7 @@ fn ensemble_plan() -> DeliberationPlanV1 {
             },
             EnsembleMemberV1 {
                 id: EnsembleMemberIdV1([39; 16]),
+                stakeholder: StakeholderRefV1::technical_sme([39; 16], [40; 32]),
                 lens: PersonaLensV1::RigorReviewer,
                 concern_root_digest: [40; 32],
                 grounding: GroundingRefV1 {

@@ -3,8 +3,12 @@
 use super::{CodecErrorV1, LimitsV1, Reader, Writer};
 use moira_protocol::deliberation as d;
 
-const REQUEST: u8 = 10;
-const REPLY: u8 = 11;
+/// Deliberation profile V2 adds retained stakeholder standing and cohort
+/// admission evidence. Distinct frame kinds make V1 peers fail closed instead
+/// of decoding the changed plan shape under the old profile.
+pub const DELIBERATION_PROFILE_VERSION: u8 = 2;
+const REQUEST: u8 = 12;
+const REPLY: u8 = 13;
 
 pub fn encode_deliberation_request(
     value: &d::CommandV1,
@@ -212,6 +216,7 @@ fn plan(w: &mut Writer, value: &d::DeliberationPlanV1) -> Result<(), CodecErrorV
     for value in &value.candidates {
         candidate(w, value)?;
     }
+    admission(w, value.admission)?;
     write_len(w, value.members.len())?;
     for value in &value.members {
         member(w, *value)?;
@@ -229,6 +234,7 @@ fn read_plan(r: &mut Reader<'_>) -> Result<d::DeliberationPlanV1, CodecErrorV1> 
     let claims = read_many(r, |r| read_claim(r.byte()?))?;
     let criteria = read_many(r, read_criterion)?;
     let candidates = read_many(r, read_candidate)?;
+    let admission = read_admission(r)?;
     let members = read_many(r, read_member)?;
     Ok(d::DeliberationPlanV1 {
         id,
@@ -237,6 +243,7 @@ fn read_plan(r: &mut Reader<'_>) -> Result<d::DeliberationPlanV1, CodecErrorV1> 
         claims,
         criteria,
         candidates,
+        admission,
         members,
         orthogonality: d::OrthogonalityEvidenceV1 {
             query_digest: r.raw()?,
@@ -362,6 +369,7 @@ fn read_candidate(r: &mut Reader<'_>) -> Result<d::CandidateV1, CodecErrorV1> {
 
 fn member(w: &mut Writer, value: d::EnsembleMemberV1) -> Result<(), CodecErrorV1> {
     w.raw(&value.id.0)?;
+    stakeholder(w, value.stakeholder)?;
     w.byte(persona_tag(value.lens))?;
     w.raw(&value.concern_root_digest)?;
     grounding(w, value.grounding)
@@ -370,9 +378,52 @@ fn member(w: &mut Writer, value: d::EnsembleMemberV1) -> Result<(), CodecErrorV1
 fn read_member(r: &mut Reader<'_>) -> Result<d::EnsembleMemberV1, CodecErrorV1> {
     Ok(d::EnsembleMemberV1 {
         id: d::EnsembleMemberIdV1(r.raw()?),
+        stakeholder: read_stakeholder(r)?,
         lens: read_persona(r.byte()?)?,
         concern_root_digest: r.raw()?,
         grounding: read_grounding(r)?,
+    })
+}
+
+fn admission(w: &mut Writer, value: d::EnsembleAdmissionV1) -> Result<(), CodecErrorV1> {
+    w.raw(&value.affected_population_digest)?;
+    w.raw(&value.stakeholder_map_digest)?;
+    w.raw(&value.coverage_manifest_digest)?;
+    w.raw(&value.equity_assessment_digest)?;
+    w.raw(&value.assessor_principal)?;
+    w.byte(fitness_tag(value.fitness))
+}
+
+fn read_admission(r: &mut Reader<'_>) -> Result<d::EnsembleAdmissionV1, CodecErrorV1> {
+    Ok(d::EnsembleAdmissionV1 {
+        affected_population_digest: r.raw()?,
+        stakeholder_map_digest: r.raw()?,
+        coverage_manifest_digest: r.raw()?,
+        equity_assessment_digest: r.raw()?,
+        assessor_principal: r.raw()?,
+        fitness: read_fitness(r.byte()?)?,
+    })
+}
+
+fn stakeholder(w: &mut Writer, value: d::StakeholderRefV1) -> Result<(), CodecErrorV1> {
+    w.raw(&value.principal)?;
+    w.raw(&value.constituency_digest)?;
+    w.byte(representation_tag(value.representation))?;
+    w.option(value.accountable_principal.as_ref(), |w, value| {
+        w.raw(value)
+    })?;
+    w.option(value.mandate_digest.as_ref(), |w, value| w.raw(value))?;
+    w.option(value.conflict_digest.as_ref(), |w, value| w.raw(value))
+}
+
+fn read_stakeholder(r: &mut Reader<'_>) -> Result<d::StakeholderRefV1, CodecErrorV1> {
+    Ok(d::StakeholderRefV1 {
+        principal: r.raw()?,
+        constituency_digest: r.raw()?,
+        representation: read_representation(r.byte()?)?,
+        accountable_principal: r.option(|r| r.raw())?,
+        mandate_digest: r.option(|r| r.raw())?,
+        conflict_digest: r.option(|r| r.raw())?,
     })
 }
 
@@ -532,6 +583,9 @@ fn deliberation_refusal(
         d::DeliberationRefusalV1::EmptyEnsemble => 6,
         d::DeliberationRefusalV1::MemberLimit => 7,
         d::DeliberationRefusalV1::DuplicateMember => 8,
+        d::DeliberationRefusalV1::InvalidStakeholder => 22,
+        d::DeliberationRefusalV1::InvalidEnsembleAdmission => 23,
+        d::DeliberationRefusalV1::EnsembleNotAdmitted => 24,
         d::DeliberationRefusalV1::NonOrthogonalEnsemble => 9,
         d::DeliberationRefusalV1::FuelInvalid => 10,
         d::DeliberationRefusalV1::Frontier(value) => {
@@ -563,6 +617,9 @@ fn read_deliberation_refusal(r: &mut Reader<'_>) -> Result<d::DeliberationRefusa
         6 => d::DeliberationRefusalV1::EmptyEnsemble,
         7 => d::DeliberationRefusalV1::MemberLimit,
         8 => d::DeliberationRefusalV1::DuplicateMember,
+        22 => d::DeliberationRefusalV1::InvalidStakeholder,
+        23 => d::DeliberationRefusalV1::InvalidEnsembleAdmission,
+        24 => d::DeliberationRefusalV1::EnsembleNotAdmitted,
         9 => d::DeliberationRefusalV1::NonOrthogonalEnsemble,
         10 => d::DeliberationRefusalV1::FuelInvalid,
         11 => d::DeliberationRefusalV1::Frontier(read_frontier_refusal(r.byte()?)?),
@@ -610,6 +667,42 @@ fn persona_tag(value: d::PersonaLensV1) -> u8 {
         d::PersonaLensV1::RigorReviewer => 4,
         d::PersonaLensV1::ConvergenceFacilitator => 5,
     }
+}
+
+fn representation_tag(value: d::StakeholderRepresentationV1) -> u8 {
+    match value {
+        d::StakeholderRepresentationV1::ActualStakeholder => 0,
+        d::StakeholderRepresentationV1::AuthorizedRepresentative => 1,
+        d::StakeholderRepresentationV1::AgentModeledPerspective => 2,
+        d::StakeholderRepresentationV1::TechnicalSme => 3,
+    }
+}
+
+fn read_representation(value: u8) -> Result<d::StakeholderRepresentationV1, CodecErrorV1> {
+    Ok(match value {
+        0 => d::StakeholderRepresentationV1::ActualStakeholder,
+        1 => d::StakeholderRepresentationV1::AuthorizedRepresentative,
+        2 => d::StakeholderRepresentationV1::AgentModeledPerspective,
+        3 => d::StakeholderRepresentationV1::TechnicalSme,
+        _ => return Err(CodecErrorV1::Unsupported),
+    })
+}
+
+fn fitness_tag(value: d::EnsembleFitnessV1) -> u8 {
+    match value {
+        d::EnsembleFitnessV1::Yes => 0,
+        d::EnsembleFitnessV1::No => 1,
+        d::EnsembleFitnessV1::Contested => 2,
+    }
+}
+
+fn read_fitness(value: u8) -> Result<d::EnsembleFitnessV1, CodecErrorV1> {
+    Ok(match value {
+        0 => d::EnsembleFitnessV1::Yes,
+        1 => d::EnsembleFitnessV1::No,
+        2 => d::EnsembleFitnessV1::Contested,
+        _ => return Err(CodecErrorV1::Unsupported),
+    })
 }
 
 fn read_persona(value: u8) -> Result<d::PersonaLensV1, CodecErrorV1> {

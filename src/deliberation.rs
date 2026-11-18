@@ -43,6 +43,90 @@ pub enum PersonaLensV1 {
     ConvergenceFacilitator,
 }
 
+/// How this member is entitled to speak in the cohort. This is deliberately
+/// separate from `PersonaLensV1`: a way of examining a question is not
+/// stakeholder identity, lived experience, mandate, or authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StakeholderRepresentationV1 {
+    ActualStakeholder,
+    AuthorizedRepresentative,
+    AgentModeledPerspective,
+    TechnicalSme,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StakeholderRefV1 {
+    pub principal: [u8; 16],
+    pub constituency_digest: [u8; 32],
+    pub representation: StakeholderRepresentationV1,
+    pub accountable_principal: Option<[u8; 16]>,
+    pub mandate_digest: Option<[u8; 32]>,
+    pub conflict_digest: Option<[u8; 32]>,
+}
+
+impl StakeholderRefV1 {
+    pub fn technical_sme(principal: [u8; 16], domain_digest: [u8; 32]) -> Self {
+        Self {
+            principal,
+            constituency_digest: domain_digest,
+            representation: StakeholderRepresentationV1::TechnicalSme,
+            accountable_principal: None,
+            mandate_digest: None,
+            conflict_digest: None,
+        }
+    }
+
+    pub fn agent_modeled(principal: [u8; 16], constituency_digest: [u8; 32]) -> Self {
+        Self {
+            principal,
+            constituency_digest,
+            representation: StakeholderRepresentationV1::AgentModeledPerspective,
+            accountable_principal: None,
+            mandate_digest: None,
+            conflict_digest: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EnsembleFitnessV1 {
+    Yes,
+    No,
+    Contested,
+}
+
+/// Retained answer to the admission question “Do we have the right ensemble?”
+/// Digests name exact owner artifacts; they are evidence, not proof that the
+/// cohort is representative or equitable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EnsembleAdmissionV1 {
+    pub affected_population_digest: [u8; 32],
+    pub stakeholder_map_digest: [u8; 32],
+    pub coverage_manifest_digest: [u8; 32],
+    pub equity_assessment_digest: [u8; 32],
+    pub assessor_principal: [u8; 16],
+    pub fitness: EnsembleFitnessV1,
+}
+
+impl EnsembleAdmissionV1 {
+    pub fn affirmed(
+        affected_population_digest: [u8; 32],
+        stakeholder_map_digest: [u8; 32],
+        coverage_manifest_digest: [u8; 32],
+        equity_assessment_digest: [u8; 32],
+        assessor_principal: [u8; 16],
+    ) -> Self {
+        Self {
+            affected_population_digest,
+            stakeholder_map_digest,
+            coverage_manifest_digest,
+            equity_assessment_digest,
+            assessor_principal,
+            fitness: EnsembleFitnessV1::Yes,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SurfaceDepthV1 {
     Ambient,
@@ -66,6 +150,7 @@ pub struct MethodRefV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnsembleMemberV1 {
     pub id: EnsembleMemberIdV1,
+    pub stakeholder: StakeholderRefV1,
     pub lens: PersonaLensV1,
     pub concern_root_digest: [u8; 32],
     pub grounding: GroundingRefV1,
@@ -181,6 +266,7 @@ pub struct DeliberationPlanV1 {
     pub claims: Vec<ClaimKindV1>,
     pub criteria: Vec<CriterionV1>,
     pub candidates: Vec<CandidateV1>,
+    pub admission: EnsembleAdmissionV1,
     pub members: Vec<EnsembleMemberV1>,
     pub orthogonality: OrthogonalityEvidenceV1,
     pub fuel: u32,
@@ -213,6 +299,9 @@ pub enum DeliberationRefusalV1 {
     EmptyEnsemble,
     MemberLimit,
     DuplicateMember,
+    InvalidStakeholder,
+    InvalidEnsembleAdmission,
+    EnsembleNotAdmitted,
     NonOrthogonalEnsemble,
     FuelInvalid,
     Frontier(FrontierRefusalV1),
@@ -286,7 +375,7 @@ impl DeliberationV1 {
 
     pub fn checkpoint(&self) -> DeliberationCheckpointV1 {
         DeliberationCheckpointV1 {
-            version: 2,
+            version: 3,
             plan: self.plan.clone(),
             limits: self.limits,
             reports: self.reports.clone(),
@@ -296,7 +385,7 @@ impl DeliberationV1 {
     }
 
     pub fn recover(checkpoint: DeliberationCheckpointV1) -> Result<Self, DeliberationRefusalV1> {
-        if checkpoint.version != 2 {
+        if checkpoint.version != 3 {
             return Err(DeliberationRefusalV1::UnsupportedVersion);
         }
         let expected = checkpoint.clone();
@@ -316,6 +405,9 @@ impl DeliberationV1 {
     pub fn submit_report(&mut self, report: MemberReportV1) -> Result<(), DeliberationRefusalV1> {
         if self.resolution.is_some() {
             return Err(DeliberationRefusalV1::AlreadyResolved);
+        }
+        if self.plan.admission.fitness != EnsembleFitnessV1::Yes {
+            return Err(DeliberationRefusalV1::EnsembleNotAdmitted);
         }
         if let Some(existing) = self
             .reports
@@ -434,6 +526,16 @@ fn validate_plan(
     {
         return Err(DeliberationRefusalV1::DuplicateMember);
     }
+    if !valid_admission(plan.admission) {
+        return Err(DeliberationRefusalV1::InvalidEnsembleAdmission);
+    }
+    if plan
+        .members
+        .iter()
+        .any(|member| !valid_stakeholder(member.stakeholder))
+    {
+        return Err(DeliberationRefusalV1::InvalidStakeholder);
+    }
     if !plan.orthogonality.all_orthogonal {
         return Err(DeliberationRefusalV1::NonOrthogonalEnsemble);
     }
@@ -441,6 +543,30 @@ fn validate_plan(
         return Err(DeliberationRefusalV1::FuelInvalid);
     }
     Ok(())
+}
+
+fn valid_admission(value: EnsembleAdmissionV1) -> bool {
+    value.affected_population_digest != [0; 32]
+        && value.stakeholder_map_digest != [0; 32]
+        && value.coverage_manifest_digest != [0; 32]
+        && value.equity_assessment_digest != [0; 32]
+        && value.assessor_principal != [0; 16]
+}
+
+fn valid_stakeholder(value: StakeholderRefV1) -> bool {
+    if value.principal == [0; 16] || value.constituency_digest == [0; 32] {
+        return false;
+    }
+    match value.representation {
+        StakeholderRepresentationV1::ActualStakeholder => {
+            value.accountable_principal.is_some() && value.mandate_digest.is_none()
+        }
+        StakeholderRepresentationV1::AuthorizedRepresentative => {
+            value.accountable_principal.is_some() && value.mandate_digest.is_some()
+        }
+        StakeholderRepresentationV1::AgentModeledPerspective
+        | StakeholderRepresentationV1::TechnicalSme => value.mandate_digest.is_none(),
+    }
 }
 
 fn validate_resolution(

@@ -38,9 +38,10 @@ use keystone_storage::{
 use moira_core::deliberation::{
     AuthorityDecisionIdV1, AuthorityRefV1, AuthoritySubjectIdV1, CandidateIdV1, CandidateV1,
     ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1, DeliberationIdV1,
-    DeliberationLimitsV1, DeliberationPlanV1, DeliberationV1, EnsembleMemberIdV1, EnsembleMemberV1,
-    GroundingRefV1, MemberReportV1, MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1,
-    ReportIdV1, ResolutionV1, SurfaceDepthV1,
+    DeliberationLimitsV1, DeliberationPlanV1, DeliberationV1, EnsembleAdmissionV1,
+    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, MemberReportV1, MethodRefV1,
+    OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1,
+    SurfaceDepthV1,
 };
 use moira_daimon::{
     ModelProposalV1, ModelResultV1,
@@ -442,13 +443,13 @@ impl daimon_local_daemon::ModelServicePort for WorkflowModelService {
         };
         let context = context.into_bytes();
         let lens = if context == [25; 16] {
-            "theorist"
+            "agent-modeled end-user stakeholder perspective using the theorist"
         } else if context == [35; 16] {
-            "rigor reviewer"
+            "technical network SME using the rigor reviewer"
         } else if context == [45; 16] {
-            "idea stormer"
+            "agent-modeled affected non-user and public-interest stakeholder perspective using the idea stormer"
         } else if context == [55; 16] {
-            "historian"
+            "technical data SME using the historian"
         } else {
             panic!("workflow qualification received an unknown persona context")
         };
@@ -1534,9 +1535,12 @@ fn workflow_operator_config(
     dendrite_port: u16,
     daimon_socket: &Path,
 ) -> serde_json::Value {
-    let member = |id: u8, lens: &str, target: &str| {
+    let member = |id: u8, lens: &str, target: &str, representation: &str| {
         serde_json::json!({
             "id": hex(id),
+            "principal": hex(64),
+            "constituency_digest": digest_hex(id + 80),
+            "representation": representation,
             "lens": lens,
             "fold_target": target,
             "orthogonality_role": target,
@@ -1595,11 +1599,19 @@ fn workflow_operator_config(
                 {"id": hex(17), "scores": [7, 3]},
                 {"id": hex(18), "scores": [6, 9]}
             ],
+            "admission": {
+                "affected_population_digest": digest_hex(70),
+                "stakeholder_map_digest": digest_hex(71),
+                "coverage_manifest_digest": digest_hex(72),
+                "equity_assessment_digest": digest_hex(73),
+                "assessor_principal": hex(74),
+                "fitness": "yes"
+            },
             "members": [
-                member(5, "theorist", "rune:architecture"),
-                member(6, "rigor_reviewer", "rune:network"),
-                member(7, "idea_stormer", "rune:identity"),
-                member(8, "historian", "rune:data")
+                member(5, "theorist", "rune:architecture", "agent_modeled_perspective"),
+                member(6, "rigor_reviewer", "rune:network", "technical_sme"),
+                member(7, "idea_stormer", "rune:identity", "agent_modeled_perspective"),
+                member(8, "historian", "rune:data", "technical_sme")
             ],
             "fuel": 5
         },
@@ -1785,8 +1797,19 @@ fn chatbot_operator_config(
             "claims": ["empirical"],
             "criteria": [{"id": hex(12), "direction": "maximize"}],
             "candidates": [{"id": hex(13), "scores": [1]}],
+            "admission": {
+                "affected_population_digest": digest_hex(70),
+                "stakeholder_map_digest": digest_hex(71),
+                "coverage_manifest_digest": digest_hex(72),
+                "equity_assessment_digest": digest_hex(73),
+                "assessor_principal": hex(74),
+                "fitness": "yes"
+            },
             "members": [{
                 "id": hex(50),
+                "principal": hex(64),
+                "constituency_digest": digest_hex(50),
+                "representation": "technical_sme",
                 "lens": "rigor_reviewer",
                 "fold_target": "rune:tester",
                 "orthogonality_role": "rune:tester",
@@ -1895,6 +1918,7 @@ fn resolved_outcome(
             id: CandidateIdV1([32; 16]),
             scores: vec![1],
         }],
+        admission: EnsembleAdmissionV1::affirmed([40; 32], [41; 32], [42; 32], [43; 32], [44; 16]),
         members: vec![member(first, 33), member(second, 34)],
         orthogonality: OrthogonalityEvidenceV1 {
             query_digest: [35; 32],
@@ -1963,6 +1987,7 @@ fn resolved_outcome(
 fn member(id: EnsembleMemberIdV1, seed: u8) -> EnsembleMemberV1 {
     EnsembleMemberV1 {
         id,
+        stakeholder: StakeholderRefV1::technical_sme(id.0, [seed; 32]),
         lens: PersonaLensV1::Researcher,
         concern_root_digest: [seed; 32],
         grounding: GroundingRefV1 {
@@ -2039,4 +2064,8 @@ fn path() -> PathBuf {
 
 fn hex(byte: u8) -> String {
     format!("{byte:02x}").repeat(16)
+}
+
+fn digest_hex(byte: u8) -> String {
+    format!("{byte:02x}").repeat(32)
 }

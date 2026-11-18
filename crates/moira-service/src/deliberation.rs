@@ -111,6 +111,7 @@ fn plan_domain(value: protocol::DeliberationPlanV1) -> domain::DeliberationPlanV
         claims: value.claims.into_iter().map(claim_domain).collect(),
         criteria: value.criteria.into_iter().map(criterion_domain).collect(),
         candidates: value.candidates.into_iter().map(candidate_domain).collect(),
+        admission: admission_domain(value.admission),
         members: value.members.into_iter().map(member_domain).collect(),
         orthogonality: domain::OrthogonalityEvidenceV1 {
             query_digest: value.orthogonality.query_digest,
@@ -151,6 +152,7 @@ fn candidate_domain(value: protocol::CandidateV1) -> domain::CandidateV1 {
 fn member_domain(value: protocol::EnsembleMemberV1) -> domain::EnsembleMemberV1 {
     domain::EnsembleMemberV1 {
         id: domain::EnsembleMemberIdV1(value.id.0),
+        stakeholder: stakeholder_domain(value.stakeholder),
         lens: lens_domain(value.lens),
         concern_root_digest: value.concern_root_digest,
         grounding: domain::GroundingRefV1 {
@@ -162,6 +164,45 @@ fn member_domain(value: protocol::EnsembleMemberV1) -> domain::EnsembleMemberV1 
                 protocol::SurfaceDepthV1::Reference => domain::SurfaceDepthV1::Reference,
             },
         },
+    }
+}
+
+fn admission_domain(value: protocol::EnsembleAdmissionV1) -> domain::EnsembleAdmissionV1 {
+    domain::EnsembleAdmissionV1 {
+        affected_population_digest: value.affected_population_digest,
+        stakeholder_map_digest: value.stakeholder_map_digest,
+        coverage_manifest_digest: value.coverage_manifest_digest,
+        equity_assessment_digest: value.equity_assessment_digest,
+        assessor_principal: value.assessor_principal,
+        fitness: match value.fitness {
+            protocol::EnsembleFitnessV1::Yes => domain::EnsembleFitnessV1::Yes,
+            protocol::EnsembleFitnessV1::No => domain::EnsembleFitnessV1::No,
+            protocol::EnsembleFitnessV1::Contested => domain::EnsembleFitnessV1::Contested,
+        },
+    }
+}
+
+fn stakeholder_domain(value: protocol::StakeholderRefV1) -> domain::StakeholderRefV1 {
+    domain::StakeholderRefV1 {
+        principal: value.principal,
+        constituency_digest: value.constituency_digest,
+        representation: match value.representation {
+            protocol::StakeholderRepresentationV1::ActualStakeholder => {
+                domain::StakeholderRepresentationV1::ActualStakeholder
+            }
+            protocol::StakeholderRepresentationV1::AuthorizedRepresentative => {
+                domain::StakeholderRepresentationV1::AuthorizedRepresentative
+            }
+            protocol::StakeholderRepresentationV1::AgentModeledPerspective => {
+                domain::StakeholderRepresentationV1::AgentModeledPerspective
+            }
+            protocol::StakeholderRepresentationV1::TechnicalSme => {
+                domain::StakeholderRepresentationV1::TechnicalSme
+            }
+        },
+        accountable_principal: value.accountable_principal,
+        mandate_digest: value.mandate_digest,
+        conflict_digest: value.conflict_digest,
     }
 }
 
@@ -309,6 +350,7 @@ fn plan_view(value: domain::DeliberationPlanV1) -> protocol::DeliberationPlanV1 
                 scores: v.scores,
             })
             .collect(),
+        admission: admission_view(value.admission),
         members: value.members.into_iter().map(member_view).collect(),
         orthogonality: protocol::OrthogonalityEvidenceV1 {
             query_digest: value.orthogonality.query_digest,
@@ -322,6 +364,7 @@ fn plan_view(value: domain::DeliberationPlanV1) -> protocol::DeliberationPlanV1 
 fn member_view(value: domain::EnsembleMemberV1) -> protocol::EnsembleMemberV1 {
     protocol::EnsembleMemberV1 {
         id: protocol::EnsembleMemberIdV1(value.id.0),
+        stakeholder: stakeholder_view(value.stakeholder),
         lens: match value.lens {
             domain::PersonaLensV1::Historian => protocol::PersonaLensV1::Historian,
             domain::PersonaLensV1::IdeaStormer => protocol::PersonaLensV1::IdeaStormer,
@@ -342,6 +385,45 @@ fn member_view(value: domain::EnsembleMemberV1) -> protocol::EnsembleMemberV1 {
                 domain::SurfaceDepthV1::Reference => protocol::SurfaceDepthV1::Reference,
             },
         },
+    }
+}
+
+fn admission_view(value: domain::EnsembleAdmissionV1) -> protocol::EnsembleAdmissionV1 {
+    protocol::EnsembleAdmissionV1 {
+        affected_population_digest: value.affected_population_digest,
+        stakeholder_map_digest: value.stakeholder_map_digest,
+        coverage_manifest_digest: value.coverage_manifest_digest,
+        equity_assessment_digest: value.equity_assessment_digest,
+        assessor_principal: value.assessor_principal,
+        fitness: match value.fitness {
+            domain::EnsembleFitnessV1::Yes => protocol::EnsembleFitnessV1::Yes,
+            domain::EnsembleFitnessV1::No => protocol::EnsembleFitnessV1::No,
+            domain::EnsembleFitnessV1::Contested => protocol::EnsembleFitnessV1::Contested,
+        },
+    }
+}
+
+fn stakeholder_view(value: domain::StakeholderRefV1) -> protocol::StakeholderRefV1 {
+    protocol::StakeholderRefV1 {
+        principal: value.principal,
+        constituency_digest: value.constituency_digest,
+        representation: match value.representation {
+            domain::StakeholderRepresentationV1::ActualStakeholder => {
+                protocol::StakeholderRepresentationV1::ActualStakeholder
+            }
+            domain::StakeholderRepresentationV1::AuthorizedRepresentative => {
+                protocol::StakeholderRepresentationV1::AuthorizedRepresentative
+            }
+            domain::StakeholderRepresentationV1::AgentModeledPerspective => {
+                protocol::StakeholderRepresentationV1::AgentModeledPerspective
+            }
+            domain::StakeholderRepresentationV1::TechnicalSme => {
+                protocol::StakeholderRepresentationV1::TechnicalSme
+            }
+        },
+        accountable_principal: value.accountable_principal,
+        mandate_digest: value.mandate_digest,
+        conflict_digest: value.conflict_digest,
     }
 }
 
@@ -440,6 +522,9 @@ fn deliberation_refusal(value: domain::DeliberationRefusalV1) -> protocol::Delib
         D::EmptyEnsemble => P::EmptyEnsemble,
         D::MemberLimit => P::MemberLimit,
         D::DuplicateMember => P::DuplicateMember,
+        D::InvalidStakeholder => P::InvalidStakeholder,
+        D::InvalidEnsembleAdmission => P::InvalidEnsembleAdmission,
+        D::EnsembleNotAdmitted => P::EnsembleNotAdmitted,
         D::NonOrthogonalEnsemble => P::NonOrthogonalEnsemble,
         D::FuelInvalid => P::FuelInvalid,
         D::Frontier(v) => P::Frontier(match v {

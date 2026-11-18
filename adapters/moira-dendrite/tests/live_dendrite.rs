@@ -1,6 +1,7 @@
 use moira_core::deliberation::{
     CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1,
-    DeliberationIdV1, EnsembleMemberIdV1, PersonaLensV1, SurfaceDepthV1,
+    DeliberationIdV1, EnsembleAdmissionV1, EnsembleMemberIdV1, PersonaLensV1, StakeholderRefV1,
+    SurfaceDepthV1,
     grounding::{self, MemberIntentV1},
 };
 use moira_dendrite::{
@@ -70,6 +71,7 @@ fn live_fold_surfaces_and_orthogonality_form_one_verified_ensemble() {
             .enumerate()
             .map(|(index, (id, _))| MemberIntentV1 {
                 id: *id,
+                stakeholder: StakeholderRefV1::technical_sme(id.0, [index as u8 + 1; 32]),
                 lens: if index == 0 {
                     PersonaLensV1::Theorist
                 } else {
@@ -104,11 +106,15 @@ fn live_fold_surfaces_and_orthogonality_form_one_verified_ensemble() {
                 id: CandidateIdV1([22; 16]),
                 scores: vec![1],
             }],
+            admission: EnsembleAdmissionV1::affirmed(
+                [24; 32], [25; 32], [26; 32], [27; 32], [28; 16],
+            ),
             members: refs
                 .iter()
                 .enumerate()
                 .map(|(index, (id, target))| GroundedMemberRequestV1 {
                     id: *id,
+                    stakeholder: StakeholderRefV1::technical_sme(id.0, [index as u8 + 1; 32]),
                     lens: if index == 0 {
                         PersonaLensV1::Theorist
                     } else {

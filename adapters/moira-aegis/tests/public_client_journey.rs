@@ -20,8 +20,9 @@ use moira_core::EffectId;
 use moira_core::deliberation::{
     AuthoritySubjectIdV1, CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1,
     CriterionIdV1, CriterionV1, DeliberationIdV1, DeliberationLimitsV1, DeliberationPlanV1,
-    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, MemberReportV1, MethodRefV1,
-    OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, SurfaceDepthV1,
+    EnsembleAdmissionV1, EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, MemberReportV1,
+    MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1,
+    StakeholderRefV1, SurfaceDepthV1,
     registry::{RegistryCommandV1, RegistryLimitsV1, RegistryRevisionV1},
 };
 use moira_core::saga::{SagaLimitsV1, persistence::SagaCodecLimitsV1};
@@ -168,8 +169,10 @@ fn choice_plan(deliberation: DeliberationIdV1, selected: CandidateIdV1) -> Delib
             id: selected,
             scores: vec![1],
         }],
+        admission: EnsembleAdmissionV1::affirmed([71; 32], [72; 32], [73; 32], [74; 32], [75; 16]),
         members: vec![EnsembleMemberV1 {
             id: EnsembleMemberIdV1([65; 16]),
+            stakeholder: StakeholderRefV1::technical_sme([65; 16], [66; 32]),
             lens: PersonaLensV1::Historian,
             concern_root_digest: [66; 32],
             grounding: GroundingRefV1 {

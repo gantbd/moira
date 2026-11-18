@@ -1,8 +1,9 @@
 use moira_core::deliberation::{
     CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1,
     DeliberationIdV1, DeliberationLimitsV1, DeliberationPlanV1, DeliberationRefusalV1,
-    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, MaybeValueV1, MemberReportV1,
-    MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, SurfaceDepthV1,
+    EnsembleAdmissionV1, EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, MaybeValueV1,
+    MemberReportV1, MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1,
+    StakeholderRefV1, SurfaceDepthV1,
     registry::{
         DeliberationRegistryV1, RegistryCommandV1, RegistryLimitsV1, RegistryRefusalV1,
         RegistryRevisionV1,
@@ -26,8 +27,10 @@ fn plan(seed: u8) -> DeliberationPlanV1 {
             id: CandidateIdV1([1; 16]),
             scores: vec![1],
         }],
+        admission: EnsembleAdmissionV1::affirmed([10; 32], [11; 32], [12; 32], [13; 32], [14; 16]),
         members: vec![EnsembleMemberV1 {
             id: EnsembleMemberIdV1([1; 16]),
+            stakeholder: StakeholderRefV1::technical_sme([1; 16], [2; 32]),
             lens: PersonaLensV1::Researcher,
             concern_root_digest: [2; 32],
             grounding: GroundingRefV1 {
