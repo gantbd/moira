@@ -55,7 +55,12 @@
   actions and source-owner binding settle live or recovered attempts with no retry
   default. The native checkpoint, settlement receipt and census commit together;
   lost-reply replay, V1/V2 upgrades, missing records and persistent conflict fences
-  are covered. The three-store path now settles Chronos before Agora publication.
+  are covered. A trusted in-process bridge now accepts the exact
+  `DaimonResultReceiptV1` already retained by the owning Moira workflow and reuses
+  the same private-lease/recovery settlement path; it creates no wire or bearer
+  completion API. The four-store path reads that result back from durable Moira,
+  settles Chronos, then completes Agora publication while preserving distinct
+  Chronos-submission and Daimon-execution effect identities.
 - [Implemented for the local fake-provider vertical slice] Agora's native bounded
   checkpoint and the separate SQLite receiver retain replies, exact replay receipts,
   events/acknowledgements and stable room/source correspondence. The four-store test

@@ -159,6 +159,38 @@ impl ChronosReceiver {
         }
         result
     }
+
+    /// Settles one result already admitted by the owning Moira workflow.
+    ///
+    /// This is a trusted in-process adapter, not a wire or bearer protocol. The
+    /// host must obtain `result` from the exact retained Moira workflow and bind
+    /// `context.source_owner` to that result owner. The receiver still requires
+    /// its private live lease or recovered reconciliation state and persists the
+    /// same evidence, replay and conflict facts as [`Self::settle`].
+    pub fn settle_admitted_result(
+        &mut self,
+        submission: EffectId,
+        expected: StateRevision,
+        result: moira_core::DaimonResultReceiptV1,
+        action: SettlementAction,
+        context: SettlementContext,
+    ) -> Result<Settlement, ReceiverError> {
+        let task = result.task();
+        let evidence = SettlementEvidence {
+            source_owner: context.source_owner,
+            effect: result.effect_id(),
+            execution: result.execution_id(),
+            attempt: daimon_harness::TaskAttemptRefV1::new(
+                task.external_task_key(),
+                task.incarnation(),
+                result.attempt_number(),
+            ),
+            disposition: result.disposition(),
+            recovery_unknown: false,
+        };
+        self.settle(submission, expected, &evidence, action, context)
+    }
+
     fn settle_inner(
         &mut self,
         submission: EffectId,
@@ -434,8 +466,9 @@ mod tests {
             Duration::from_secs(30),
         )
         .unwrap();
-        // Negative/fault fixture; real receiver sealing is covered by the
-        // cross-receiver integration scenarios, not this test-only constructor.
+        // Fault fixture; the Daimon execution effect is intentionally distinct
+        // from the Chronos submission effect. Cross-receiver scenarios cover
+        // the real receiver sealing and workflow relationship.
         let e = SettlementEvidence {
             source_owner: [7; 16],
             effect: EffectId::new([2; 16]),
@@ -446,6 +479,29 @@ mod tests {
         };
         (f, c, e)
     }
+    #[test]
+    fn admitted_moira_result_uses_the_same_exact_settlement_path() {
+        let (_f, mut c, e) = setup();
+        let result = moira_core::DaimonResultReceiptV1::new(
+            e.effect,
+            e.execution,
+            moira_core::ChronosTaskRefV1::new(e.attempt.task_key(), e.attempt.task_incarnation()),
+            e.attempt.attempt_number(),
+            e.disposition,
+        );
+        let settled = c
+            .settle_admitted_result(
+                EffectId::new([1; 16]),
+                c.revision(),
+                result,
+                SettlementAction::Complete,
+                context(),
+            )
+            .unwrap();
+        assert_eq!(settled.phase, TaskPhase::Succeeded);
+        assert!(!settled.replayed);
+    }
+
     #[test]
     fn settlement_faults_commit_both_state_and_receipt_or_neither() {
         for fault in [crate::Fault::BeforeCommit, crate::Fault::AfterCommit] {

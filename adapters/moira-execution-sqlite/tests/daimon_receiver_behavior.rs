@@ -536,11 +536,26 @@ fn four_store_workflow_completes_or_fences_without_duplicate_effects() {
         assert!(retained.replayed);
         assert_eq!(retained.receipt, first.receipt);
         assert_eq!(r.usage().provider_calls, 0);
+        origin
+            .apply(
+                origin.revision(),
+                CommandV1::AcceptDaimonResult {
+                    workflow,
+                    receipt: retained.receipt,
+                },
+            )
+            .unwrap();
+        let admitted_result = Engine::recover(origin.load().unwrap().unwrap().checkpoint)
+            .unwrap()
+            .workflow(&workflow)
+            .unwrap()
+            .daimon_result()
+            .unwrap();
         let settled = c
-            .settle(
+            .settle_admitted_result(
                 submission,
                 c.revision(),
-                &retained.settlement,
+                admitted_result,
                 if disposition == ExecutionDispositionV1::Completed {
                     moira_execution_sqlite::chronos::SettlementAction::Complete
                 } else {
@@ -560,15 +575,6 @@ fn four_store_workflow_completes_or_fences_without_duplicate_effects() {
                 chronos_engine::TaskPhase::Uncertain
             }
         );
-        origin
-            .apply(
-                origin.revision(),
-                CommandV1::AcceptDaimonResult {
-                    workflow,
-                    receipt: retained.receipt,
-                },
-            )
-            .unwrap();
         if disposition == ExecutionDispositionV1::Uncertain {
             assert!(
                 origin
