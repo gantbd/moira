@@ -14,7 +14,10 @@ use moira_core::deliberation::{
 };
 use moira_daimon::{
     CompletedToolResultV1, ModelExecutionAdapter,
-    ensemble::{self, EnsembleRefusalV1, MemberContinuationV1, MemberOutcomeV1, MemberRunV1},
+    ensemble::{
+        self, EnsembleCorrelationV1, EnsembleRefusalV1, MemberContinuationV1, MemberOutcomeV1,
+        MemberRunV1,
+    },
 };
 use moira_host::{DeliberationApplyErrorV1, DeliberationStore};
 
@@ -80,6 +83,7 @@ pub mod unix {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct GovernedRunV1<E> {
+    pub correlation: EnsembleCorrelationV1,
     pub outcomes: Vec<MemberOutcomeV1<E>>,
     pub retained: DeliberationCheckpointV1,
 }
@@ -139,7 +143,8 @@ where
     P: ModelServicePort,
     S: DeliberationStore,
 {
-    ensemble::validate_runs(&plan, &runs).map_err(GovernedRunErrorV1::InvalidCohort)?;
+    let correlation =
+        ensemble::analyze_correlation(&plan, &runs).map_err(GovernedRunErrorV1::InvalidCohort)?;
     let admitted = store
         .apply(store.revision(), RegistryCommandV1::Admit(plan.clone()))
         .map_err(GovernedRunErrorV1::Admission)?;
@@ -173,7 +178,11 @@ where
             }
         }
     }
-    Ok(GovernedRunV1 { outcomes, retained })
+    Ok(GovernedRunV1 {
+        correlation,
+        outcomes,
+        retained,
+    })
 }
 
 /// Resume one member after a fully settled tool-continuation saga. Additional

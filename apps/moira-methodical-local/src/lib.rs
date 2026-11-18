@@ -19,7 +19,7 @@ use moira_core::deliberation::{
 };
 use moira_daimon::{
     ExecutionIntentV1,
-    ensemble::{MemberOutcomeV1, MemberRunV1},
+    ensemble::{IndependenceAssessmentV1, MemberOutcomeV1, MemberRunV1},
 };
 use moira_dendrite::{
     ClientLimitsV1, DendriteClient, GroundedMemberRequestV1, PlanGroundingRequestV1,
@@ -712,6 +712,14 @@ impl ToolRuntimeV1 {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SummaryV1 {
+    pub cohort_members: usize,
+    pub distinct_principals: usize,
+    pub distinct_profiles: usize,
+    pub distinct_context_manifests: usize,
+    pub shared_principal: bool,
+    pub shared_profile: bool,
+    pub shared_context_manifest: bool,
+    pub independence: IndependenceAssessmentV1,
     pub revision: u64,
     pub reports: usize,
     pub invalid_reports: usize,
@@ -730,6 +738,17 @@ pub struct SummaryV1 {
 impl SummaryV1 {
     pub fn json(self) -> String {
         serde_json::json!({
+            "cohort_members": self.cohort_members,
+            "distinct_principals": self.distinct_principals,
+            "distinct_profiles": self.distinct_profiles,
+            "distinct_context_manifests": self.distinct_context_manifests,
+            "shared_principal": self.shared_principal,
+            "shared_profile": self.shared_profile,
+            "shared_context_manifest": self.shared_context_manifest,
+            "independence": match self.independence {
+                IndependenceAssessmentV1::Correlated => "correlated",
+                IndependenceAssessmentV1::NotEstablished => "not_established",
+            },
             "revision": self.revision,
             "reports": self.reports,
             "invalid_reports": self.invalid_reports,
@@ -1037,6 +1056,14 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         None
     };
     let mut summary = SummaryV1 {
+        cohort_members: completed.correlation.members,
+        distinct_principals: completed.correlation.distinct_principals,
+        distinct_profiles: completed.correlation.distinct_profiles,
+        distinct_context_manifests: completed.correlation.distinct_context_manifests,
+        shared_principal: completed.correlation.shared_principal,
+        shared_profile: completed.correlation.shared_profile,
+        shared_context_manifest: completed.correlation.shared_context_manifest,
+        independence: completed.correlation.independence,
         revision: store.revision().0,
         reports: 0,
         invalid_reports: 0,
@@ -2656,6 +2683,14 @@ mod tests {
     #[test]
     fn summary_is_content_free_and_stably_named() {
         let summary = SummaryV1 {
+            cohort_members: 2,
+            distinct_principals: 1,
+            distinct_profiles: 1,
+            distinct_context_manifests: 2,
+            shared_principal: true,
+            shared_profile: true,
+            shared_context_manifest: false,
+            independence: IndependenceAssessmentV1::Correlated,
             revision: 3,
             reports: 2,
             invalid_reports: 0,
@@ -2672,7 +2707,7 @@ mod tests {
         };
         assert_eq!(
             summary.json(),
-            r#"{"failed":0,"invalid_reports":0,"non_completed":0,"peer_completed":false,"peer_failed":false,"peer_uncertain":false,"ready_to_resolve":true,"refused":0,"reports":2,"resolved":false,"revision":3,"tool_continuations":0,"uncertain":0}"#
+            r#"{"cohort_members":2,"distinct_context_manifests":2,"distinct_principals":1,"distinct_profiles":1,"failed":0,"independence":"correlated","invalid_reports":0,"non_completed":0,"peer_completed":false,"peer_failed":false,"peer_uncertain":false,"ready_to_resolve":true,"refused":0,"reports":2,"resolved":false,"revision":3,"shared_context_manifest":false,"shared_principal":true,"shared_profile":true,"tool_continuations":0,"uncertain":0}"#
         );
     }
 

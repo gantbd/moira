@@ -34,6 +34,26 @@ pub struct MemberContinuationV1 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndependenceAssessmentV1 {
+    Correlated,
+    NotEstablished,
+}
+
+/// Content-free execution-cohort facts. Distinct identities are necessary for
+/// some forms of separation but never prove cognitive independence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EnsembleCorrelationV1 {
+    pub members: usize,
+    pub distinct_principals: usize,
+    pub distinct_profiles: usize,
+    pub distinct_context_manifests: usize,
+    pub shared_principal: bool,
+    pub shared_profile: bool,
+    pub shared_context_manifest: bool,
+    pub independence: IndependenceAssessmentV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MemberResponseLimitsV1 {
     pub max_bytes: usize,
     pub max_claims: usize,
@@ -469,6 +489,52 @@ pub fn validate_runs(
         EnsembleRefusalV1::DuplicateEffect,
     )?;
     Ok(())
+}
+
+pub fn analyze_correlation(
+    plan: &DeliberationPlanV1,
+    runs: &[MemberRunV1],
+) -> Result<EnsembleCorrelationV1, EnsembleRefusalV1> {
+    validate_runs(plan, runs)?;
+    let principals = runs
+        .iter()
+        .map(|run| run.execution.principal)
+        .collect::<BTreeSet<_>>();
+    let profiles = runs
+        .iter()
+        .map(|run| run.execution.profile)
+        .collect::<BTreeSet<_>>();
+    let contexts = runs
+        .iter()
+        .map(|run| context_manifest_digest(&run.execution.context))
+        .collect::<BTreeSet<_>>();
+    let shared_principal = principals.len() < runs.len();
+    let shared_profile = profiles.len() < runs.len();
+    let shared_context_manifest = contexts.len() < runs.len();
+    Ok(EnsembleCorrelationV1 {
+        members: runs.len(),
+        distinct_principals: principals.len(),
+        distinct_profiles: profiles.len(),
+        distinct_context_manifests: contexts.len(),
+        shared_principal,
+        shared_profile,
+        shared_context_manifest,
+        independence: if shared_principal || shared_profile {
+            IndependenceAssessmentV1::Correlated
+        } else {
+            IndependenceAssessmentV1::NotEstablished
+        },
+    })
+}
+
+fn context_manifest_digest(context: &[[u8; 16]]) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"MOIRA_MEMBER_CONTEXT_V1\0");
+    hash.update((context.len() as u64).to_be_bytes());
+    for reference in context {
+        hash.update(reference);
+    }
+    hash.finalize().into()
 }
 
 fn unique<T: Ord>(

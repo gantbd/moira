@@ -17,8 +17,8 @@ use moira_daimon::{
     CompletedToolResultV1, ExecutionIntentV1, ModelExecutionAdapter, ModelExecutionReplyV1,
     ModelProposalV1,
     ensemble::{
-        self, EnsembleRefusalV1, MemberContinuationV1, MemberOutcomeV1, MemberResponseLimitsV1,
-        MemberResponseRefusalV1, MemberRunV1,
+        self, EnsembleRefusalV1, IndependenceAssessmentV1, MemberContinuationV1, MemberOutcomeV1,
+        MemberResponseLimitsV1, MemberResponseRefusalV1, MemberRunV1,
     },
 };
 use moira_protocol::{DispositionV1, EffectIdV1, TaskRefV1};
@@ -614,6 +614,47 @@ fn orthogonal_members_execute_with_distinct_identities_and_become_attributed_rep
         )
         .unwrap();
     assert_eq!(registry.revision(), RegistryRevisionV1(4));
+}
+
+#[test]
+fn cohort_correlation_exposes_shared_execution_identity() {
+    let plan = ensemble_plan();
+    let runs = vec![
+        member_run(plan.members[0].id, 50),
+        member_run(plan.members[1].id, 60),
+    ];
+    let correlation = ensemble::analyze_correlation(&plan, &runs).unwrap();
+    assert_eq!(correlation.members, 2);
+    assert_eq!(correlation.distinct_principals, 1);
+    assert_eq!(correlation.distinct_profiles, 1);
+    assert_eq!(correlation.distinct_context_manifests, 2);
+    assert!(correlation.shared_principal);
+    assert!(correlation.shared_profile);
+    assert!(!correlation.shared_context_manifest);
+    assert_eq!(
+        correlation.independence,
+        IndependenceAssessmentV1::Correlated
+    );
+}
+
+#[test]
+fn distinct_execution_identities_do_not_prove_independence() {
+    let plan = ensemble_plan();
+    let mut first = member_run(plan.members[0].id, 50);
+    let mut second = member_run(plan.members[1].id, 60);
+    first.execution.principal = [70; 16];
+    first.execution.profile = [71; 16];
+    second.execution.principal = [72; 16];
+    second.execution.profile = [73; 16];
+    let correlation = ensemble::analyze_correlation(&plan, &[first, second]).unwrap();
+    assert_eq!(correlation.distinct_principals, 2);
+    assert_eq!(correlation.distinct_profiles, 2);
+    assert!(!correlation.shared_principal);
+    assert!(!correlation.shared_profile);
+    assert_eq!(
+        correlation.independence,
+        IndependenceAssessmentV1::NotEstablished
+    );
 }
 
 #[test]
