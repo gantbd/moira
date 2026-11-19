@@ -2,10 +2,12 @@
 
 use super::*;
 
-const MAGIC: &[u8; 8] = b"MOIRADL5";
-const CODEC_VERSION: u8 = 5;
-const LEGACY_MAGIC: &[u8; 8] = b"MOIRADL3";
-const LEGACY_CODEC_VERSION: u8 = 3;
+const MAGIC: &[u8; 8] = b"MOIRADL6";
+const CODEC_VERSION: u8 = 6;
+const LEGACY_MAGIC_V5: &[u8; 8] = b"MOIRADL5";
+const LEGACY_CODEC_VERSION_V5: u8 = 5;
+const LEGACY_MAGIC_V3: &[u8; 8] = b"MOIRADL3";
+const LEGACY_CODEC_VERSION_V3: u8 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CodecLimitsV1 {
@@ -157,13 +159,14 @@ pub fn decode(
     let mut reader = Reader::new(bytes, limits.max_bytes)?;
     let magic = reader.raw::<8>()?;
     let version = reader.byte()?;
-    let legacy = match (&magic, version) {
-        (value, CODEC_VERSION) if value == MAGIC => false,
-        (value, LEGACY_CODEC_VERSION) if value == LEGACY_MAGIC => true,
+    let (legacy_human_gate, has_grounding_provenance, canonical) = match (&magic, version) {
+        (value, CODEC_VERSION) if value == MAGIC => (false, true, true),
+        (value, LEGACY_CODEC_VERSION_V5) if value == LEGACY_MAGIC_V5 => (false, false, false),
+        (value, LEGACY_CODEC_VERSION_V3) if value == LEGACY_MAGIC_V3 => (true, false, false),
         _ => return Err(CodecErrorV1::Invalid),
     };
     let domain = decode_limits(&mut reader, limits.domain)?;
-    let plan = decode_plan(&mut reader, domain)?;
+    let plan = decode_plan(&mut reader, domain, has_grounding_provenance)?;
     let report_count = reader.count(domain.max_members)?;
     let mut reports = Vec::new();
     reports
@@ -173,7 +176,7 @@ pub fn decode(
         reports.push(decode_report(&mut reader, domain)?);
     }
     let resolution = decode_resolution(&mut reader, domain.max_candidates)?;
-    let (human_gate_request, human_gate_response) = if legacy {
+    let (human_gate_request, human_gate_response) = if legacy_human_gate {
         (None, None)
     } else {
         (
@@ -184,7 +187,7 @@ pub fn decode(
     let remaining_fuel = to_u32(reader.number()?)?;
     reader.finish()?;
     let checkpoint = DeliberationCheckpointV1 {
-        version: CODEC_VERSION,
+        version: 5,
         plan,
         limits: domain,
         reports,
@@ -194,7 +197,7 @@ pub fn decode(
         remaining_fuel,
     };
     DeliberationV1::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
-    if !legacy && encode(&checkpoint, limits)? != bytes {
+    if canonical && encode(&checkpoint, limits)? != bytes {
         return Err(CodecErrorV1::NonCanonical);
     }
     Ok(checkpoint)
@@ -239,6 +242,11 @@ fn encode_plan(writer: &mut Writer, plan: &DeliberationPlanV1) -> Result<(), Cod
     writer.digest(plan.question_digest)?;
     writer.digest(plan.method.machine_digest)?;
     writer.digest(plan.method.state_digest)?;
+    writer.byte(u8::from(plan.grounding_provenance.is_some()))?;
+    if let Some(provenance) = plan.grounding_provenance {
+        writer.digest(provenance.fold_content_digest)?;
+        writer.digest(provenance.orthogonality_content_digest)?;
+    }
     writer.count(plan.claims.len())?;
     for claim in &plan.claims {
         writer.byte(claim_tag(*claim))?;
@@ -286,12 +294,25 @@ fn encode_plan(writer: &mut Writer, plan: &DeliberationPlanV1) -> Result<(), Cod
 fn decode_plan(
     reader: &mut Reader<'_>,
     limits: DeliberationLimitsV1,
+    has_grounding_provenance: bool,
 ) -> Result<DeliberationPlanV1, CodecErrorV1> {
     let id = DeliberationIdV1(reader.id()?);
     let question_digest = reader.digest()?;
     let method = MethodRefV1 {
         machine_digest: reader.digest()?,
         state_digest: reader.digest()?,
+    };
+    let grounding_provenance = if has_grounding_provenance {
+        match reader.byte()? {
+            0 => None,
+            1 => Some(GroundingSourceProvenanceV1 {
+                fold_content_digest: reader.digest()?,
+                orthogonality_content_digest: reader.digest()?,
+            }),
+            _ => return Err(CodecErrorV1::Invalid),
+        }
+    } else {
+        None
     };
     let claim_count = reader.count(limits.max_claims)?;
     let mut claims = Vec::new();
@@ -374,6 +395,7 @@ fn decode_plan(
         id,
         question_digest,
         method,
+        grounding_provenance,
         claims,
         criteria,
         candidates,

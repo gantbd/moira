@@ -153,6 +153,19 @@ pub struct MethodRefV1 {
     pub state_digest: [u8; 32],
 }
 
+/// Dendrite-issued content identities for the two grounding sources that are
+/// not already named by `MethodRefV1::machine_digest`.
+///
+/// The fold identity selects the routing corpus that produced the retained SME
+/// authority/surface references. The orthogonality identity selects the
+/// concern lattice used for the retained cohort check. Consumers must not
+/// infer either identity from the derived evidence digests.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GroundingSourceProvenanceV1 {
+    pub fold_content_digest: [u8; 32],
+    pub orthogonality_content_digest: [u8; 32],
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnsembleMemberV1 {
     pub id: EnsembleMemberIdV1,
@@ -269,6 +282,10 @@ pub struct DeliberationPlanV1 {
     /// Exact identity of the UTF-8 question framed by the host.
     pub question_digest: [u8; 32],
     pub method: MethodRefV1,
+    /// `None` is retained only for plans admitted before source provenance was
+    /// part of the owner contract. Such a plan cannot prove live grounding
+    /// applicability and must be treated as incomplete by frontier consumers.
+    pub grounding_provenance: Option<GroundingSourceProvenanceV1>,
     pub claims: Vec<ClaimKindV1>,
     pub criteria: Vec<CriterionV1>,
     pub candidates: Vec<CandidateV1>,

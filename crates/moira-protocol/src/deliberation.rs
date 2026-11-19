@@ -146,6 +146,15 @@ pub struct MethodRefV1 {
     pub state_digest: [u8; 32],
 }
 
+/// Dendrite-issued content identities for the fold and orthogonality sources
+/// used to derive a deliberation plan. The method source is already retained
+/// by `MethodRefV1::machine_digest`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GroundingSourceProvenanceV1 {
+    pub fold_content_digest: [u8; 32],
+    pub orthogonality_content_digest: [u8; 32],
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnsembleMemberV1 {
     pub id: EnsembleMemberIdV1,
@@ -246,6 +255,9 @@ pub struct DeliberationPlanV1 {
     pub id: DeliberationIdV1,
     pub question_digest: [u8; 32],
     pub method: MethodRefV1,
+    /// Legacy plans may lack this owner evidence. Readers must not substitute
+    /// host configuration or derived evidence hashes when it is absent.
+    pub grounding_provenance: Option<GroundingSourceProvenanceV1>,
     pub claims: Vec<ClaimKindV1>,
     pub criteria: Vec<CriterionV1>,
     pub candidates: Vec<CandidateV1>,

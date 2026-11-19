@@ -162,6 +162,7 @@ fn choice_plan(deliberation: DeliberationIdV1, selected: CandidateIdV1) -> Delib
             machine_digest: [62; 32],
             state_digest: [63; 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Normative],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([64; 16]),

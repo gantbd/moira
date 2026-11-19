@@ -281,6 +281,7 @@ fn plan() -> DeliberationPlanV1 {
             machine_digest: [9; 32],
             state_digest: [10; 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Empirical],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([2; 16]),

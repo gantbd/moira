@@ -1,7 +1,7 @@
 use moira_core::deliberation::{
     CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1,
-    DeliberationIdV1, EnsembleAdmissionV1, EnsembleMemberIdV1, PersonaLensV1, StakeholderRefV1,
-    SurfaceDepthV1,
+    DeliberationIdV1, EnsembleAdmissionV1, EnsembleMemberIdV1, GroundingSourceProvenanceV1,
+    PersonaLensV1, StakeholderRefV1, SurfaceDepthV1,
     grounding::{self, MemberIntentV1},
 };
 use moira_dendrite::{
@@ -65,6 +65,7 @@ fn live_fold_surfaces_and_orthogonality_form_one_verified_ensemble() {
         .query_orthogonality("axon/sme/axon-concerns", &refs)
         .unwrap();
     let lattice_digest = client.content_identity("axon/sme/axon-concerns").unwrap();
+    let fold_digest = client.content_identity("rune/sme/triggers").unwrap();
     let assembled = grounding::assemble(
         &refs
             .iter()
@@ -129,6 +130,13 @@ fn live_fold_surfaces_and_orthogonality_form_one_verified_ensemble() {
         })
         .unwrap();
     assert_eq!(plan.method, method);
+    assert_eq!(
+        plan.grounding_provenance,
+        Some(GroundingSourceProvenanceV1 {
+            fold_content_digest: fold_digest,
+            orthogonality_content_digest: lattice_digest,
+        })
+    );
     assert_eq!(plan.members, assembled.members);
     assert_eq!(plan.orthogonality, assembled.orthogonality);
 }

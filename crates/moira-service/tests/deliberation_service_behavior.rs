@@ -80,6 +80,10 @@ fn plan(seed: u8) -> DeliberationPlanV1 {
             machine_digest: [10; 32],
             state_digest: [11; 32],
         },
+        grounding_provenance: Some(GroundingSourceProvenanceV1 {
+            fold_content_digest: [26; 32],
+            orthogonality_content_digest: [27; 32],
+        }),
         claims: vec![ClaimKindV1::Historical, ClaimKindV1::Empirical],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([12; 16]),

@@ -217,6 +217,7 @@ fn ensemble_plan() -> DeliberationPlanV1 {
             machine_digest: [31; 32],
             state_digest: [32; 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Empirical],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([33; 16]),

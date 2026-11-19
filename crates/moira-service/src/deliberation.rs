@@ -422,6 +422,12 @@ fn plan_domain(value: protocol::DeliberationPlanV1) -> domain::DeliberationPlanV
             machine_digest: value.method.machine_digest,
             state_digest: value.method.state_digest,
         },
+        grounding_provenance: value.grounding_provenance.map(|provenance| {
+            domain::GroundingSourceProvenanceV1 {
+                fold_content_digest: provenance.fold_content_digest,
+                orthogonality_content_digest: provenance.orthogonality_content_digest,
+            }
+        }),
         claims: value.claims.into_iter().map(claim_domain).collect(),
         criteria: value.criteria.into_iter().map(criterion_domain).collect(),
         candidates: value.candidates.into_iter().map(candidate_domain).collect(),
@@ -830,6 +836,12 @@ fn plan_view(value: domain::DeliberationPlanV1) -> protocol::DeliberationPlanV1 
             machine_digest: value.method.machine_digest,
             state_digest: value.method.state_digest,
         },
+        grounding_provenance: value.grounding_provenance.map(|provenance| {
+            protocol::GroundingSourceProvenanceV1 {
+                fold_content_digest: provenance.fold_content_digest,
+                orthogonality_content_digest: provenance.orthogonality_content_digest,
+            }
+        }),
         claims: value
             .claims
             .into_iter()

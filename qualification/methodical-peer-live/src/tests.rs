@@ -2169,6 +2169,7 @@ fn resolved_outcome(
             machine_digest: [29; 32],
             state_digest: [30; 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Empirical],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([31; 16]),

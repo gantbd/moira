@@ -186,6 +186,7 @@ fn outcome() -> (
             machine_digest: [5; 32],
             state_digest: [6; 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Empirical],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([7; 16]),

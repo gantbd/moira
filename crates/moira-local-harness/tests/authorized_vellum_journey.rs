@@ -340,6 +340,7 @@ fn unresolved_outcome() -> (DeliberationPlanV1, Vec<MemberReportV1>, MemberOutco
             machine_digest: [4; 32],
             state_digest: [5; 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Normative],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([6; 16]),

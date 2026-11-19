@@ -3,12 +3,12 @@
 use super::{CodecErrorV1, LimitsV1, Reader, Writer};
 use moira_protocol::deliberation as d;
 
-/// Deliberation profile V2 adds retained stakeholder standing and cohort
-/// admission evidence. Distinct frame kinds make V1 peers fail closed instead
-/// of decoding the changed plan shape under the old profile.
-pub const DELIBERATION_PROFILE_VERSION: u8 = 4;
-const REQUEST: u8 = 14;
-const REPLY: u8 = 15;
+/// Deliberation profile V5 adds optional owner-issued grounding source
+/// provenance. Distinct frame kinds make older peers fail closed instead of
+/// decoding the changed plan shape under an earlier profile.
+pub const DELIBERATION_PROFILE_VERSION: u8 = 5;
+const REQUEST: u8 = 16;
+const REPLY: u8 = 17;
 
 pub fn encode_deliberation_request(
     value: &d::CommandV1,
@@ -696,6 +696,14 @@ fn plan(w: &mut Writer, value: &d::DeliberationPlanV1) -> Result<(), CodecErrorV
     w.raw(&value.id.0)?;
     w.raw(&value.question_digest)?;
     method(w, value.method)?;
+    match value.grounding_provenance {
+        None => w.byte(0)?,
+        Some(provenance) => {
+            w.byte(1)?;
+            w.raw(&provenance.fold_content_digest)?;
+            w.raw(&provenance.orthogonality_content_digest)?;
+        }
+    }
     write_len(w, value.claims.len())?;
     for value in &value.claims {
         w.byte(claim_tag(*value))?;
@@ -723,6 +731,14 @@ fn read_plan(r: &mut Reader<'_>) -> Result<d::DeliberationPlanV1, CodecErrorV1> 
     let id = d::DeliberationIdV1(r.raw()?);
     let question_digest = r.raw()?;
     let method = read_method(r)?;
+    let grounding_provenance = match r.byte()? {
+        0 => None,
+        1 => Some(d::GroundingSourceProvenanceV1 {
+            fold_content_digest: r.raw()?,
+            orthogonality_content_digest: r.raw()?,
+        }),
+        _ => return Err(CodecErrorV1::Malformed),
+    };
     let claims = read_many(r, |r| read_claim(r.byte()?))?;
     let criteria = read_many(r, read_criterion)?;
     let candidates = read_many(r, read_candidate)?;
@@ -732,6 +748,7 @@ fn read_plan(r: &mut Reader<'_>) -> Result<d::DeliberationPlanV1, CodecErrorV1> 
         id,
         question_digest,
         method,
+        grounding_provenance,
         claims,
         criteria,
         candidates,

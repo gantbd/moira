@@ -5,8 +5,8 @@
 
 use moira_core::deliberation::{
     CandidateV1, ClaimKindV1, CriterionV1, DeliberationIdV1, DeliberationPlanV1,
-    EnsembleAdmissionV1, EnsembleMemberIdV1, MethodRefV1, PersonaLensV1, StakeholderRefV1,
-    SurfaceDepthV1,
+    EnsembleAdmissionV1, EnsembleMemberIdV1, GroundingSourceProvenanceV1, MethodRefV1,
+    PersonaLensV1, StakeholderRefV1, SurfaceDepthV1,
     grounding::{
         self, FoldGroundingV1, GroundingRefusalV1, MemberIntentV1, OrthogonalityPacketV1,
         SurfaceEvidenceV1,
@@ -424,6 +424,10 @@ impl DendriteClient {
             id: request.id,
             question_digest: request.question_digest,
             method,
+            grounding_provenance: Some(GroundingSourceProvenanceV1 {
+                fold_content_digest: fold_identity,
+                orthogonality_content_digest: lattice_digest,
+            }),
             claims: request.claims,
             criteria: request.criteria,
             candidates: request.candidates,

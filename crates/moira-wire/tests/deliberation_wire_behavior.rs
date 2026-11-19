@@ -12,6 +12,10 @@ fn plan() -> d::DeliberationPlanV1 {
             machine_digest: [3; 32],
             state_digest: [4; 32],
         },
+        grounding_provenance: Some(d::GroundingSourceProvenanceV1 {
+            fold_content_digest: [29; 32],
+            orthogonality_content_digest: [30; 32],
+        }),
         claims: vec![
             d::ClaimKindV1::Formal,
             d::ClaimKindV1::Empirical,
@@ -306,7 +310,7 @@ fn every_command_family_roundtrips_exactly() {
 
 #[test]
 fn prior_deliberation_profile_frames_refuse_instead_of_reinterpreting_stakeholder_evidence() {
-    assert_eq!(moira_wire::DELIBERATION_PROFILE_VERSION, 4);
+    assert_eq!(moira_wire::DELIBERATION_PROFILE_VERSION, 5);
     let limits = LimitsV1::default();
     let mut request = encode_deliberation_request(&d::CommandV1::Status, limits).unwrap();
     request[8] = 10;
@@ -511,9 +515,10 @@ fn declared_collection_count_cannot_force_unbounded_allocation() {
         mutation: d::MutationV1::Admit(Box::new(plan())),
     };
     let mut bytes = encode_deliberation_request(&value, limits).unwrap();
-    // magic + frame/command/mutation tags + revision + plan id/question/method;
-    // overwrite the first collection count (claims).
-    bytes[131..135].copy_from_slice(&u32::MAX.to_be_bytes());
+    // magic + frame/command/mutation tags + revision + plan id/question/method
+    // + present provenance marker/two digests; overwrite the first collection
+    // count (claims).
+    bytes[196..200].copy_from_slice(&u32::MAX.to_be_bytes());
     assert_eq!(
         decode_deliberation_request(&bytes, limits),
         Err(CodecErrorV1::Limit)

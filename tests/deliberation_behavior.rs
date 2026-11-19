@@ -39,6 +39,7 @@ fn plan(fuel: u32) -> DeliberationPlanV1 {
             machine_digest: [2; 32],
             state_digest: [3; 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Normative],
         criteria: vec![
             criterion(1, CriterionDirectionV1::Maximize),

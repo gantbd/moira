@@ -17,6 +17,7 @@ fn plan(seed: u8) -> DeliberationPlanV1 {
             machine_digest: [seed; 32],
             state_digest: [seed.wrapping_add(1); 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Formal],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([1; 16]),
@@ -101,7 +102,7 @@ fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
     let current = encode(&expected, limits).unwrap();
     let child_start = current
         .windows(8)
-        .position(|window| window == b"MOIRADL5")
+        .position(|window| window == b"MOIRADL6")
         .unwrap();
     let length_start = child_start - 8;
     let child_length = usize::try_from(u64::from_be_bytes(
@@ -114,6 +115,8 @@ fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
     assert_eq!(&child[child.len() - 10..child.len() - 8], &[0, 0]);
     child[..8].copy_from_slice(b"MOIRADL3");
     child[8] = 3;
+    // This fixture has no provenance payload, so remove V6's absent marker.
+    child.drain(177..178);
     let gate_options = child.len() - 10;
     child.drain(gate_options..gate_options + 2);
 

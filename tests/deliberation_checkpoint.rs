@@ -2,9 +2,9 @@ use moira_core::deliberation::{
     AuthorityDecisionIdV1, AuthorityRefV1, AuthoritySubjectIdV1, CandidateIdV1, CandidateV1,
     ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1, DeliberationIdV1,
     DeliberationLimitsV1, DeliberationPlanV1, DeliberationV1, EnsembleAdmissionV1,
-    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, HumanGateAuthorityRefV1,
-    HumanGateDispositionV1, HumanGateMaterialRefV1, HumanGateRequestIdV1, HumanGateRequestV1,
-    HumanGateResponseIdV1, HumanGateResponseV1, MemberReportV1, MethodRefV1,
+    EnsembleMemberIdV1, EnsembleMemberV1, GroundingRefV1, GroundingSourceProvenanceV1,
+    HumanGateAuthorityRefV1, HumanGateDispositionV1, HumanGateMaterialRefV1, HumanGateRequestIdV1,
+    HumanGateRequestV1, HumanGateResponseIdV1, HumanGateResponseV1, MemberReportV1, MethodRefV1,
     OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1,
     SurfaceDepthV1,
     persistence::{CodecErrorV1, CodecLimitsV1, decode, encode},
@@ -18,6 +18,10 @@ fn plan() -> DeliberationPlanV1 {
             machine_digest: [2; 32],
             state_digest: [3; 32],
         },
+        grounding_provenance: Some(GroundingSourceProvenanceV1 {
+            fold_content_digest: [4; 32],
+            orthogonality_content_digest: [5; 32],
+        }),
         claims: vec![ClaimKindV1::Historical, ClaimKindV1::Normative],
         criteria: vec![
             CriterionV1 {
@@ -163,6 +167,9 @@ fn version_three_bytes_migrate_without_fabricating_a_human_gate() {
     let mut legacy = current;
     legacy[..8].copy_from_slice(b"MOIRADL3");
     legacy[8] = 3;
+    // V3 ended after the method identity. Remove V6's provenance marker and
+    // two digests instead of allowing them to be reinterpreted as claim bytes.
+    legacy.drain(177..242);
     legacy.drain(legacy.len() - 10..legacy.len() - 8);
 
     let migrated = decode(&legacy, limits).unwrap();

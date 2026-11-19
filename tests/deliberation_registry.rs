@@ -21,6 +21,7 @@ fn plan(seed: u8) -> DeliberationPlanV1 {
             machine_digest: [seed; 32],
             state_digest: [seed.wrapping_add(1); 32],
         },
+        grounding_provenance: None,
         claims: vec![ClaimKindV1::Empirical],
         criteria: vec![CriterionV1 {
             id: CriterionIdV1([1; 16]),

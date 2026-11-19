@@ -9,8 +9,10 @@ use crate::deliberation::review::persistence::{
     ReviewCodecErrorV1, ReviewCodecLimitsV1, decode_review_checkpoint, encode_review_checkpoint,
 };
 
-const MAGIC: &[u8; 8] = b"MOIRADR5";
-const CODEC_VERSION: u8 = 5;
+const MAGIC: &[u8; 8] = b"MOIRADR6";
+const CODEC_VERSION: u8 = 6;
+const LEGACY_MAGIC_V5: &[u8; 8] = b"MOIRADR5";
+const LEGACY_CODEC_VERSION_V5: u8 = 5;
 const LEGACY_MAGIC_V4: &[u8; 8] = b"MOIRADR4";
 const LEGACY_CODEC_VERSION_V4: u8 = 4;
 const LEGACY_MAGIC_V3: &[u8; 8] = b"MOIRADR3";
@@ -182,6 +184,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
     let version = reader.byte()?;
     let legacy = match (&magic, version) {
         (value, CODEC_VERSION) if value == MAGIC => None,
+        (value, LEGACY_CODEC_VERSION_V5) if value == LEGACY_MAGIC_V5 => Some(false),
         (value, LEGACY_CODEC_VERSION_V4) if value == LEGACY_MAGIC_V4 => Some(false),
         (value, LEGACY_CODEC_VERSION_V3) if value == LEGACY_MAGIC_V3 => Some(true),
         (value, LEGACY_CODEC_VERSION_V2) if value == LEGACY_MAGIC_V2 => Some(true),
@@ -218,7 +221,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
     }
     reader.finish()?;
     let checkpoint = RegistryCheckpointV1 {
-        version: CODEC_VERSION,
+        version: 5,
         limits: registry_limits,
         revision,
         deliberations,
