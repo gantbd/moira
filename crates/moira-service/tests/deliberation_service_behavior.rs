@@ -10,6 +10,21 @@ use moira_service::{
     deliberation::{DeliberationService, HumanGateAccessV1},
 };
 
+fn correlation() -> EnsembleCorrelationEvidenceV1 {
+    let mut value = EnsembleCorrelationEvidenceV1::undisclosed(2);
+    value.dimensions[0] = CorrelationDimensionEvidenceV1 {
+        dimension: CorrelationDimensionV1::ExecutionPrincipal,
+        observed_members: 2,
+        distinct_values: 1,
+    };
+    value.first_pass = FirstPassExposureV1 {
+        committed_before_cross_review: 2,
+        exposed_before_commit: 0,
+        unknown: 0,
+    };
+    value
+}
+
 struct Store {
     registry: DeliberationRegistryV1,
     fenced: bool,
@@ -305,6 +320,7 @@ fn public_review_commands_retain_challenge_disposition_and_read_projection() {
                 expected_revision: 3,
                 mutation: MutationV1::BeginReview {
                     deliberation: DeliberationIdV1([1; 16]),
+                    correlation: correlation(),
                 },
             })
             .unwrap(),
@@ -313,7 +329,10 @@ fn public_review_commands_retain_challenge_disposition_and_read_projection() {
             replayed: false,
             ref review,
             ..
-        }) if review.phase == ReviewPhaseV1::FirstPassComplete && review.reports.len() == 2
+        }) if review.phase == ReviewPhaseV1::FirstPassComplete
+            && review.reports.len() == 2
+            && review.independence == IndependenceAssessmentV1::Correlated
+            && review.correlation.first_pass.committed_before_cross_review == 2
     ));
 
     service
@@ -449,6 +468,7 @@ fn named_human_response_updates_review_replays_and_authorizes_gated_disposition(
             expected_revision: 5,
             mutation: MutationV1::BeginReview {
                 deliberation: DeliberationIdV1([1; 16]),
+                correlation: correlation(),
             },
         })
         .unwrap();

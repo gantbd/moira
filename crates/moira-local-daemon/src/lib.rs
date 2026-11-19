@@ -50,7 +50,7 @@ where
     )
 }
 
-/// Methodical-deliberation profile V2. Its versioned, distinct frame kinds
+/// Methodical-deliberation profile V4. Its versioned, distinct frame kinds
 /// prevent both V1 reinterpretation and crossing another Moira service family.
 pub fn serve_deliberation_up_to<IO, F, E>(
     io: &mut IO,

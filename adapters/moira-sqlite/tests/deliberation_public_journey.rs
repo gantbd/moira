@@ -16,6 +16,21 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+fn correlation() -> EnsembleCorrelationEvidenceV1 {
+    let mut value = EnsembleCorrelationEvidenceV1::undisclosed(2);
+    value.dimensions[0] = CorrelationDimensionEvidenceV1 {
+        dimension: CorrelationDimensionV1::ExecutionPrincipal,
+        observed_members: 2,
+        distinct_values: 1,
+    };
+    value.first_pass = FirstPassExposureV1 {
+        committed_before_cross_review: 2,
+        exposed_before_commit: 0,
+        unknown: 0,
+    };
+    value
+}
+
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 struct Port(DeliberationService<DeliberationSqliteStore>);
@@ -216,6 +231,7 @@ fn public_review_journey_survives_owner_reopen() {
                 3,
                 MutationV1::BeginReview {
                     deliberation: DeliberationIdV1([1; 16]),
+                    correlation: correlation(),
                 },
             )
             .unwrap();
@@ -286,6 +302,11 @@ fn public_review_journey_survives_owner_reopen() {
     };
     assert_eq!(review.phase, ReviewPhaseV1::Disposed);
     assert_eq!(review.reports.len(), 2);
+    assert_eq!(review.independence, IndependenceAssessmentV1::Correlated);
+    assert_eq!(
+        review.correlation.first_pass.committed_before_cross_review,
+        2
+    );
     assert_eq!(review.findings[0].finding_digest, [29; 32]);
     assert_eq!(review.rebuttals[0].rebuttal_digest, [32; 32]);
     assert_eq!(

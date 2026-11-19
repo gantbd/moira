@@ -162,6 +162,8 @@ fn review_view() -> d::ReviewViewV1 {
             max_evidence_per_item: 2,
         },
         reports: vec![report()],
+        correlation: d::EnsembleCorrelationEvidenceV1::undisclosed(1),
+        independence: d::IndependenceAssessmentV1::NotEstablished,
         admitted_human_gate_response: Some(d::HumanGateResponseV1 {
             id: d::HumanGateResponseIdV1([40; 16]),
             request: d::HumanGateRequestIdV1([33; 16]),
@@ -260,6 +262,7 @@ fn every_command_family_roundtrips_exactly() {
             expected_revision: 40,
             mutation: d::MutationV1::BeginReview {
                 deliberation: d::DeliberationIdV1([1; 16]),
+                correlation: d::EnsembleCorrelationEvidenceV1::undisclosed(3),
             },
         },
         d::CommandV1::Apply {
@@ -303,7 +306,7 @@ fn every_command_family_roundtrips_exactly() {
 
 #[test]
 fn prior_deliberation_profile_frames_refuse_instead_of_reinterpreting_stakeholder_evidence() {
-    assert_eq!(moira_wire::DELIBERATION_PROFILE_VERSION, 3);
+    assert_eq!(moira_wire::DELIBERATION_PROFILE_VERSION, 4);
     let limits = LimitsV1::default();
     let mut request = encode_deliberation_request(&d::CommandV1::Status, limits).unwrap();
     request[8] = 10;

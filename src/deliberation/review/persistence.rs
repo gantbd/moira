@@ -5,8 +5,10 @@ use crate::deliberation::{
     HumanGateAuthorityRefV1, HumanGateDispositionV1, HumanGateMaterialRefV1, HumanGateRequestIdV1,
 };
 
-const MAGIC: &[u8; 8] = b"MOIRARV1";
-const VERSION: u8 = 1;
+const MAGIC: &[u8; 8] = b"MOIRARV2";
+const VERSION: u8 = 2;
+const LEGACY_MAGIC: &[u8; 8] = b"MOIRARV1";
+const LEGACY_VERSION: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReviewCodecLimitsV1 {
@@ -147,6 +149,7 @@ pub fn encode_review_checkpoint(
     for report in &checkpoint.reports {
         encode_report(&mut writer, report)?;
     }
+    encode_correlation(&mut writer, &checkpoint.correlation)?;
     encode_human_response(
         &mut writer,
         checkpoint.admitted_human_gate_response.as_ref(),
@@ -172,9 +175,13 @@ pub fn decode_review_checkpoint(
 ) -> Result<ReviewExchangeCheckpointV1, ReviewCodecErrorV1> {
     validate_limits(limits)?;
     let mut reader = Reader::new(bytes, limits.max_bytes)?;
-    if &reader.raw::<8>()? != MAGIC || reader.byte()? != VERSION {
-        return Err(ReviewCodecErrorV1::Invalid);
-    }
+    let magic = reader.raw::<8>()?;
+    let version = reader.byte()?;
+    let legacy = match (&magic, version) {
+        (value, VERSION) if value == MAGIC => false,
+        (value, LEGACY_VERSION) if value == LEGACY_MAGIC => true,
+        _ => return Err(ReviewCodecErrorV1::Invalid),
+    };
     let retained_limits = decode_review_limits(&mut reader, limits.review)?;
     let deliberation = DeliberationIdV1(reader.id()?);
     let report_count = reader.count(limits.max_reports)?;
@@ -185,6 +192,11 @@ pub fn decode_review_checkpoint(
     for _ in 0..report_count {
         reports.push(decode_report(&mut reader, limits)?);
     }
+    let correlation = if legacy {
+        EnsembleCorrelationEvidenceV1::undisclosed(reports.len())
+    } else {
+        decode_correlation(&mut reader, reports.len())?
+    };
     let admitted_human_gate_response = decode_human_response(&mut reader)?;
     let finding_count = reader.count(retained_limits.max_findings)?;
     let mut findings = Vec::new();
@@ -216,16 +228,90 @@ pub fn decode_review_checkpoint(
         deliberation,
         limits: retained_limits,
         reports,
+        correlation,
         admitted_human_gate_response,
         findings,
         rebuttals,
         dispositions,
     };
     ReviewExchangeV1::recover(checkpoint.clone()).map_err(ReviewCodecErrorV1::Review)?;
-    if encode_review_checkpoint(&checkpoint, limits)? != bytes {
+    if !legacy && encode_review_checkpoint(&checkpoint, limits)? != bytes {
         return Err(ReviewCodecErrorV1::NonCanonical);
     }
     Ok(checkpoint)
+}
+
+fn encode_correlation(
+    writer: &mut Writer,
+    value: &EnsembleCorrelationEvidenceV1,
+) -> Result<(), ReviewCodecErrorV1> {
+    writer.count(value.members)?;
+    writer.count(value.dimensions.len())?;
+    for evidence in &value.dimensions {
+        writer.byte(correlation_dimension_tag(evidence.dimension))?;
+        writer.count(evidence.observed_members)?;
+        writer.count(evidence.distinct_values)?;
+    }
+    writer.count(value.first_pass.committed_before_cross_review)?;
+    writer.count(value.first_pass.exposed_before_commit)?;
+    writer.count(value.first_pass.unknown)
+}
+
+fn decode_correlation(
+    reader: &mut Reader<'_>,
+    maximum_members: usize,
+) -> Result<EnsembleCorrelationEvidenceV1, ReviewCodecErrorV1> {
+    let members = reader.count(maximum_members)?;
+    let count = reader.count(CorrelationDimensionV1::ALL.len())?;
+    let mut dimensions = Vec::new();
+    dimensions
+        .try_reserve(count)
+        .map_err(|_| ReviewCodecErrorV1::Capacity)?;
+    for _ in 0..count {
+        dimensions.push(CorrelationDimensionEvidenceV1 {
+            dimension: read_correlation_dimension(reader.byte()?)?,
+            observed_members: reader.count(members)?,
+            distinct_values: reader.count(members)?,
+        });
+    }
+    Ok(EnsembleCorrelationEvidenceV1 {
+        members,
+        dimensions,
+        first_pass: FirstPassExposureV1 {
+            committed_before_cross_review: reader.count(members)?,
+            exposed_before_commit: reader.count(members)?,
+            unknown: reader.count(members)?,
+        },
+    })
+}
+
+fn correlation_dimension_tag(value: CorrelationDimensionV1) -> u8 {
+    match value {
+        CorrelationDimensionV1::ExecutionPrincipal => 0,
+        CorrelationDimensionV1::ExecutionProfile => 1,
+        CorrelationDimensionV1::ContextManifest => 2,
+        CorrelationDimensionV1::Model => 3,
+        CorrelationDimensionV1::Provider => 4,
+        CorrelationDimensionV1::Prompt => 5,
+        CorrelationDimensionV1::Grounding => 6,
+        CorrelationDimensionV1::EvidenceScope => 7,
+        CorrelationDimensionV1::Organization => 8,
+    }
+}
+
+fn read_correlation_dimension(value: u8) -> Result<CorrelationDimensionV1, ReviewCodecErrorV1> {
+    match value {
+        0 => Ok(CorrelationDimensionV1::ExecutionPrincipal),
+        1 => Ok(CorrelationDimensionV1::ExecutionProfile),
+        2 => Ok(CorrelationDimensionV1::ContextManifest),
+        3 => Ok(CorrelationDimensionV1::Model),
+        4 => Ok(CorrelationDimensionV1::Provider),
+        5 => Ok(CorrelationDimensionV1::Prompt),
+        6 => Ok(CorrelationDimensionV1::Grounding),
+        7 => Ok(CorrelationDimensionV1::EvidenceScope),
+        8 => Ok(CorrelationDimensionV1::Organization),
+        _ => Err(ReviewCodecErrorV1::Invalid),
+    }
 }
 
 fn validate_limits(limits: ReviewCodecLimitsV1) -> Result<(), ReviewCodecErrorV1> {

@@ -356,6 +356,78 @@ pub struct ReviewLimitsV1 {
     pub max_evidence_per_item: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum CorrelationDimensionV1 {
+    ExecutionPrincipal,
+    ExecutionProfile,
+    ContextManifest,
+    Model,
+    Provider,
+    Prompt,
+    Grounding,
+    EvidenceScope,
+    Organization,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CorrelationDimensionEvidenceV1 {
+    pub dimension: CorrelationDimensionV1,
+    pub observed_members: usize,
+    pub distinct_values: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FirstPassExposureV1 {
+    pub committed_before_cross_review: usize,
+    pub exposed_before_commit: usize,
+    pub unknown: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndependenceAssessmentV1 {
+    Correlated,
+    NotEstablished,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnsembleCorrelationEvidenceV1 {
+    pub members: usize,
+    pub dimensions: Vec<CorrelationDimensionEvidenceV1>,
+    pub first_pass: FirstPassExposureV1,
+}
+
+impl EnsembleCorrelationEvidenceV1 {
+    pub fn undisclosed(members: usize) -> Self {
+        let dimensions = [
+            CorrelationDimensionV1::ExecutionPrincipal,
+            CorrelationDimensionV1::ExecutionProfile,
+            CorrelationDimensionV1::ContextManifest,
+            CorrelationDimensionV1::Model,
+            CorrelationDimensionV1::Provider,
+            CorrelationDimensionV1::Prompt,
+            CorrelationDimensionV1::Grounding,
+            CorrelationDimensionV1::EvidenceScope,
+            CorrelationDimensionV1::Organization,
+        ]
+        .into_iter()
+        .map(|dimension| CorrelationDimensionEvidenceV1 {
+            dimension,
+            observed_members: 0,
+            distinct_values: 0,
+        })
+        .collect();
+        Self {
+            members,
+            dimensions,
+            first_pass: FirstPassExposureV1 {
+                committed_before_cross_review: 0,
+                exposed_before_commit: 0,
+                unknown: members,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewFindingV1 {
     pub id: FindingIdV1,
@@ -411,6 +483,8 @@ pub struct ReviewViewV1 {
     pub deliberation: DeliberationIdV1,
     pub limits: ReviewLimitsV1,
     pub reports: Vec<MemberReportV1>,
+    pub correlation: EnsembleCorrelationEvidenceV1,
+    pub independence: IndependenceAssessmentV1,
     pub admitted_human_gate_response: Option<HumanGateResponseV1>,
     pub findings: Vec<ReviewFindingV1>,
     pub rebuttals: Vec<RebuttalV1>,
@@ -435,6 +509,7 @@ pub enum MutationV1 {
     },
     BeginReview {
         deliberation: DeliberationIdV1,
+        correlation: EnsembleCorrelationEvidenceV1,
     },
     SubmitFinding {
         deliberation: DeliberationIdV1,
@@ -571,6 +646,7 @@ pub enum ReviewRefusalV1 {
     HumanGateMismatch,
     InvalidReports,
     DeliberationMismatch,
+    InvalidCorrelationEvidence,
     UnsupportedVersion,
     CheckpointMismatch,
 }

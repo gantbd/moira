@@ -9,8 +9,10 @@ use crate::deliberation::review::persistence::{
     ReviewCodecErrorV1, ReviewCodecLimitsV1, decode_review_checkpoint, encode_review_checkpoint,
 };
 
-const MAGIC: &[u8; 8] = b"MOIRADR4";
-const CODEC_VERSION: u8 = 4;
+const MAGIC: &[u8; 8] = b"MOIRADR5";
+const CODEC_VERSION: u8 = 5;
+const LEGACY_MAGIC_V4: &[u8; 8] = b"MOIRADR4";
+const LEGACY_CODEC_VERSION_V4: u8 = 4;
 const LEGACY_MAGIC_V3: &[u8; 8] = b"MOIRADR3";
 const LEGACY_CODEC_VERSION_V3: u8 = 3;
 const LEGACY_MAGIC_V2: &[u8; 8] = b"MOIRADR2";
@@ -179,9 +181,10 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
     let magic = reader.raw::<8>()?;
     let version = reader.byte()?;
     let legacy = match (&magic, version) {
-        (value, CODEC_VERSION) if value == MAGIC => false,
-        (value, LEGACY_CODEC_VERSION_V3) if value == LEGACY_MAGIC_V3 => true,
-        (value, LEGACY_CODEC_VERSION_V2) if value == LEGACY_MAGIC_V2 => true,
+        (value, CODEC_VERSION) if value == MAGIC => None,
+        (value, LEGACY_CODEC_VERSION_V4) if value == LEGACY_MAGIC_V4 => Some(false),
+        (value, LEGACY_CODEC_VERSION_V3) if value == LEGACY_MAGIC_V3 => Some(true),
+        (value, LEGACY_CODEC_VERSION_V2) if value == LEGACY_MAGIC_V2 => Some(true),
         _ => return Err(CodecErrorV1::Invalid),
     };
     let registry_limits = decode_limits(&mut reader, limits.registry)?;
@@ -200,7 +203,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
         deliberations.push(decode_child(child, child_limits).map_err(CodecErrorV1::Child)?);
     }
     let mut reviews = Vec::new();
-    if !legacy {
+    if legacy != Some(true) {
         let review_count = reader.count(registry_limits.max_deliberations)?;
         reviews
             .try_reserve(review_count)
@@ -222,7 +225,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
         reviews,
     };
     DeliberationRegistryV1::recover(checkpoint.clone()).map_err(CodecErrorV1::Registry)?;
-    if !legacy && encode(&checkpoint, limits)? != bytes {
+    if legacy.is_none() && encode(&checkpoint, limits)? != bytes {
         return Err(CodecErrorV1::NonCanonical);
     }
     Ok(checkpoint)

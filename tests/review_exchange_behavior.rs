@@ -7,11 +7,28 @@ use moira_core::deliberation::{
     MethodRefV1, OrthogonalityEvidenceV1, PersonaLensV1, RebuttalIdV1, ReportIdV1, ResolutionV1,
     StakeholderRefV1, SurfaceDepthV1,
     review::{
-        FindingDispositionKindV1, FindingDispositionV1, RebuttalV1, ReviewExchangeV1,
-        ReviewFindingV1, ReviewLimitsV1, ReviewPhaseV1, ReviewRefusalV1,
+        CorrelationDimensionEvidenceV1, CorrelationDimensionV1, EnsembleCorrelationEvidenceV1,
+        FindingDispositionKindV1, FindingDispositionV1, FirstPassExposureV1,
+        IndependenceAssessmentV1, RebuttalV1, ReviewExchangeV1, ReviewFindingV1, ReviewLimitsV1,
+        ReviewPhaseV1, ReviewRefusalV1,
         persistence::{ReviewCodecLimitsV1, decode_review_checkpoint, encode_review_checkpoint},
     },
 };
+
+fn correlation() -> EnsembleCorrelationEvidenceV1 {
+    let mut evidence = EnsembleCorrelationEvidenceV1::undisclosed(2);
+    evidence.dimensions[0] = CorrelationDimensionEvidenceV1 {
+        dimension: CorrelationDimensionV1::ExecutionPrincipal,
+        observed_members: 2,
+        distinct_values: 1,
+    };
+    evidence.first_pass = FirstPassExposureV1 {
+        committed_before_cross_review: 2,
+        exposed_before_commit: 0,
+        unknown: 0,
+    };
+    evidence
+}
 
 fn member(seed: u8) -> EnsembleMemberV1 {
     EnsembleMemberV1 {
@@ -148,19 +165,61 @@ fn disposition(gate: Option<HumanGateResponseIdV1>) -> FindingDispositionV1 {
     }
 }
 
+fn legacy_review_bytes(
+    checkpoint: &moira_core::deliberation::review::ReviewExchangeCheckpointV1,
+) -> Vec<u8> {
+    let mut bytes = b"MOIRARV1".to_vec();
+    bytes.push(1);
+    let number = |bytes: &mut Vec<u8>, value: usize| {
+        bytes.extend_from_slice(&u64::try_from(value).unwrap().to_be_bytes());
+    };
+    for value in [
+        checkpoint.limits.max_findings,
+        checkpoint.limits.max_rebuttals,
+        checkpoint.limits.max_evidence_per_item,
+    ] {
+        number(&mut bytes, value);
+    }
+    bytes.extend_from_slice(&checkpoint.deliberation.0);
+    number(&mut bytes, checkpoint.reports.len());
+    for report in &checkpoint.reports {
+        bytes.extend_from_slice(&report.id.0);
+        bytes.extend_from_slice(&report.member.0);
+        bytes.extend_from_slice(&report.output_digest);
+        number(&mut bytes, report.evidence_digests.len());
+        for digest in &report.evidence_digests {
+            bytes.extend_from_slice(digest);
+        }
+        number(&mut bytes, report.dissent_digests.len());
+        for digest in &report.dissent_digests {
+            bytes.extend_from_slice(digest);
+        }
+    }
+    bytes.push(0);
+    number(&mut bytes, 0);
+    number(&mut bytes, 0);
+    number(&mut bytes, 0);
+    bytes
+}
+
 #[test]
 fn review_waits_for_independent_first_passes() {
     let value = DeliberationV1::try_new(plan(), DeliberationLimitsV1::default()).unwrap();
     assert_eq!(
-        ReviewExchangeV1::try_new(&value, ReviewLimitsV1::default()),
+        ReviewExchangeV1::try_new(&value, ReviewLimitsV1::default(), correlation()),
         Err(ReviewRefusalV1::FirstPassIncomplete)
     );
 }
 
 #[test]
 fn cross_member_challenge_precedes_owner_disposition_and_replays_exactly() {
-    let mut exchange = ReviewExchangeV1::try_new(&resolved(None), ReviewLimitsV1::default())
-        .expect("complete first passes admit review");
+    let mut exchange =
+        ReviewExchangeV1::try_new(&resolved(None), ReviewLimitsV1::default(), correlation())
+            .expect("complete first passes admit review");
+    assert_eq!(
+        exchange.correlation().independence(),
+        IndependenceAssessmentV1::Correlated
+    );
     exchange.submit_finding(finding(false)).unwrap();
     assert_eq!(
         exchange.submit_rebuttal(rebuttal(1)),
@@ -188,6 +247,7 @@ fn gated_finding_requires_the_exact_admitted_human_response() {
     let mut exchange = ReviewExchangeV1::try_new(
         &resolved(Some(HumanGateDispositionV1::Approved)),
         ReviewLimitsV1::default(),
+        correlation(),
     )
     .unwrap();
     exchange.submit_finding(finding(true)).unwrap();
@@ -212,9 +272,12 @@ fn non_approved_human_responses_never_authorize_disposition() {
         HumanGateDispositionV1::Deferred,
         HumanGateDispositionV1::ChangesRequested,
     ] {
-        let mut exchange =
-            ReviewExchangeV1::try_new(&resolved(Some(response)), ReviewLimitsV1::default())
-                .unwrap();
+        let mut exchange = ReviewExchangeV1::try_new(
+            &resolved(Some(response)),
+            ReviewLimitsV1::default(),
+            correlation(),
+        )
+        .unwrap();
         exchange.submit_finding(finding(true)).unwrap();
         exchange.submit_rebuttal(rebuttal(2)).unwrap();
         assert_eq!(
@@ -229,6 +292,7 @@ fn canonical_review_bytes_roundtrip_and_reject_truncation() {
     let mut exchange = ReviewExchangeV1::try_new(
         &resolved(Some(HumanGateDispositionV1::Approved)),
         ReviewLimitsV1::default(),
+        correlation(),
     )
     .unwrap();
     exchange.submit_finding(finding(true)).unwrap();
@@ -244,4 +308,46 @@ fn canonical_review_bytes_roundtrip_and_reject_truncation() {
         checkpoint
     );
     assert!(decode_review_checkpoint(&bytes[..bytes.len() - 1], limits).is_err());
+}
+
+#[test]
+fn legacy_review_migrates_with_explicitly_undisclosed_correlation() {
+    let exchange =
+        ReviewExchangeV1::try_new(&resolved(None), ReviewLimitsV1::default(), correlation())
+            .unwrap();
+    let legacy = legacy_review_bytes(&exchange.checkpoint());
+    let migrated = decode_review_checkpoint(&legacy, ReviewCodecLimitsV1::default()).unwrap();
+    assert_eq!(migrated.version, 2);
+    assert_eq!(
+        migrated.correlation,
+        EnsembleCorrelationEvidenceV1::undisclosed(2)
+    );
+    assert_ne!(
+        encode_review_checkpoint(&migrated, ReviewCodecLimitsV1::default()).unwrap(),
+        legacy
+    );
+}
+
+#[test]
+fn distinct_observed_values_never_claim_independence() {
+    let mut evidence = EnsembleCorrelationEvidenceV1::undisclosed(2);
+    evidence.dimensions[0] = CorrelationDimensionEvidenceV1 {
+        dimension: CorrelationDimensionV1::ExecutionPrincipal,
+        observed_members: 2,
+        distinct_values: 2,
+    };
+    assert_eq!(
+        evidence.independence(),
+        IndependenceAssessmentV1::NotEstablished
+    );
+}
+
+#[test]
+fn correlation_requires_complete_explicit_dimension_disclosure() {
+    let mut evidence = correlation();
+    evidence.dimensions.pop();
+    assert_eq!(
+        ReviewExchangeV1::try_new(&resolved(None), ReviewLimitsV1::default(), evidence),
+        Err(ReviewRefusalV1::InvalidCorrelationEvidence)
+    );
 }

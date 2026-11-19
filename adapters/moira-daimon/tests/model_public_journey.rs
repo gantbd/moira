@@ -12,6 +12,7 @@ use moira_core::deliberation::{
     EnsembleMemberV1, GroundingRefV1, MaybeValueV1, MethodRefV1, OrthogonalityEvidenceV1,
     PersonaLensV1, ReportIdV1, ResolutionV1, StakeholderRefV1, SurfaceDepthV1,
     registry::{DeliberationRegistryV1, RegistryCommandV1, RegistryLimitsV1, RegistryRevisionV1},
+    review::CorrelationDimensionV1,
 };
 use moira_daimon::{
     CompletedToolResultV1, ExecutionIntentV1, ModelExecutionAdapter, ModelExecutionReplyV1,
@@ -625,14 +626,29 @@ fn cohort_correlation_exposes_shared_execution_identity() {
     ];
     let correlation = ensemble::analyze_correlation(&plan, &runs).unwrap();
     assert_eq!(correlation.members, 2);
-    assert_eq!(correlation.distinct_principals, 1);
-    assert_eq!(correlation.distinct_profiles, 1);
-    assert_eq!(correlation.distinct_context_manifests, 2);
-    assert!(correlation.shared_principal);
-    assert!(correlation.shared_profile);
-    assert!(!correlation.shared_context_manifest);
     assert_eq!(
-        correlation.independence,
+        correlation
+            .dimension(CorrelationDimensionV1::ExecutionPrincipal)
+            .unwrap()
+            .distinct_values,
+        1
+    );
+    assert_eq!(
+        correlation
+            .dimension(CorrelationDimensionV1::ExecutionProfile)
+            .unwrap()
+            .distinct_values,
+        1
+    );
+    assert_eq!(
+        correlation
+            .dimension(CorrelationDimensionV1::ContextManifest)
+            .unwrap()
+            .distinct_values,
+        2
+    );
+    assert_eq!(
+        correlation.independence(),
         IndependenceAssessmentV1::Correlated
     );
 }
@@ -647,12 +663,22 @@ fn distinct_execution_identities_do_not_prove_independence() {
     second.execution.principal = [72; 16];
     second.execution.profile = [73; 16];
     let correlation = ensemble::analyze_correlation(&plan, &[first, second]).unwrap();
-    assert_eq!(correlation.distinct_principals, 2);
-    assert_eq!(correlation.distinct_profiles, 2);
-    assert!(!correlation.shared_principal);
-    assert!(!correlation.shared_profile);
     assert_eq!(
-        correlation.independence,
+        correlation
+            .dimension(CorrelationDimensionV1::ExecutionPrincipal)
+            .unwrap()
+            .distinct_values,
+        2
+    );
+    assert_eq!(
+        correlation
+            .dimension(CorrelationDimensionV1::ExecutionProfile)
+            .unwrap()
+            .distinct_values,
+        2
+    );
+    assert_eq!(
+        correlation.independence(),
         IndependenceAssessmentV1::NotEstablished
     );
 }

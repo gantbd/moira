@@ -6,7 +6,7 @@ use moira_protocol::deliberation as d;
 /// Deliberation profile V2 adds retained stakeholder standing and cohort
 /// admission evidence. Distinct frame kinds make V1 peers fail closed instead
 /// of decoding the changed plan shape under the old profile.
-pub const DELIBERATION_PROFILE_VERSION: u8 = 3;
+pub const DELIBERATION_PROFILE_VERSION: u8 = 4;
 const REQUEST: u8 = 14;
 const REPLY: u8 = 15;
 
@@ -137,9 +137,13 @@ fn mutation(w: &mut Writer, value: &d::MutationV1) -> Result<(), CodecErrorV1> {
             w.raw(&deliberation.0)?;
             human_gate_request(w, *request)
         }
-        d::MutationV1::BeginReview { deliberation } => {
+        d::MutationV1::BeginReview {
+            deliberation,
+            correlation: value,
+        } => {
             w.byte(4)?;
-            w.raw(&deliberation.0)
+            w.raw(&deliberation.0)?;
+            correlation(w, value)
         }
         d::MutationV1::SubmitFinding {
             deliberation,
@@ -185,6 +189,7 @@ fn read_mutation(r: &mut Reader<'_>) -> Result<d::MutationV1, CodecErrorV1> {
         }),
         4 => Ok(d::MutationV1::BeginReview {
             deliberation: d::DeliberationIdV1(r.raw()?),
+            correlation: read_correlation(r)?,
         }),
         5 => Ok(d::MutationV1::SubmitFinding {
             deliberation: d::DeliberationIdV1(r.raw()?),
@@ -302,6 +307,84 @@ fn read_view(r: &mut Reader<'_>) -> Result<d::DeliberationViewV1, CodecErrorV1> 
     })
 }
 
+fn correlation(
+    w: &mut Writer,
+    value: &d::EnsembleCorrelationEvidenceV1,
+) -> Result<(), CodecErrorV1> {
+    w.usize(value.members)?;
+    write_len(w, value.dimensions.len())?;
+    for evidence in &value.dimensions {
+        w.byte(correlation_dimension_tag(evidence.dimension))?;
+        w.usize(evidence.observed_members)?;
+        w.usize(evidence.distinct_values)?;
+    }
+    w.usize(value.first_pass.committed_before_cross_review)?;
+    w.usize(value.first_pass.exposed_before_commit)?;
+    w.usize(value.first_pass.unknown)
+}
+
+fn read_correlation(r: &mut Reader<'_>) -> Result<d::EnsembleCorrelationEvidenceV1, CodecErrorV1> {
+    Ok(d::EnsembleCorrelationEvidenceV1 {
+        members: r.usize()?,
+        dimensions: read_many(r, |r| {
+            Ok(d::CorrelationDimensionEvidenceV1 {
+                dimension: read_correlation_dimension(r.byte()?)?,
+                observed_members: r.usize()?,
+                distinct_values: r.usize()?,
+            })
+        })?,
+        first_pass: d::FirstPassExposureV1 {
+            committed_before_cross_review: r.usize()?,
+            exposed_before_commit: r.usize()?,
+            unknown: r.usize()?,
+        },
+    })
+}
+
+fn correlation_dimension_tag(value: d::CorrelationDimensionV1) -> u8 {
+    match value {
+        d::CorrelationDimensionV1::ExecutionPrincipal => 0,
+        d::CorrelationDimensionV1::ExecutionProfile => 1,
+        d::CorrelationDimensionV1::ContextManifest => 2,
+        d::CorrelationDimensionV1::Model => 3,
+        d::CorrelationDimensionV1::Provider => 4,
+        d::CorrelationDimensionV1::Prompt => 5,
+        d::CorrelationDimensionV1::Grounding => 6,
+        d::CorrelationDimensionV1::EvidenceScope => 7,
+        d::CorrelationDimensionV1::Organization => 8,
+    }
+}
+
+fn read_correlation_dimension(value: u8) -> Result<d::CorrelationDimensionV1, CodecErrorV1> {
+    match value {
+        0 => Ok(d::CorrelationDimensionV1::ExecutionPrincipal),
+        1 => Ok(d::CorrelationDimensionV1::ExecutionProfile),
+        2 => Ok(d::CorrelationDimensionV1::ContextManifest),
+        3 => Ok(d::CorrelationDimensionV1::Model),
+        4 => Ok(d::CorrelationDimensionV1::Provider),
+        5 => Ok(d::CorrelationDimensionV1::Prompt),
+        6 => Ok(d::CorrelationDimensionV1::Grounding),
+        7 => Ok(d::CorrelationDimensionV1::EvidenceScope),
+        8 => Ok(d::CorrelationDimensionV1::Organization),
+        _ => Err(CodecErrorV1::Unsupported),
+    }
+}
+
+fn independence_tag(value: d::IndependenceAssessmentV1) -> u8 {
+    match value {
+        d::IndependenceAssessmentV1::Correlated => 0,
+        d::IndependenceAssessmentV1::NotEstablished => 1,
+    }
+}
+
+fn read_independence(value: u8) -> Result<d::IndependenceAssessmentV1, CodecErrorV1> {
+    match value {
+        0 => Ok(d::IndependenceAssessmentV1::Correlated),
+        1 => Ok(d::IndependenceAssessmentV1::NotEstablished),
+        _ => Err(CodecErrorV1::Unsupported),
+    }
+}
+
 fn review_view(w: &mut Writer, value: &d::ReviewViewV1) -> Result<(), CodecErrorV1> {
     w.byte(value.version)?;
     w.raw(&value.deliberation.0)?;
@@ -310,6 +393,8 @@ fn review_view(w: &mut Writer, value: &d::ReviewViewV1) -> Result<(), CodecError
     for value in &value.reports {
         report(w, value)?;
     }
+    correlation(w, &value.correlation)?;
+    w.byte(independence_tag(value.independence))?;
     w.option(value.admitted_human_gate_response.as_ref(), |w, value| {
         human_gate_response(w, *value)
     })?;
@@ -334,6 +419,8 @@ fn read_review_view(r: &mut Reader<'_>) -> Result<d::ReviewViewV1, CodecErrorV1>
         deliberation: d::DeliberationIdV1(r.raw()?),
         limits: read_review_limits(r)?,
         reports: read_many(r, read_report)?,
+        correlation: read_correlation(r)?,
+        independence: read_independence(r.byte()?)?,
         admitted_human_gate_response: r.option(read_human_gate_response)?,
         findings: read_many(r, read_review_finding)?,
         rebuttals: read_many(r, read_rebuttal)?,
@@ -1010,6 +1097,7 @@ fn review_refusal_tag(value: d::ReviewRefusalV1) -> u8 {
         d::ReviewRefusalV1::DeliberationMismatch => 22,
         d::ReviewRefusalV1::UnsupportedVersion => 23,
         d::ReviewRefusalV1::CheckpointMismatch => 24,
+        d::ReviewRefusalV1::InvalidCorrelationEvidence => 25,
     }
 }
 
@@ -1040,6 +1128,7 @@ fn read_review_refusal(value: u8) -> Result<d::ReviewRefusalV1, CodecErrorV1> {
         22 => Ok(d::ReviewRefusalV1::DeliberationMismatch),
         23 => Ok(d::ReviewRefusalV1::UnsupportedVersion),
         24 => Ok(d::ReviewRefusalV1::CheckpointMismatch),
+        25 => Ok(d::ReviewRefusalV1::InvalidCorrelationEvidence),
         _ => Err(CodecErrorV1::Unsupported),
     }
 }

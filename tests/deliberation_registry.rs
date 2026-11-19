@@ -295,7 +295,11 @@ fn review_exchange_is_revisioned_with_its_deliberation_and_recovers_exactly() {
     let begun = registry
         .apply(
             registry.revision(),
-            RegistryCommandV1::BeginReview { deliberation: id },
+            RegistryCommandV1::BeginReview {
+                deliberation: id,
+                correlation:
+                    moira_core::deliberation::review::EnsembleCorrelationEvidenceV1::undisclosed(2),
+            },
         )
         .unwrap();
     assert_eq!(begun.revision, RegistryRevisionV1(4));

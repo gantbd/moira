@@ -4,6 +4,8 @@
 //! authoritative record. Moira retains exact findings, cross-member rebuttals,
 //! owner dispositions and any named-human response required by policy.
 
+use std::collections::BTreeSet;
+
 use super::{
     DeliberationIdV1, DeliberationPhaseV1, DeliberationV1, EnsembleMemberIdV1,
     FindingDispositionIdV1, FindingIdV1, HumanGateDispositionV1, HumanGateResponseIdV1,
@@ -17,6 +19,106 @@ pub struct ReviewLimitsV1 {
     pub max_findings: usize,
     pub max_rebuttals: usize,
     pub max_evidence_per_item: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum CorrelationDimensionV1 {
+    ExecutionPrincipal,
+    ExecutionProfile,
+    ContextManifest,
+    Model,
+    Provider,
+    Prompt,
+    Grounding,
+    EvidenceScope,
+    Organization,
+}
+
+impl CorrelationDimensionV1 {
+    pub const ALL: [Self; 9] = [
+        Self::ExecutionPrincipal,
+        Self::ExecutionProfile,
+        Self::ContextManifest,
+        Self::Model,
+        Self::Provider,
+        Self::Prompt,
+        Self::Grounding,
+        Self::EvidenceScope,
+        Self::Organization,
+    ];
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CorrelationDimensionEvidenceV1 {
+    pub dimension: CorrelationDimensionV1,
+    pub observed_members: usize,
+    pub distinct_values: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FirstPassExposureV1 {
+    pub committed_before_cross_review: usize,
+    pub exposed_before_commit: usize,
+    pub unknown: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndependenceAssessmentV1 {
+    Correlated,
+    NotEstablished,
+}
+
+/// Content-free cohort disclosure retained at the cross-review boundary.
+///
+/// Zero observations disclose missing evidence. Distinct runtime identities are
+/// necessary for some forms of separation, but never establish cognitive
+/// independence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnsembleCorrelationEvidenceV1 {
+    pub members: usize,
+    pub dimensions: Vec<CorrelationDimensionEvidenceV1>,
+    pub first_pass: FirstPassExposureV1,
+}
+
+impl EnsembleCorrelationEvidenceV1 {
+    pub fn undisclosed(members: usize) -> Self {
+        Self {
+            members,
+            dimensions: CorrelationDimensionV1::ALL
+                .into_iter()
+                .map(|dimension| CorrelationDimensionEvidenceV1 {
+                    dimension,
+                    observed_members: 0,
+                    distinct_values: 0,
+                })
+                .collect(),
+            first_pass: FirstPassExposureV1 {
+                committed_before_cross_review: 0,
+                exposed_before_commit: 0,
+                unknown: members,
+            },
+        }
+    }
+
+    pub fn independence(&self) -> IndependenceAssessmentV1 {
+        if self.dimensions.iter().any(|evidence| {
+            evidence.observed_members > 1 && evidence.distinct_values < evidence.observed_members
+        }) {
+            IndependenceAssessmentV1::Correlated
+        } else {
+            IndependenceAssessmentV1::NotEstablished
+        }
+    }
+
+    pub fn dimension(
+        &self,
+        dimension: CorrelationDimensionV1,
+    ) -> Option<CorrelationDimensionEvidenceV1> {
+        self.dimensions
+            .iter()
+            .copied()
+            .find(|evidence| evidence.dimension == dimension)
+    }
 }
 
 impl Default for ReviewLimitsV1 {
@@ -103,6 +205,7 @@ pub enum ReviewRefusalV1 {
     HumanGateMismatch,
     InvalidReports,
     DeliberationMismatch,
+    InvalidCorrelationEvidence,
     UnsupportedVersion,
     CheckpointMismatch,
 }
@@ -113,6 +216,7 @@ pub struct ReviewExchangeCheckpointV1 {
     pub deliberation: DeliberationIdV1,
     pub limits: ReviewLimitsV1,
     pub reports: Vec<MemberReportV1>,
+    pub correlation: EnsembleCorrelationEvidenceV1,
     pub admitted_human_gate_response: Option<HumanGateResponseV1>,
     pub findings: Vec<ReviewFindingV1>,
     pub rebuttals: Vec<RebuttalV1>,
@@ -124,6 +228,7 @@ pub struct ReviewExchangeV1 {
     deliberation: DeliberationIdV1,
     limits: ReviewLimitsV1,
     reports: Vec<MemberReportV1>,
+    correlation: EnsembleCorrelationEvidenceV1,
     admitted_human_gate_response: Option<HumanGateResponseV1>,
     findings: Vec<ReviewFindingV1>,
     rebuttals: Vec<RebuttalV1>,
@@ -134,15 +239,18 @@ impl ReviewExchangeV1 {
     pub fn try_new(
         deliberation: &DeliberationV1,
         limits: ReviewLimitsV1,
+        correlation: EnsembleCorrelationEvidenceV1,
     ) -> Result<Self, ReviewRefusalV1> {
         validate_limits(limits)?;
         if deliberation.phase() == DeliberationPhaseV1::Collecting {
             return Err(ReviewRefusalV1::FirstPassIncomplete);
         }
+        validate_correlation(&correlation, deliberation.reports().len())?;
         Ok(Self {
             deliberation: deliberation.plan().id,
             limits,
             reports: deliberation.reports().to_vec(),
+            correlation,
             admitted_human_gate_response: deliberation.human_gate_response().copied(),
             findings: Vec::new(),
             rebuttals: Vec::new(),
@@ -162,6 +270,10 @@ impl ReviewExchangeV1 {
 
     pub fn findings(&self) -> &[ReviewFindingV1] {
         &self.findings
+    }
+
+    pub fn correlation(&self) -> &EnsembleCorrelationEvidenceV1 {
+        &self.correlation
     }
 
     pub fn rebuttals(&self) -> &[RebuttalV1] {
@@ -347,10 +459,11 @@ impl ReviewExchangeV1 {
 
     pub fn checkpoint(&self) -> ReviewExchangeCheckpointV1 {
         ReviewExchangeCheckpointV1 {
-            version: 1,
+            version: 2,
             deliberation: self.deliberation,
             limits: self.limits,
             reports: self.reports.clone(),
+            correlation: self.correlation.clone(),
             admitted_human_gate_response: self.admitted_human_gate_response,
             findings: self.findings.clone(),
             rebuttals: self.rebuttals.clone(),
@@ -359,16 +472,18 @@ impl ReviewExchangeV1 {
     }
 
     pub fn recover(checkpoint: ReviewExchangeCheckpointV1) -> Result<Self, ReviewRefusalV1> {
-        if checkpoint.version != 1 {
+        if checkpoint.version != 2 {
             return Err(ReviewRefusalV1::UnsupportedVersion);
         }
         validate_limits(checkpoint.limits)?;
         validate_reports(&checkpoint.reports)?;
+        validate_correlation(&checkpoint.correlation, checkpoint.reports.len())?;
         let expected = checkpoint.clone();
         let mut recovered = Self {
             deliberation: checkpoint.deliberation,
             limits: checkpoint.limits,
             reports: checkpoint.reports,
+            correlation: checkpoint.correlation,
             admitted_human_gate_response: checkpoint.admitted_human_gate_response,
             findings: Vec::new(),
             rebuttals: Vec::new(),
@@ -388,6 +503,38 @@ impl ReviewExchangeV1 {
         }
         Ok(recovered)
     }
+}
+
+fn validate_correlation(
+    evidence: &EnsembleCorrelationEvidenceV1,
+    report_count: usize,
+) -> Result<(), ReviewRefusalV1> {
+    if evidence.members == 0
+        || evidence.members != report_count
+        || evidence.dimensions.len() != CorrelationDimensionV1::ALL.len()
+        || evidence
+            .first_pass
+            .committed_before_cross_review
+            .checked_add(evidence.first_pass.exposed_before_commit)
+            .and_then(|count| count.checked_add(evidence.first_pass.unknown))
+            != Some(evidence.members)
+    {
+        return Err(ReviewRefusalV1::InvalidCorrelationEvidence);
+    }
+    let mut dimensions = BTreeSet::new();
+    for dimension in &evidence.dimensions {
+        if !dimensions.insert(dimension.dimension)
+            || dimension.observed_members > evidence.members
+            || dimension.distinct_values > dimension.observed_members
+            || (dimension.observed_members == 0) != (dimension.distinct_values == 0)
+        {
+            return Err(ReviewRefusalV1::InvalidCorrelationEvidence);
+        }
+    }
+    if dimensions != CorrelationDimensionV1::ALL.into_iter().collect() {
+        return Err(ReviewRefusalV1::InvalidCorrelationEvidence);
+    }
+    Ok(())
 }
 
 fn validate_limits(limits: ReviewLimitsV1) -> Result<(), ReviewRefusalV1> {

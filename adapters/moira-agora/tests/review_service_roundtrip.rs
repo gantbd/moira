@@ -172,7 +172,11 @@ fn retained_review() -> moira_core::deliberation::review::ReviewExchangeCheckpoi
     registry
         .apply(
             registry.revision(),
-            RegistryCommandV1::BeginReview { deliberation: id },
+            RegistryCommandV1::BeginReview {
+                deliberation: id,
+                correlation:
+                    moira_core::deliberation::review::EnsembleCorrelationEvidenceV1::undisclosed(2),
+            },
         )
         .unwrap();
     registry

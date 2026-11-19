@@ -124,7 +124,7 @@ fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
     legacy.extend_from_slice(&child);
 
     let migrated = decode(&legacy, limits).unwrap();
-    assert_eq!(migrated.version, 4);
+    assert_eq!(migrated.version, 5);
     assert!(migrated.reviews.is_empty());
     assert_eq!(migrated.deliberations[0].version, 5);
     assert_eq!(migrated.deliberations[0].human_gate_request, None);

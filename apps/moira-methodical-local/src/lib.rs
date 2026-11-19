@@ -16,6 +16,7 @@ use moira_core::deliberation::{
     EnsembleMemberIdV1, MaybeValueV1, MuReasonV1, PersonaLensV1, ReportIdV1, ResolutionV1,
     StakeholderRefV1, StakeholderRepresentationV1, SurfaceDepthV1,
     registry::{RegistryLimitsV1, persistence::CodecLimitsV1},
+    review::CorrelationDimensionV1,
 };
 use moira_daimon::{
     ExecutionIntentV1,
@@ -1055,15 +1056,27 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
     } else {
         None
     };
+    let principal = completed
+        .correlation
+        .dimension(CorrelationDimensionV1::ExecutionPrincipal)
+        .expect("adapter discloses every correlation dimension");
+    let profile = completed
+        .correlation
+        .dimension(CorrelationDimensionV1::ExecutionProfile)
+        .expect("adapter discloses every correlation dimension");
+    let context = completed
+        .correlation
+        .dimension(CorrelationDimensionV1::ContextManifest)
+        .expect("adapter discloses every correlation dimension");
     let mut summary = SummaryV1 {
         cohort_members: completed.correlation.members,
-        distinct_principals: completed.correlation.distinct_principals,
-        distinct_profiles: completed.correlation.distinct_profiles,
-        distinct_context_manifests: completed.correlation.distinct_context_manifests,
-        shared_principal: completed.correlation.shared_principal,
-        shared_profile: completed.correlation.shared_profile,
-        shared_context_manifest: completed.correlation.shared_context_manifest,
-        independence: completed.correlation.independence,
+        distinct_principals: principal.distinct_values,
+        distinct_profiles: profile.distinct_values,
+        distinct_context_manifests: context.distinct_values,
+        shared_principal: principal.distinct_values < principal.observed_members,
+        shared_profile: profile.distinct_values < profile.observed_members,
+        shared_context_manifest: context.distinct_values < context.observed_members,
+        independence: completed.correlation.independence(),
         revision: store.revision().0,
         reports: 0,
         invalid_reports: 0,

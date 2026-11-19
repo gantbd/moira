@@ -7,8 +7,15 @@ use std::collections::BTreeSet;
 
 use daimon_client::ModelServicePort;
 use daimon_protocol as daimon;
+pub use moira_core::deliberation::review::{
+    EnsembleCorrelationEvidenceV1 as EnsembleCorrelationV1, IndependenceAssessmentV1,
+};
 use moira_core::deliberation::{
     DeliberationPlanV1, EnsembleMemberIdV1, MemberReportV1, ReportIdV1,
+    review::{
+        CorrelationDimensionEvidenceV1, CorrelationDimensionV1, EnsembleCorrelationEvidenceV1,
+        FirstPassExposureV1,
+    },
 };
 use moira_protocol::DispositionV1;
 use serde::Deserialize;
@@ -31,26 +38,6 @@ pub struct MemberContinuationV1 {
     pub member: EnsembleMemberIdV1,
     pub report: ReportIdV1,
     pub source_execution: [u8; 16],
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum IndependenceAssessmentV1 {
-    Correlated,
-    NotEstablished,
-}
-
-/// Content-free execution-cohort facts. Distinct identities are necessary for
-/// some forms of separation but never prove cognitive independence.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EnsembleCorrelationV1 {
-    pub members: usize,
-    pub distinct_principals: usize,
-    pub distinct_profiles: usize,
-    pub distinct_context_manifests: usize,
-    pub shared_principal: bool,
-    pub shared_profile: bool,
-    pub shared_context_manifest: bool,
-    pub independence: IndependenceAssessmentV1,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -508,23 +495,35 @@ pub fn analyze_correlation(
         .iter()
         .map(|run| context_manifest_digest(&run.execution.context))
         .collect::<BTreeSet<_>>();
-    let shared_principal = principals.len() < runs.len();
-    let shared_profile = profiles.len() < runs.len();
-    let shared_context_manifest = contexts.len() < runs.len();
-    Ok(EnsembleCorrelationV1 {
-        members: runs.len(),
-        distinct_principals: principals.len(),
-        distinct_profiles: profiles.len(),
-        distinct_context_manifests: contexts.len(),
-        shared_principal,
-        shared_profile,
-        shared_context_manifest,
-        independence: if shared_principal || shared_profile {
-            IndependenceAssessmentV1::Correlated
-        } else {
-            IndependenceAssessmentV1::NotEstablished
-        },
-    })
+    let grounding = plan
+        .members
+        .iter()
+        .map(|member| member.grounding.surface_digest)
+        .collect::<BTreeSet<_>>();
+    let mut correlation = EnsembleCorrelationEvidenceV1::undisclosed(runs.len());
+    for (dimension, distinct_values) in [
+        (CorrelationDimensionV1::ExecutionPrincipal, principals.len()),
+        (CorrelationDimensionV1::ExecutionProfile, profiles.len()),
+        (CorrelationDimensionV1::ContextManifest, contexts.len()),
+        (CorrelationDimensionV1::Grounding, grounding.len()),
+    ] {
+        let evidence = correlation
+            .dimensions
+            .iter_mut()
+            .find(|evidence| evidence.dimension == dimension)
+            .expect("all correlation dimensions are constructed above");
+        *evidence = CorrelationDimensionEvidenceV1 {
+            dimension,
+            observed_members: runs.len(),
+            distinct_values,
+        };
+    }
+    correlation.first_pass = FirstPassExposureV1 {
+        committed_before_cross_review: 0,
+        exposed_before_commit: 0,
+        unknown: runs.len(),
+    };
+    Ok(correlation)
 }
 
 fn context_manifest_digest(context: &[[u8; 16]]) -> [u8; 32] {

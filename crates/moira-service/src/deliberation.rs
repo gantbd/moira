@@ -242,11 +242,13 @@ fn mutation_domain(value: protocol::MutationV1) -> registry::RegistryCommandV1 {
             deliberation: domain::DeliberationIdV1(deliberation.0),
             request: human_gate_request_domain(request),
         },
-        protocol::MutationV1::BeginReview { deliberation } => {
-            registry::RegistryCommandV1::BeginReview {
-                deliberation: domain::DeliberationIdV1(deliberation.0),
-            }
-        }
+        protocol::MutationV1::BeginReview {
+            deliberation,
+            correlation,
+        } => registry::RegistryCommandV1::BeginReview {
+            deliberation: domain::DeliberationIdV1(deliberation.0),
+            correlation: correlation_domain(correlation),
+        },
         protocol::MutationV1::SubmitFinding {
             deliberation,
             finding,
@@ -279,6 +281,56 @@ fn finding_domain(value: protocol::ReviewFindingV1) -> domain::review::ReviewFin
         finding_digest: value.finding_digest,
         evidence_digests: value.evidence_digests,
         requires_human_gate: value.requires_human_gate,
+    }
+}
+
+fn correlation_domain(
+    value: protocol::EnsembleCorrelationEvidenceV1,
+) -> domain::review::EnsembleCorrelationEvidenceV1 {
+    domain::review::EnsembleCorrelationEvidenceV1 {
+        members: value.members,
+        dimensions: value
+            .dimensions
+            .into_iter()
+            .map(|evidence| domain::review::CorrelationDimensionEvidenceV1 {
+                dimension: match evidence.dimension {
+                    protocol::CorrelationDimensionV1::ExecutionPrincipal => {
+                        domain::review::CorrelationDimensionV1::ExecutionPrincipal
+                    }
+                    protocol::CorrelationDimensionV1::ExecutionProfile => {
+                        domain::review::CorrelationDimensionV1::ExecutionProfile
+                    }
+                    protocol::CorrelationDimensionV1::ContextManifest => {
+                        domain::review::CorrelationDimensionV1::ContextManifest
+                    }
+                    protocol::CorrelationDimensionV1::Model => {
+                        domain::review::CorrelationDimensionV1::Model
+                    }
+                    protocol::CorrelationDimensionV1::Provider => {
+                        domain::review::CorrelationDimensionV1::Provider
+                    }
+                    protocol::CorrelationDimensionV1::Prompt => {
+                        domain::review::CorrelationDimensionV1::Prompt
+                    }
+                    protocol::CorrelationDimensionV1::Grounding => {
+                        domain::review::CorrelationDimensionV1::Grounding
+                    }
+                    protocol::CorrelationDimensionV1::EvidenceScope => {
+                        domain::review::CorrelationDimensionV1::EvidenceScope
+                    }
+                    protocol::CorrelationDimensionV1::Organization => {
+                        domain::review::CorrelationDimensionV1::Organization
+                    }
+                },
+                observed_members: evidence.observed_members,
+                distinct_values: evidence.distinct_values,
+            })
+            .collect(),
+        first_pass: domain::review::FirstPassExposureV1 {
+            committed_before_cross_review: value.first_pass.committed_before_cross_review,
+            exposed_before_commit: value.first_pass.exposed_before_commit,
+            unknown: value.first_pass.unknown,
+        },
     }
 }
 
@@ -580,6 +632,14 @@ fn review_view(value: domain::review::ReviewExchangeCheckpointV1) -> protocol::R
     } else {
         protocol::ReviewPhaseV1::Challenged
     };
+    let independence = match value.correlation.independence() {
+        domain::review::IndependenceAssessmentV1::Correlated => {
+            protocol::IndependenceAssessmentV1::Correlated
+        }
+        domain::review::IndependenceAssessmentV1::NotEstablished => {
+            protocol::IndependenceAssessmentV1::NotEstablished
+        }
+    };
     protocol::ReviewViewV1 {
         version: value.version,
         deliberation: protocol::DeliberationIdV1(value.deliberation.0),
@@ -589,6 +649,8 @@ fn review_view(value: domain::review::ReviewExchangeCheckpointV1) -> protocol::R
             max_evidence_per_item: value.limits.max_evidence_per_item,
         },
         reports: value.reports.into_iter().map(report_view).collect(),
+        correlation: correlation_view(value.correlation),
+        independence,
         admitted_human_gate_response: value
             .admitted_human_gate_response
             .map(human_gate_response_view),
@@ -600,6 +662,56 @@ fn review_view(value: domain::review::ReviewExchangeCheckpointV1) -> protocol::R
             .map(finding_disposition_view)
             .collect(),
         phase,
+    }
+}
+
+fn correlation_view(
+    value: domain::review::EnsembleCorrelationEvidenceV1,
+) -> protocol::EnsembleCorrelationEvidenceV1 {
+    protocol::EnsembleCorrelationEvidenceV1 {
+        members: value.members,
+        dimensions: value
+            .dimensions
+            .into_iter()
+            .map(|evidence| protocol::CorrelationDimensionEvidenceV1 {
+                dimension: match evidence.dimension {
+                    domain::review::CorrelationDimensionV1::ExecutionPrincipal => {
+                        protocol::CorrelationDimensionV1::ExecutionPrincipal
+                    }
+                    domain::review::CorrelationDimensionV1::ExecutionProfile => {
+                        protocol::CorrelationDimensionV1::ExecutionProfile
+                    }
+                    domain::review::CorrelationDimensionV1::ContextManifest => {
+                        protocol::CorrelationDimensionV1::ContextManifest
+                    }
+                    domain::review::CorrelationDimensionV1::Model => {
+                        protocol::CorrelationDimensionV1::Model
+                    }
+                    domain::review::CorrelationDimensionV1::Provider => {
+                        protocol::CorrelationDimensionV1::Provider
+                    }
+                    domain::review::CorrelationDimensionV1::Prompt => {
+                        protocol::CorrelationDimensionV1::Prompt
+                    }
+                    domain::review::CorrelationDimensionV1::Grounding => {
+                        protocol::CorrelationDimensionV1::Grounding
+                    }
+                    domain::review::CorrelationDimensionV1::EvidenceScope => {
+                        protocol::CorrelationDimensionV1::EvidenceScope
+                    }
+                    domain::review::CorrelationDimensionV1::Organization => {
+                        protocol::CorrelationDimensionV1::Organization
+                    }
+                },
+                observed_members: evidence.observed_members,
+                distinct_values: evidence.distinct_values,
+            })
+            .collect(),
+        first_pass: protocol::FirstPassExposureV1 {
+            committed_before_cross_review: value.first_pass.committed_before_cross_review,
+            exposed_before_commit: value.first_pass.exposed_before_commit,
+            unknown: value.first_pass.unknown,
+        },
     }
 }
 
@@ -941,6 +1053,7 @@ fn review_refusal(value: domain::review::ReviewRefusalV1) -> protocol::ReviewRef
         D::HumanGateMismatch => P::HumanGateMismatch,
         D::InvalidReports => P::InvalidReports,
         D::DeliberationMismatch => P::DeliberationMismatch,
+        D::InvalidCorrelationEvidence => P::InvalidCorrelationEvidence,
         D::UnsupportedVersion => P::UnsupportedVersion,
         D::CheckpointMismatch => P::CheckpointMismatch,
     }

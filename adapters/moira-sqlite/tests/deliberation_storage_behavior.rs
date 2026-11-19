@@ -269,7 +269,10 @@ fn review_findings_and_rebuttals_survive_owner_restart() {
         store
             .apply(
                 store.revision(),
-                RegistryCommandV1::BeginReview { deliberation: id },
+                RegistryCommandV1::BeginReview {
+                    deliberation: id,
+                    correlation: moira_core::deliberation::review::EnsembleCorrelationEvidenceV1::undisclosed(2),
+                },
             )
             .unwrap();
         store

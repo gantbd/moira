@@ -49,6 +49,7 @@ pub enum RegistryCommandV1 {
     },
     BeginReview {
         deliberation: DeliberationIdV1,
+        correlation: review::EnsembleCorrelationEvidenceV1,
     },
     SubmitFinding {
         deliberation: DeliberationIdV1,
@@ -136,7 +137,7 @@ impl DeliberationRegistryV1 {
 
     pub fn checkpoint(&self) -> RegistryCheckpointV1 {
         RegistryCheckpointV1 {
-            version: 4,
+            version: 5,
             limits: self.limits,
             revision: self.revision,
             deliberations: self
@@ -181,7 +182,10 @@ impl DeliberationRegistryV1 {
                 deliberation,
                 response,
             } => self.respond_human_gate(deliberation, response),
-            RegistryCommandV1::BeginReview { deliberation } => self.begin_review(deliberation),
+            RegistryCommandV1::BeginReview {
+                deliberation,
+                correlation,
+            } => self.begin_review(deliberation, correlation),
             RegistryCommandV1::SubmitFinding {
                 deliberation,
                 finding,
@@ -198,7 +202,7 @@ impl DeliberationRegistryV1 {
     }
 
     pub fn recover(checkpoint: RegistryCheckpointV1) -> Result<Self, RegistryRefusalV1> {
-        if checkpoint.version != 4 {
+        if checkpoint.version != 5 {
             return Err(RegistryRefusalV1::UnsupportedVersion);
         }
         let expected = checkpoint.clone();
@@ -381,22 +385,30 @@ impl DeliberationRegistryV1 {
     fn begin_review(
         &mut self,
         id: DeliberationIdV1,
+        correlation: review::EnsembleCorrelationEvidenceV1,
     ) -> Result<RegistryReceiptV1, RegistryRefusalV1> {
         let deliberation = self
             .deliberations
             .get(&id)
             .ok_or(RegistryRefusalV1::UnknownDeliberation)?;
         if let Some(existing) = self.reviews.get(&id) {
-            return Ok(RegistryReceiptV1 {
-                revision: self.revision,
-                deliberation: deliberation.checkpoint(),
-                review: Some(existing.checkpoint()),
-                replayed: true,
-            });
+            return if existing.correlation() == &correlation {
+                Ok(RegistryReceiptV1 {
+                    revision: self.revision,
+                    deliberation: deliberation.checkpoint(),
+                    review: Some(existing.checkpoint()),
+                    replayed: true,
+                })
+            } else {
+                Err(RegistryRefusalV1::InputConflict)
+            };
         }
-        let review =
-            review::ReviewExchangeV1::try_new(deliberation, review::ReviewLimitsV1::default())
-                .map_err(RegistryRefusalV1::Review)?;
+        let review = review::ReviewExchangeV1::try_new(
+            deliberation,
+            review::ReviewLimitsV1::default(),
+            correlation,
+        )
+        .map_err(RegistryRefusalV1::Review)?;
         let next_revision = self.next_revision()?;
         let checkpoint = review.checkpoint();
         self.reviews.insert(id, review);
