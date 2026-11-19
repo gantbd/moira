@@ -27,7 +27,7 @@ use moira_dendrite::{
 };
 use moira_host::{ToolExecutionOutcomeV1, ToolExecutorV1, ToolInvocationV1};
 use moira_local_harness::{
-    begin_review_from_governed_run,
+    begin_review_from_governed_run, observe_member_resume,
     process_tool::{ProcessToolErrorV1, ProcessToolExecutorV1, ToolProcessProfileV1},
     resolution::{resolve_authorized_choice, resolve_proven_bool},
     resolve_explicit, resume_member_and_retain, run,
@@ -1051,21 +1051,12 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         store_limits(store_config.max_database_pages),
     )
     .map_err(|_| ErrorV1::Store)?;
-    let completed = run(&mut store, &mut daimon, plan.clone(), runs.clone(), now)
+    let mut completed = run(&mut store, &mut daimon, plan.clone(), runs.clone(), now)
         .map_err(|_| ErrorV1::GovernedRun)?;
     let needs_tool_runtime = completed
         .outcomes
         .iter()
         .any(|outcome| matches!(outcome, MemberOutcomeV1::ToolContinuation { .. }));
-    let review_begun = if begin_review {
-        if needs_tool_runtime || completed.retained.reports.len() != plan.members.len() {
-            return Err(ErrorV1::Review);
-        }
-        begin_review_from_governed_run(&mut store, &completed).map_err(|_| ErrorV1::Review)?;
-        true
-    } else {
-        false
-    };
     let mut tool_runtime = if needs_tool_runtime {
         Some(ToolRuntimeV1::open(
             tooling.ok_or(ErrorV1::Tooling)?,
@@ -1106,14 +1097,14 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         failed: 0,
         ready_to_resolve: false,
         resolved: false,
-        review_begun,
+        review_begun: false,
         peer_completed: false,
         peer_uncertain: false,
         peer_failed: false,
     };
-    let mut retained = completed.retained;
     let mut terminal_outcomes = Vec::new();
-    for outcome in completed.outcomes {
+    let initial_outcomes = std::mem::take(&mut completed.outcomes);
+    for outcome in initial_outcomes {
         let MemberOutcomeV1::ToolContinuation {
             member,
             continuation,
@@ -1199,7 +1190,14 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
                         now,
                     )
                     .map_err(|_| ErrorV1::GovernedRun)?;
-                    retained = resumed.retained;
+                    observe_member_resume(
+                        &mut completed,
+                        &plan,
+                        &runs,
+                        &resumed.outcome,
+                        &resumed.retained,
+                    )
+                    .map_err(|_| ErrorV1::GovernedRun)?;
                     match resumed.outcome {
                         MemberOutcomeV1::ToolContinuation {
                             continuation: next,
@@ -1234,7 +1232,34 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
             }
         }
     }
-    let reports_complete = retained.reports.len() == retained.plan.members.len();
+    let principal = completed
+        .correlation
+        .dimension(CorrelationDimensionV1::ExecutionPrincipal)
+        .expect("adapter discloses every correlation dimension");
+    let profile = completed
+        .correlation
+        .dimension(CorrelationDimensionV1::ExecutionProfile)
+        .expect("adapter discloses every correlation dimension");
+    let context = completed
+        .correlation
+        .dimension(CorrelationDimensionV1::ContextManifest)
+        .expect("adapter discloses every correlation dimension");
+    summary.distinct_principals = principal.distinct_values;
+    summary.distinct_profiles = profile.distinct_values;
+    summary.distinct_context_manifests = context.distinct_values;
+    summary.shared_principal = principal.distinct_values < principal.observed_members;
+    summary.shared_profile = profile.distinct_values < profile.observed_members;
+    summary.shared_context_manifest = context.distinct_values < context.observed_members;
+    summary.independence = completed.correlation.independence();
+    let reports_complete =
+        completed.retained.reports.len() == completed.retained.plan.members.len();
+    if begin_review {
+        if !reports_complete {
+            return Err(ErrorV1::Review);
+        }
+        begin_review_from_governed_run(&mut store, &completed).map_err(|_| ErrorV1::Review)?;
+        summary.review_begun = true;
+    }
     if let Some(resolution) = resolution {
         if !reports_complete {
             return Err(ErrorV1::Resolution);
@@ -2940,7 +2965,9 @@ mod tests {
             raw["dendrite"]["bearer_token_env"] = serde_json::json!("MOIRA_DENDRITE_BEARER");
         }
         raw["daimon"]["socket"] = serde_json::json!(daimon_socket);
-        raw["store"]["path"] = serde_json::json!(directory.join("deliberation.db"));
+        let database = directory.join("deliberation.db");
+        raw["store"]["path"] = serde_json::json!(&database);
+        raw["begin_review"] = serde_json::json!(true);
         raw["tooling"]["continuation_store"]["path"] =
             serde_json::json!(directory.join("continuation.db"));
         raw["tooling"]["output_store"]["path"] = serde_json::json!(directory.join("outputs.db"));
@@ -2949,13 +2976,36 @@ mod tests {
         raw["tooling"]["profiles"][0]["working_directory"] = serde_json::json!(&directory);
 
         let summary = execute(validate(serde_json::from_value(raw).unwrap()).unwrap()).unwrap();
-        assert_eq!(summary.revision, 5);
+        assert_eq!(summary.revision, 6);
         assert_eq!(summary.reports, 4);
         assert_eq!(summary.tool_continuations, 1);
         assert_eq!(summary.failed, 0);
         assert_eq!(summary.uncertain, 0);
-        assert!(summary.ready_to_resolve);
+        assert!(summary.review_begun);
+        assert!(!summary.ready_to_resolve);
         assert_eq!(calls.load(Ordering::Relaxed), 5);
+
+        let reopened = DeliberationSqliteStore::open(
+            &database,
+            [1; 16],
+            store_limits(default_database_pages()),
+        )
+        .unwrap();
+        let review = reopened.review(DeliberationIdV1([2; 16])).unwrap();
+        assert_eq!(
+            review.correlation.first_pass.committed_before_cross_review,
+            4
+        );
+        assert_eq!(review.correlation.first_pass.unknown, 0);
+        assert_eq!(
+            review
+                .correlation
+                .dimension(CorrelationDimensionV1::Provider)
+                .unwrap()
+                .observed_members,
+            4
+        );
+        drop(reopened);
 
         daimon_server.join().unwrap();
         aegis_server.join().unwrap();

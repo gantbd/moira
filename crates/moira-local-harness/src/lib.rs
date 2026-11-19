@@ -16,8 +16,8 @@ use moira_core::deliberation::{
 use moira_daimon::{
     CompletedToolResultV1, ModelExecutionAdapter,
     ensemble::{
-        self, EnsembleCorrelationV1, EnsembleRefusalV1, MemberContinuationV1, MemberOutcomeV1,
-        MemberRunV1,
+        self, EnsembleCorrelationV1, EnsembleRefusalV1, MemberContinuationV1,
+        MemberInvocationHistoryV1, MemberOutcomeV1, MemberRunV1,
     },
 };
 use moira_host::{DeliberationApplyErrorV1, DeliberationStore};
@@ -85,6 +85,7 @@ pub mod unix {
 #[derive(Debug, Eq, PartialEq)]
 pub struct GovernedRunV1<E> {
     pub correlation: EnsembleCorrelationV1,
+    pub invocation_history: Vec<MemberInvocationHistoryV1>,
     pub outcomes: Vec<MemberOutcomeV1<E>>,
     pub retained: DeliberationCheckpointV1,
 }
@@ -161,6 +162,27 @@ where
         .map_err(GovernedReviewErrorV1::Begin)
 }
 
+/// Incorporate one resumed invocation into the same governed evidence lineage.
+/// Correlation remains member-bounded even when one member takes multiple turns.
+pub fn observe_member_resume<E>(
+    run: &mut GovernedRunV1<E>,
+    plan: &DeliberationPlanV1,
+    runs: &[MemberRunV1],
+    outcome: &MemberOutcomeV1<E>,
+    retained: &DeliberationCheckpointV1,
+) -> Result<(), EnsembleRefusalV1> {
+    if retained.plan != *plan {
+        return Err(EnsembleRefusalV1::OutcomeMismatch);
+    }
+    ensemble::append_observed_invocation(&mut run.invocation_history, outcome)?;
+    let mut correlation =
+        ensemble::analyze_observed_correlation_history(plan, runs, &run.invocation_history)?;
+    retain_first_pass_if_complete(&mut correlation, retained);
+    run.correlation = correlation;
+    run.retained = retained.clone();
+    Ok(())
+}
+
 /// Admit, execute and retain one exact cohort. Matching replay is delegated to
 /// the store and Daimon identities. Invalid model envelopes remain outcomes and
 /// are never submitted as reports.
@@ -184,8 +206,11 @@ where
         .map_err(GovernedRunErrorV1::Admission)?;
     let outcomes = ensemble::execute(adapter, &plan, runs.clone(), now)
         .map_err(GovernedRunErrorV1::InvalidCohort)?;
-    let mut correlation = ensemble::analyze_observed_correlation(&plan, &runs, &outcomes)
+    let invocation_history = ensemble::observed_invocation_history(&plan, &runs, &outcomes)
         .map_err(GovernedRunErrorV1::InvalidCohort)?;
+    let mut correlation =
+        ensemble::analyze_observed_correlation_history(&plan, &runs, &invocation_history)
+            .map_err(GovernedRunErrorV1::InvalidCohort)?;
     let reports = outcomes
         .iter()
         .filter_map(|outcome| match outcome {
@@ -214,18 +239,26 @@ where
             }
         }
     }
-    if retained.reports.len() == plan.members.len() {
+    retain_first_pass_if_complete(&mut correlation, &retained);
+    Ok(GovernedRunV1 {
+        correlation,
+        invocation_history,
+        outcomes,
+        retained,
+    })
+}
+
+fn retain_first_pass_if_complete(
+    correlation: &mut EnsembleCorrelationV1,
+    retained: &DeliberationCheckpointV1,
+) {
+    if retained.reports.len() == retained.plan.members.len() {
         correlation.first_pass = FirstPassExposureV1 {
-            committed_before_cross_review: plan.members.len(),
+            committed_before_cross_review: retained.plan.members.len(),
             exposed_before_commit: 0,
             unknown: 0,
         };
     }
-    Ok(GovernedRunV1 {
-        correlation,
-        outcomes,
-        retained,
-    })
 }
 
 /// Resume one member after a fully settled tool-continuation saga. Additional

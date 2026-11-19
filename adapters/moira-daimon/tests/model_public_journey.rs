@@ -708,6 +708,76 @@ fn observed_invocations_populate_owner_published_correlation_dimensions() {
 }
 
 #[test]
+fn multi_turn_invocations_remain_member_bounded_and_preserve_lineage() {
+    let calls = Rc::new(Cell::new(0));
+    let mut service = ModelService::new(
+        daimon_harness::Limits::default(),
+        ServiceLimitsV1::default(),
+        Allow,
+        Current,
+        Profile,
+        Context,
+        Provider {
+            calls: Rc::clone(&calls),
+            output: MEMBER_RESPONSE.to_vec(),
+        },
+    )
+    .unwrap();
+    let session = service
+        .open_session(AuthenticatedSessionV1 {
+            principal: [5; 16],
+            authority_context: [9; 16],
+        })
+        .unwrap();
+    let mut adapter = ModelExecutionAdapter::new(session, Port(service));
+    let plan = ensemble_plan();
+    let runs = vec![
+        member_run(plan.members[0].id, 50),
+        member_run(plan.members[1].id, 60),
+    ];
+    let outcomes = ensemble::execute(&mut adapter, &plan, runs.clone(), 10).unwrap();
+    let mut history = ensemble::observed_invocation_history(&plan, &runs, &outcomes).unwrap();
+    ensemble::append_observed_invocation(&mut history, &outcomes[0]).unwrap();
+    let correlation =
+        ensemble::analyze_observed_correlation_history(&plan, &runs, &history).unwrap();
+    assert_eq!(history[0].invocations().len(), 2);
+    assert_eq!(history[1].invocations().len(), 1);
+    for dimension in [
+        CorrelationDimensionV1::ContextManifest,
+        CorrelationDimensionV1::Model,
+        CorrelationDimensionV1::Provider,
+        CorrelationDimensionV1::Prompt,
+        CorrelationDimensionV1::EvidenceScope,
+    ] {
+        assert_eq!(
+            correlation.dimension(dimension).unwrap().observed_members,
+            2
+        );
+    }
+    assert_eq!(
+        correlation
+            .dimension(CorrelationDimensionV1::Model)
+            .unwrap()
+            .distinct_values,
+        1
+    );
+    assert_eq!(
+        correlation
+            .dimension(CorrelationDimensionV1::Provider)
+            .unwrap()
+            .distinct_values,
+        1
+    );
+    assert_eq!(
+        correlation
+            .dimension(CorrelationDimensionV1::Prompt)
+            .unwrap()
+            .distinct_values,
+        2
+    );
+}
+
+#[test]
 fn distinct_execution_identities_do_not_prove_independence() {
     let plan = ensemble_plan();
     let mut first = member_run(plan.members[0].id, 50);

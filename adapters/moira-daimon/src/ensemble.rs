@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AdapterErrorV1, CompletedToolResultV1, ExecutionIntentV1, ModelExecutionAdapter,
-    ModelExecutionReplyV1, ModelProposalV1, ModelResultV1,
+    ModelExecutionReplyV1, ModelInvocationEvidenceV1, ModelProposalV1, ModelResultV1,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,6 +31,18 @@ pub struct MemberRunV1 {
     pub member: EnsembleMemberIdV1,
     pub report: ReportIdV1,
     pub execution: ExecutionIntentV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemberInvocationHistoryV1 {
+    pub member: EnsembleMemberIdV1,
+    invocations: Vec<Option<ModelInvocationEvidenceV1>>,
+}
+
+impl MemberInvocationHistoryV1 {
+    pub fn invocations(&self) -> &[Option<ModelInvocationEvidenceV1>] {
+        &self.invocations
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -535,45 +547,69 @@ pub fn analyze_observed_correlation<E>(
     runs: &[MemberRunV1],
     outcomes: &[MemberOutcomeV1<E>],
 ) -> Result<EnsembleCorrelationV1, EnsembleRefusalV1> {
+    let history = observed_invocation_history(plan, runs, outcomes)?;
+    analyze_observed_correlation_history(plan, runs, &history)
+}
+
+pub fn observed_invocation_history<E>(
+    plan: &DeliberationPlanV1,
+    runs: &[MemberRunV1],
+    outcomes: &[MemberOutcomeV1<E>],
+) -> Result<Vec<MemberInvocationHistoryV1>, EnsembleRefusalV1> {
+    validate_outcomes(plan, runs, outcomes)?;
+    Ok(outcomes
+        .iter()
+        .map(|outcome| MemberInvocationHistoryV1 {
+            member: outcome_member(outcome),
+            invocations: vec![outcome_invocation_evidence(outcome).cloned()],
+        })
+        .collect())
+}
+
+pub fn append_observed_invocation<E>(
+    history: &mut [MemberInvocationHistoryV1],
+    outcome: &MemberOutcomeV1<E>,
+) -> Result<(), EnsembleRefusalV1> {
+    let member = outcome_member(outcome);
+    let Some(member_history) = history.iter_mut().find(|value| value.member == member) else {
+        return Err(EnsembleRefusalV1::OutcomeMismatch);
+    };
+    member_history
+        .invocations
+        .push(outcome_invocation_evidence(outcome).cloned());
+    Ok(())
+}
+
+pub fn analyze_observed_correlation_history(
+    plan: &DeliberationPlanV1,
+    runs: &[MemberRunV1],
+    history: &[MemberInvocationHistoryV1],
+) -> Result<EnsembleCorrelationV1, EnsembleRefusalV1> {
     validate_runs(plan, runs)?;
     let expected = runs.iter().map(|run| run.member).collect::<BTreeSet<_>>();
-    let observed = outcomes.iter().map(outcome_member).collect::<BTreeSet<_>>();
-    if outcomes.len() != runs.len() || observed.len() != outcomes.len() || observed != expected {
+    let observed = history
+        .iter()
+        .map(|value| value.member)
+        .collect::<BTreeSet<_>>();
+    if history.len() != runs.len()
+        || observed.len() != history.len()
+        || observed != expected
+        || history.iter().any(|value| value.invocations.is_empty())
+    {
         return Err(EnsembleRefusalV1::OutcomeMismatch);
     }
-    let evidence = outcomes
-        .iter()
-        .filter_map(outcome_result)
-        .filter_map(|result| result.invocation_evidence.as_deref())
-        .collect::<Vec<_>>();
-    let contexts = evidence
-        .iter()
-        .map(|value| value.context_manifest_digest)
-        .collect::<BTreeSet<_>>();
-    let models = evidence
-        .iter()
-        .map(|value| value.model_digest)
-        .collect::<BTreeSet<_>>();
-    let providers = evidence
-        .iter()
-        .map(|value| (value.provider, value.provider_document_digest))
-        .collect::<BTreeSet<_>>();
-    let prompts = evidence
-        .iter()
-        .map(|value| value.prompt_digest)
-        .collect::<BTreeSet<_>>();
-    let scopes = evidence
-        .iter()
-        .map(|value| value.evidence_scope_digest)
-        .collect::<BTreeSet<_>>();
     let mut correlation = analyze_correlation(plan, runs)?;
-    for (dimension, distinct_values) in [
-        (CorrelationDimensionV1::ContextManifest, contexts.len()),
-        (CorrelationDimensionV1::Model, models.len()),
-        (CorrelationDimensionV1::Provider, providers.len()),
-        (CorrelationDimensionV1::Prompt, prompts.len()),
-        (CorrelationDimensionV1::EvidenceScope, scopes.len()),
+    for dimension in [
+        CorrelationDimensionV1::ContextManifest,
+        CorrelationDimensionV1::Model,
+        CorrelationDimensionV1::Provider,
+        CorrelationDimensionV1::Prompt,
+        CorrelationDimensionV1::EvidenceScope,
     ] {
+        let values = history
+            .iter()
+            .filter_map(|value| member_dimension_digest(value, dimension))
+            .collect::<BTreeSet<_>>();
         let dimension_evidence = correlation
             .dimensions
             .iter_mut()
@@ -581,11 +617,100 @@ pub fn analyze_observed_correlation<E>(
             .expect("all correlation dimensions are constructed above");
         *dimension_evidence = CorrelationDimensionEvidenceV1 {
             dimension,
-            observed_members: evidence.len(),
-            distinct_values,
+            observed_members: history
+                .iter()
+                .filter(|value| member_dimension_digest(value, dimension).is_some())
+                .count(),
+            distinct_values: values.len(),
         };
     }
     Ok(correlation)
+}
+
+fn validate_outcomes<E>(
+    plan: &DeliberationPlanV1,
+    runs: &[MemberRunV1],
+    outcomes: &[MemberOutcomeV1<E>],
+) -> Result<(), EnsembleRefusalV1> {
+    validate_runs(plan, runs)?;
+    let expected = runs.iter().map(|run| run.member).collect::<BTreeSet<_>>();
+    let observed = outcomes.iter().map(outcome_member).collect::<BTreeSet<_>>();
+    if outcomes.len() != runs.len() || observed.len() != outcomes.len() || observed != expected {
+        return Err(EnsembleRefusalV1::OutcomeMismatch);
+    }
+    Ok(())
+}
+
+fn member_dimension_digest(
+    history: &MemberInvocationHistoryV1,
+    dimension: CorrelationDimensionV1,
+) -> Option<[u8; 32]> {
+    let mut values = history
+        .invocations
+        .iter()
+        .map(|value| {
+            value
+                .as_ref()
+                .map(|value| invocation_dimension_digest(value, dimension))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if matches!(
+        dimension,
+        CorrelationDimensionV1::Model | CorrelationDimensionV1::Provider
+    ) {
+        values.sort_unstable();
+        values.dedup();
+    }
+    if values.len() == 1 {
+        return values.first().copied();
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"MOIRA_MEMBER_INVOCATION_LINEAGE_V1\0");
+    hash.update([correlation_dimension_tag(dimension)]);
+    hash.update((values.len() as u64).to_be_bytes());
+    for value in values {
+        hash.update(value);
+    }
+    Some(hash.finalize().into())
+}
+
+fn invocation_dimension_digest(
+    evidence: &ModelInvocationEvidenceV1,
+    dimension: CorrelationDimensionV1,
+) -> [u8; 32] {
+    match dimension {
+        CorrelationDimensionV1::ContextManifest => evidence.context_manifest_digest,
+        CorrelationDimensionV1::Model => evidence.model_digest,
+        CorrelationDimensionV1::Provider => {
+            let mut hash = Sha256::new();
+            hash.update(b"MOIRA_PROVIDER_INVOCATION_V1\0");
+            hash.update(evidence.provider);
+            hash.update(evidence.provider_document_digest);
+            hash.finalize().into()
+        }
+        CorrelationDimensionV1::Prompt => evidence.prompt_digest,
+        CorrelationDimensionV1::EvidenceScope => evidence.evidence_scope_digest,
+        CorrelationDimensionV1::ExecutionPrincipal
+        | CorrelationDimensionV1::ExecutionProfile
+        | CorrelationDimensionV1::Grounding
+        | CorrelationDimensionV1::Organization => {
+            unreachable!("only invocation-owned dimensions are projected")
+        }
+    }
+}
+
+const fn correlation_dimension_tag(value: CorrelationDimensionV1) -> u8 {
+    match value {
+        CorrelationDimensionV1::ExecutionPrincipal => 0,
+        CorrelationDimensionV1::ExecutionProfile => 1,
+        CorrelationDimensionV1::ContextManifest => 2,
+        CorrelationDimensionV1::Model => 3,
+        CorrelationDimensionV1::Provider => 4,
+        CorrelationDimensionV1::Prompt => 5,
+        CorrelationDimensionV1::Grounding => 6,
+        CorrelationDimensionV1::EvidenceScope => 7,
+        CorrelationDimensionV1::Organization => 8,
+    }
 }
 
 fn outcome_member<E>(outcome: &MemberOutcomeV1<E>) -> EnsembleMemberIdV1 {
@@ -610,6 +735,12 @@ fn outcome_result<E>(outcome: &MemberOutcomeV1<E>) -> Option<&ModelResultV1> {
         | MemberOutcomeV1::Refused { .. }
         | MemberOutcomeV1::Failed { .. } => None,
     }
+}
+
+fn outcome_invocation_evidence<E>(
+    outcome: &MemberOutcomeV1<E>,
+) -> Option<&ModelInvocationEvidenceV1> {
+    outcome_result(outcome).and_then(|result| result.invocation_evidence.as_deref())
 }
 
 fn context_manifest_digest(context: &[[u8; 16]]) -> [u8; 32] {
