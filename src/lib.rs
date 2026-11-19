@@ -17,6 +17,7 @@ pub mod instrumentation;
 pub mod model_saga;
 pub mod persistence;
 pub mod saga;
+pub mod task_agent_journey;
 pub mod tool_continuation;
 
 macro_rules! id {
