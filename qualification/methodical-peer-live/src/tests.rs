@@ -241,6 +241,11 @@ struct LiveEnsembleFixture {
 
 type RetainedReviews = Arc<Mutex<Vec<(String, String)>>>;
 
+struct LiveModelExecution {
+    receipt: daimon_protocol::ModelProviderReceiptV1,
+    invocation_evidence: daimon_protocol::ModelInvocationEvidenceV1,
+}
+
 impl LiveModelProvider {
     fn from_environment() -> Option<Self> {
         Self::from_environment_with_tools(false)
@@ -358,7 +363,7 @@ impl LiveModelProvider {
         execution_id: daimon_protocol::ExecutionIdV1,
         output: &str,
         proposals: &str,
-    ) -> daimon_protocol::ModelProviderReceiptV1 {
+    ) -> LiveModelExecution {
         self.execute_exact_with_lens(execution_id, output, proposals, None)
     }
 
@@ -368,7 +373,7 @@ impl LiveModelProvider {
         output: &str,
         proposals: &str,
         lens: Option<&str>,
-    ) -> daimon_protocol::ModelProviderReceiptV1 {
+    ) -> LiveModelExecution {
         let instruction = if self.structured_tools {
             assert_eq!(proposals, "an empty array");
             format!("Return exactly this JSON text with no markdown or changes: {output}")
@@ -406,15 +411,16 @@ impl LiveModelProvider {
         self.execute(invocation)
     }
 
-    fn execute(
-        &mut self,
-        invocation: daimon_protocol::ModelInvocationV1,
-    ) -> daimon_protocol::ModelProviderReceiptV1 {
+    fn execute(&mut self, invocation: daimon_protocol::ModelInvocationV1) -> LiveModelExecution {
+        let invocation_evidence = daimon_protocol::model_invocation_evidence(&invocation);
         let ModelProviderOutcomeV1::Receipt(receipt) = self.provider.execute_model(&invocation)
         else {
             panic!("live provider returned an uncertain outcome")
         };
-        receipt
+        LiveModelExecution {
+            receipt,
+            invocation_evidence,
+        }
     }
 
     fn execute_review(
@@ -422,7 +428,7 @@ impl LiveModelProvider {
         execution_id: daimon_protocol::ExecutionIdV1,
         lens: &str,
         review: &LiveReviewContext,
-    ) -> daimon_protocol::ModelProviderReceiptV1 {
+    ) -> LiveModelExecution {
         let invocation = daimon_protocol::ModelInvocationV1 {
             execution_id,
             provider: self.profile.clone(),
@@ -474,13 +480,17 @@ impl daimon_local_daemon::ModelServicePort for ChatbotModelService {
                 hex(41),
                 self.vellum_revision,
             );
-            let receipt = live.execute_exact(request.execution_id, exact_output, &proposals);
+            let LiveModelExecution {
+                receipt,
+                invocation_evidence,
+            } = live.execute_exact(request.execution_id, exact_output, &proposals);
             return Ok(daimon_protocol::ModelReplyV1::Accepted(
                 daimon_protocol::ModelOutcomeV1::Executed(
                     daimon_protocol::ModelExecutionResultV1 {
                         execution_id: receipt.execution_id,
                         disposition: receipt.disposition,
                         evidence_digest: receipt.evidence_digest,
+                        invocation_evidence: Some(Box::new(invocation_evidence)),
                         input_tokens: receipt.input_tokens,
                         output_tokens: receipt.output_tokens,
                         output: receipt.output,
@@ -495,6 +505,10 @@ impl daimon_local_daemon::ModelServicePort for ChatbotModelService {
                     execution_id: request.execution_id,
                     disposition: daimon_protocol::ExecutionDispositionV1::Completed,
                     evidence_digest: daimon_protocol::ContentDigestV1::new([0x61; 32]),
+                    // This synthetic no-provider branch predates provider
+                    // invocation evidence; live/current branches below always
+                    // publish evidence derived from the exact invocation.
+                    invocation_evidence: None,
                     input_tokens: 7,
                     output_tokens: 11,
                     output: br#"{"schema":"moira.member-response.v1","claims":[{"kind":"empirical","statement":"grounded chatbot answer","evidence_digests":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"dissent_digests":[]}]}"#.to_vec(),
@@ -600,32 +614,40 @@ impl daimon_local_daemon::ModelServicePort for WorkflowModelService {
             .live
             .get_mut(provider_index)
             .expect("one distinct live provider is configured for every ensemble member");
-        let receipt = if let Some(review) = &self.review {
+        let execution = if let Some(review) = &self.review {
             assert_eq!(proposals, "an empty array");
-            let receipt = provider.execute_review(request.execution_id, lens, review);
+            let execution = provider.execute_review(request.execution_id, lens, review);
             if let Some(reviews) = &self.reviews {
                 reviews.lock().unwrap().push((
                     String::from_utf8_lossy(&provider.profile.model).into_owned(),
-                    String::from_utf8_lossy(&receipt.output).into_owned(),
+                    String::from_utf8_lossy(&execution.receipt.output).into_owned(),
                 ));
             }
-            receipt
+            execution
         } else {
-            let receipt = provider.execute_exact_with_lens(
+            let execution = provider.execute_exact_with_lens(
                 request.execution_id,
                 &output,
                 &proposals,
                 Some(lens),
             );
-            assert_eq!(receipt.output, output.as_bytes());
-            assert_eq!(receipt.proposals.is_empty(), proposals == "an empty array");
-            receipt
+            assert_eq!(execution.receipt.output, output.as_bytes());
+            assert_eq!(
+                execution.receipt.proposals.is_empty(),
+                proposals == "an empty array"
+            );
+            execution
         };
+        let LiveModelExecution {
+            receipt,
+            invocation_evidence,
+        } = execution;
         Ok(daimon_protocol::ModelReplyV1::Accepted(
             daimon_protocol::ModelOutcomeV1::Executed(daimon_protocol::ModelExecutionResultV1 {
                 execution_id: receipt.execution_id,
                 disposition: receipt.disposition,
                 evidence_digest: receipt.evidence_digest,
+                invocation_evidence: Some(Box::new(invocation_evidence)),
                 input_tokens: receipt.input_tokens,
                 output_tokens: receipt.output_tokens,
                 output: receipt.output,
@@ -668,12 +690,17 @@ impl AgentModelService {
         .to_string()
     }
 
-    fn reply(receipt: daimon_protocol::ModelProviderReceiptV1) -> daimon_protocol::ModelReplyV1 {
+    fn reply(execution: LiveModelExecution) -> daimon_protocol::ModelReplyV1 {
+        let LiveModelExecution {
+            receipt,
+            invocation_evidence,
+        } = execution;
         daimon_protocol::ModelReplyV1::Accepted(daimon_protocol::ModelOutcomeV1::Executed(
             daimon_protocol::ModelExecutionResultV1 {
                 execution_id: receipt.execution_id,
                 disposition: receipt.disposition,
                 evidence_digest: receipt.evidence_digest,
+                invocation_evidence: Some(Box::new(invocation_evidence)),
                 input_tokens: receipt.input_tokens,
                 output_tokens: receipt.output_tokens,
                 output: receipt.output,
@@ -692,7 +719,7 @@ impl daimon_local_daemon::ModelServicePort for AgentModelService {
         command: daimon_protocol::ModelCommandV1,
     ) -> Result<daimon_protocol::ModelReplyV1, Self::Error> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        let receipt = match command {
+        let execution = match command {
             daimon_protocol::ModelCommandV1::Execute { request, .. }
                 if request.execution_id.into_bytes() == [0x16; 16] =>
             {
@@ -715,15 +742,15 @@ impl daimon_local_daemon::ModelServicePort for AgentModelService {
                     continuation: None,
                     estimated_input_tokens: 128,
                 };
-                let receipt = self.live.execute(invocation);
+                let execution = self.live.execute(invocation);
                 let [daimon_protocol::OutputProposalV1::ToolCall(call)] =
-                    receipt.proposals.as_slice()
+                    execution.receipt.proposals.as_slice()
                 else {
                     panic!("live provider must return exactly one native tool call")
                 };
                 assert_eq!(call.arguments, br#"{"query":"grounded architecture"}"#);
                 self.pending_call = Some(call.clone());
-                receipt
+                execution
             }
             daimon_protocol::ModelCommandV1::Execute { request, .. } => {
                 let statement = format!(
@@ -731,11 +758,11 @@ impl daimon_local_daemon::ModelServicePort for AgentModelService {
                     request.execution_id.into_bytes()[0]
                 );
                 let output = Self::exact_report(&statement);
-                let receipt =
+                let execution =
                     self.live
                         .execute_exact(request.execution_id, &output, "an empty array");
-                assert_eq!(receipt.output, output.as_bytes());
-                receipt
+                assert_eq!(execution.receipt.output, output.as_bytes());
+                execution
             }
             daimon_protocol::ModelCommandV1::Resume {
                 request,
@@ -777,16 +804,16 @@ impl daimon_local_daemon::ModelServicePort for AgentModelService {
                     }),
                     estimated_input_tokens: 256,
                 };
-                let receipt = self.live.execute(invocation);
-                assert_eq!(receipt.output, output.as_bytes());
-                assert!(receipt.proposals.is_empty());
-                receipt
+                let execution = self.live.execute(invocation);
+                assert_eq!(execution.receipt.output, output.as_bytes());
+                assert!(execution.receipt.proposals.is_empty());
+                execution
             }
             daimon_protocol::ModelCommandV1::Inspect { .. } => {
                 panic!("agent qualification does not inspect the model service")
             }
         };
-        Ok(Self::reply(receipt))
+        Ok(Self::reply(execution))
     }
 }
 
@@ -2189,6 +2216,7 @@ fn resolved_outcome(
             disposition: DispositionV1::Completed,
         },
         evidence_digest: [44; 32],
+        invocation_evidence: None,
         input_tokens: 10,
         output_tokens: 10,
         output,
