@@ -219,6 +219,20 @@ canonical wire frames, and bounded local daemon profiles. A separate durable
 `moira-local-harness::unix::connect_daimon_agent` composition binds that gateway
 projection to Daimon's authenticated private agent socket while provider launch
 policy and credentials remain in Daimon; a real-socket gate qualifies the path.
+
+Task-to-agent journey admission now has a separate owner core. An immutable,
+bounded template catalogue issues expiring previews over an exact Chronos task
+admission reference, requested profile/room policy, accountable human,
+objective/acceptance evidence, budgets, grounding policy, authority policy and
+consequence. Moira evaluates human confirmation against trusted current time,
+allocates owner-scoped monotonic journey/workflow identities, and admits at
+most one journey per preview with exact replay and changed-replay conflict.
+Canonical `MOIRATJ1` checkpoints reject foreign-owner identities, template
+drift, truncation, tails, mutation and host-limit overflow. This first slice
+stops at `Admitted`: public protocol/service/store/transport, fresh Chronos
+claim/lease, room and participation effects, Daimon dispatch and settlement
+remain open and cannot be inferred from admission.
+
 `moira-client` now also owns a bounded optional Unix port for the governed
 participation service, so runtime workers do not depend on terminal presentation
 code. The standard `drive_current` step loads the exact store revision and then

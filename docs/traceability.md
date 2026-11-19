@@ -232,6 +232,25 @@ invalid configuration without dispatch. Heartbeat and lease renewal, remaining
 result dispositions, adapter restart recovery and Pantheon runtime composition
 remain open.
 
+## Task-agent journey admission
+
+`moira_core::task_agent_journey` owns the first J1 admission aggregate rather
+than asking Pantheon to synthesize workflow identities from profile state. A
+bounded immutable template binds work mode, Daimon profile, room policy,
+budgets, grounding/authority policy and human-visible consequence. Preview
+admission retains the exact Chronos task incarnation/revision evidence plus
+objective, acceptance, initiating principal and accountable human. Instantiate
+requires the exact owner revision, unexpired preview, trusted current time and
+matching named-human consequence confirmation; Moira then allocates one
+owner-scoped journey/workflow identity. Matching operations replay, changed
+operations conflict and a second operation cannot instantiate the same preview.
+The canonical `MOIRATJ1` codec revalidates the full checkpoint and refuses
+foreign ownership, noncanonical ordering, truncation, tails, mutation and host
+limit violations. Six focused domain/codec tests and strict Clippy pass. This
+is core and checkpoint evidence only: public DTOs, transactional storage,
+service/wire/Unix clients, trusted peer progression and Pantheon composition
+remain open.
+
 ## Daimon execution adapter
 
 `moira-daimon` maps a Moira-owned effect and exact Chronos task attempt into
