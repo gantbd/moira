@@ -104,23 +104,46 @@ fn plan() -> DeliberationPlanV1 {
             scores: vec![1],
         }],
         admission: EnsembleAdmissionV1::affirmed([12; 32], [13; 32], [14; 32], [15; 32], [16; 16]),
-        members: vec![EnsembleMemberV1 {
-            id: EnsembleMemberIdV1([6; 16]),
-            stakeholder: StakeholderRefV1::technical_sme([6; 16], [7; 32]),
-            lens: PersonaLensV1::Historian,
-            concern_root_digest: [7; 32],
-            grounding: GroundingRefV1 {
-                authority_digest: [8; 32],
-                surface_digest: [9; 32],
-                depth: SurfaceDepthV1::Activated,
+        members: vec![
+            EnsembleMemberV1 {
+                id: EnsembleMemberIdV1([6; 16]),
+                stakeholder: StakeholderRefV1::technical_sme([6; 16], [7; 32]),
+                lens: PersonaLensV1::Historian,
+                concern_root_digest: [7; 32],
+                grounding: GroundingRefV1 {
+                    authority_digest: [8; 32],
+                    surface_digest: [9; 32],
+                    depth: SurfaceDepthV1::Activated,
+                },
             },
-        }],
+            EnsembleMemberV1 {
+                id: EnsembleMemberIdV1([17; 16]),
+                stakeholder: StakeholderRefV1::technical_sme([17; 16], [18; 32]),
+                lens: PersonaLensV1::RigorReviewer,
+                concern_root_digest: [18; 32],
+                grounding: GroundingRefV1 {
+                    authority_digest: [19; 32],
+                    surface_digest: [20; 32],
+                    depth: SurfaceDepthV1::Reference,
+                },
+            },
+        ],
         orthogonality: OrthogonalityEvidenceV1 {
             query_digest: [10; 32],
             result_digest: [11; 32],
             all_orthogonal: true,
         },
         fuel: 2,
+    }
+}
+
+fn report(id: u8, member: u8) -> MemberReportV1 {
+    MemberReportV1 {
+        id: ReportIdV1([id; 16]),
+        member: EnsembleMemberIdV1([member; 16]),
+        output_digest: [id; 32],
+        evidence_digests: vec![[id.wrapping_add(1); 32]],
+        dissent_digests: vec![[id.wrapping_add(2); 32]],
     }
 }
 
@@ -159,4 +182,114 @@ fn public_client_service_store_journey_survives_reopen() {
     assert_eq!(view.plan.method.machine_digest, [2; 32]);
     assert_eq!(view.plan.members[0].grounding.surface_digest, [9; 32]);
     assert_eq!(view.phase, DeliberationPhaseV1::Collecting);
+}
+
+#[test]
+fn public_review_journey_survives_owner_reopen() {
+    let fixture = Fixture::new();
+    {
+        let mut client =
+            DeliberationMutationClient::new(Port(DeliberationService::new(fixture.open())));
+        client
+            .apply(0, MutationV1::Admit(Box::new(plan())))
+            .unwrap();
+        client
+            .apply(
+                1,
+                MutationV1::SubmitReport {
+                    deliberation: DeliberationIdV1([1; 16]),
+                    report: report(21, 6),
+                },
+            )
+            .unwrap();
+        client
+            .apply(
+                2,
+                MutationV1::SubmitReport {
+                    deliberation: DeliberationIdV1([1; 16]),
+                    report: report(24, 17),
+                },
+            )
+            .unwrap();
+        client
+            .apply(
+                3,
+                MutationV1::BeginReview {
+                    deliberation: DeliberationIdV1([1; 16]),
+                },
+            )
+            .unwrap();
+        client
+            .apply(
+                4,
+                MutationV1::SubmitFinding {
+                    deliberation: DeliberationIdV1([1; 16]),
+                    finding: ReviewFindingV1 {
+                        id: FindingIdV1([27; 16]),
+                        source_report: ReportIdV1([21; 16]),
+                        owner: [28; 16],
+                        finding_digest: [29; 32],
+                        evidence_digests: vec![[30; 32]],
+                        requires_human_gate: false,
+                    },
+                },
+            )
+            .unwrap();
+        client
+            .apply(
+                5,
+                MutationV1::SubmitRebuttal {
+                    deliberation: DeliberationIdV1([1; 16]),
+                    rebuttal: RebuttalV1 {
+                        id: RebuttalIdV1([31; 16]),
+                        finding: FindingIdV1([27; 16]),
+                        member: EnsembleMemberIdV1([17; 16]),
+                        rebuttal_digest: [32; 32],
+                        evidence_digests: vec![[33; 32]],
+                    },
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            client
+                .apply(
+                    6,
+                    MutationV1::DisposeFinding {
+                        deliberation: DeliberationIdV1([1; 16]),
+                        disposition: FindingDispositionV1 {
+                            id: FindingDispositionIdV1([34; 16]),
+                            finding: FindingIdV1([27; 16]),
+                            owner: [28; 16],
+                            kind: FindingDispositionKindV1::Tested,
+                            rationale_digest: [35; 32],
+                            evidence_digests: vec![[36; 32]],
+                            human_gate_response: None,
+                            decided_at: 37,
+                        },
+                    },
+                )
+                .unwrap(),
+            ReplyV1::Accepted(OutcomeV1::ReviewApplied {
+                revision: 7,
+                ref review,
+                ..
+            }) if review.phase == ReviewPhaseV1::Disposed
+        ));
+    }
+
+    let mut reader =
+        DeliberationReadOnlyClient::new(Port(DeliberationService::new(fixture.open())));
+    let ReplyV1::Accepted(OutcomeV1::Review(Some(review))) =
+        reader.review(DeliberationIdV1([1; 16])).unwrap()
+    else {
+        panic!("durable public review expected");
+    };
+    assert_eq!(review.phase, ReviewPhaseV1::Disposed);
+    assert_eq!(review.reports.len(), 2);
+    assert_eq!(review.findings[0].finding_digest, [29; 32]);
+    assert_eq!(review.rebuttals[0].rebuttal_digest, [32; 32]);
+    assert_eq!(
+        review.dispositions[0].kind,
+        FindingDispositionKindV1::Tested
+    );
 }

@@ -697,6 +697,14 @@ impl<P: DeliberationServicePort> DeliberationReadOnlyClient<P> {
             .execute(deliberation::CommandV1::Deliberation { deliberation: id })
     }
 
+    pub fn review(
+        &mut self,
+        id: deliberation::DeliberationIdV1,
+    ) -> Result<deliberation::ReplyV1, P::Error> {
+        self.0
+            .execute(deliberation::CommandV1::Review { deliberation: id })
+    }
+
     pub fn into_port(self) -> P {
         self.0
     }

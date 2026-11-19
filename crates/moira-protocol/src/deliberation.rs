@@ -25,6 +25,9 @@ opaque_id!(EnsembleMemberIdV1);
 opaque_id!(ReportIdV1);
 opaque_id!(HumanGateRequestIdV1);
 opaque_id!(HumanGateResponseIdV1);
+opaque_id!(FindingIdV1);
+opaque_id!(RebuttalIdV1);
+opaque_id!(FindingDispositionIdV1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClaimKindV1 {
@@ -346,6 +349,75 @@ pub struct DeliberationViewV1 {
     pub phase: DeliberationPhaseV1,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReviewLimitsV1 {
+    pub max_findings: usize,
+    pub max_rebuttals: usize,
+    pub max_evidence_per_item: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReviewFindingV1 {
+    pub id: FindingIdV1,
+    pub source_report: ReportIdV1,
+    pub owner: [u8; 16],
+    pub finding_digest: [u8; 32],
+    pub evidence_digests: Vec<[u8; 32]>,
+    pub requires_human_gate: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RebuttalV1 {
+    pub id: RebuttalIdV1,
+    pub finding: FindingIdV1,
+    pub member: EnsembleMemberIdV1,
+    pub rebuttal_digest: [u8; 32],
+    pub evidence_digests: Vec<[u8; 32]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FindingDispositionKindV1 {
+    Accepted,
+    Mitigated,
+    Tested,
+    Deferred,
+    RiskAccepted,
+    Disputed,
+    OutOfScope,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FindingDispositionV1 {
+    pub id: FindingDispositionIdV1,
+    pub finding: FindingIdV1,
+    pub owner: [u8; 16],
+    pub kind: FindingDispositionKindV1,
+    pub rationale_digest: [u8; 32],
+    pub evidence_digests: Vec<[u8; 32]>,
+    pub human_gate_response: Option<HumanGateResponseIdV1>,
+    pub decided_at: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReviewPhaseV1 {
+    FirstPassComplete,
+    Challenged,
+    Disposed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReviewViewV1 {
+    pub version: u8,
+    pub deliberation: DeliberationIdV1,
+    pub limits: ReviewLimitsV1,
+    pub reports: Vec<MemberReportV1>,
+    pub admitted_human_gate_response: Option<HumanGateResponseV1>,
+    pub findings: Vec<ReviewFindingV1>,
+    pub rebuttals: Vec<RebuttalV1>,
+    pub dispositions: Vec<FindingDispositionV1>,
+    pub phase: ReviewPhaseV1,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MutationV1 {
     Admit(Box<DeliberationPlanV1>),
@@ -361,6 +433,21 @@ pub enum MutationV1 {
         deliberation: DeliberationIdV1,
         request: HumanGateRequestV1,
     },
+    BeginReview {
+        deliberation: DeliberationIdV1,
+    },
+    SubmitFinding {
+        deliberation: DeliberationIdV1,
+        finding: ReviewFindingV1,
+    },
+    SubmitRebuttal {
+        deliberation: DeliberationIdV1,
+        rebuttal: RebuttalV1,
+    },
+    DisposeFinding {
+        deliberation: DeliberationIdV1,
+        disposition: FindingDispositionV1,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -371,6 +458,9 @@ pub enum CommandV1 {
     },
     Status,
     Deliberation {
+        deliberation: DeliberationIdV1,
+    },
+    Review {
         deliberation: DeliberationIdV1,
     },
     RespondHumanGate {
@@ -391,8 +481,15 @@ pub enum OutcomeV1 {
         deliberation: Box<DeliberationViewV1>,
         replayed: bool,
     },
+    ReviewApplied {
+        revision: u64,
+        deliberation: Box<DeliberationViewV1>,
+        review: Box<ReviewViewV1>,
+        replayed: bool,
+    },
     Status(StatusV1),
     Deliberation(Option<Box<DeliberationViewV1>>),
+    Review(Option<Box<ReviewViewV1>>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -152,6 +152,58 @@ fn view(resolution: Option<d::ResolutionV1>) -> d::DeliberationViewV1 {
     }
 }
 
+fn review_view() -> d::ReviewViewV1 {
+    d::ReviewViewV1 {
+        version: 1,
+        deliberation: d::DeliberationIdV1([1; 16]),
+        limits: d::ReviewLimitsV1 {
+            max_findings: 4,
+            max_rebuttals: 8,
+            max_evidence_per_item: 2,
+        },
+        reports: vec![report()],
+        admitted_human_gate_response: Some(d::HumanGateResponseV1 {
+            id: d::HumanGateResponseIdV1([40; 16]),
+            request: d::HumanGateRequestIdV1([33; 16]),
+            disposition: d::HumanGateDispositionV1::Approved,
+            rationale_digest: [41; 32],
+            rationale: material(48, 6),
+            responded_at: 42,
+            authority: d::HumanGateAuthorityRefV1 {
+                decision: [43; 16],
+                subject: [34; 16],
+                epoch: 44,
+            },
+        }),
+        findings: vec![d::ReviewFindingV1 {
+            id: d::FindingIdV1([51; 16]),
+            source_report: d::ReportIdV1([19; 16]),
+            owner: [50; 16],
+            finding_digest: [51; 32],
+            evidence_digests: vec![[52; 32]],
+            requires_human_gate: true,
+        }],
+        rebuttals: vec![d::RebuttalV1 {
+            id: d::RebuttalIdV1([53; 16]),
+            finding: d::FindingIdV1([51; 16]),
+            member: d::EnsembleMemberIdV1([14; 16]),
+            rebuttal_digest: [54; 32],
+            evidence_digests: vec![[55; 32]],
+        }],
+        dispositions: vec![d::FindingDispositionV1 {
+            id: d::FindingDispositionIdV1([56; 16]),
+            finding: d::FindingIdV1([51; 16]),
+            owner: [50; 16],
+            kind: d::FindingDispositionKindV1::RiskAccepted,
+            rationale_digest: [57; 32],
+            evidence_digests: vec![[58; 32]],
+            human_gate_response: Some(d::HumanGateResponseIdV1([40; 16])),
+            decided_at: 59,
+        }],
+        phase: d::ReviewPhaseV1::Disposed,
+    }
+}
+
 #[test]
 fn every_command_family_roundtrips_exactly() {
     let limits = LimitsV1::default();
@@ -204,8 +256,38 @@ fn every_command_family_roundtrips_exactly() {
                 resolution: choice(),
             },
         },
+        d::CommandV1::Apply {
+            expected_revision: 40,
+            mutation: d::MutationV1::BeginReview {
+                deliberation: d::DeliberationIdV1([1; 16]),
+            },
+        },
+        d::CommandV1::Apply {
+            expected_revision: 41,
+            mutation: d::MutationV1::SubmitFinding {
+                deliberation: d::DeliberationIdV1([1; 16]),
+                finding: review_view().findings.remove(0),
+            },
+        },
+        d::CommandV1::Apply {
+            expected_revision: 42,
+            mutation: d::MutationV1::SubmitRebuttal {
+                deliberation: d::DeliberationIdV1([1; 16]),
+                rebuttal: review_view().rebuttals.remove(0),
+            },
+        },
+        d::CommandV1::Apply {
+            expected_revision: 43,
+            mutation: d::MutationV1::DisposeFinding {
+                deliberation: d::DeliberationIdV1([1; 16]),
+                disposition: review_view().dispositions.remove(0),
+            },
+        },
         d::CommandV1::Status,
         d::CommandV1::Deliberation {
+            deliberation: d::DeliberationIdV1([1; 16]),
+        },
+        d::CommandV1::Review {
             deliberation: d::DeliberationIdV1([1; 16]),
         },
     ];
@@ -279,6 +361,14 @@ fn status_optional_view_and_all_refusals_roundtrip() {
         })),
         d::ReplyV1::Accepted(d::OutcomeV1::Deliberation(None)),
         d::ReplyV1::Accepted(d::OutcomeV1::Deliberation(Some(Box::new(view(None))))),
+        d::ReplyV1::Accepted(d::OutcomeV1::Review(None)),
+        d::ReplyV1::Accepted(d::OutcomeV1::Review(Some(Box::new(review_view())))),
+        d::ReplyV1::Accepted(d::OutcomeV1::ReviewApplied {
+            revision: 44,
+            deliberation: Box::new(view(None)),
+            review: Box::new(review_view()),
+            replayed: true,
+        }),
     ];
     for value in outcomes {
         let bytes = encode_deliberation_reply(&value, limits).unwrap();

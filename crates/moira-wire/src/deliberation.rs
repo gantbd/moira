@@ -80,6 +80,10 @@ fn command(w: &mut Writer, value: &d::CommandV1) -> Result<(), CodecErrorV1> {
             w.byte(3)?;
             human_gate_operation(w, *operation)
         }
+        d::CommandV1::Review { deliberation } => {
+            w.byte(4)?;
+            w.raw(&deliberation.0)
+        }
     }
 }
 
@@ -95,6 +99,9 @@ fn read_command(r: &mut Reader<'_>) -> Result<d::CommandV1, CodecErrorV1> {
         }),
         3 => Ok(d::CommandV1::RespondHumanGate {
             operation: read_human_gate_operation(r)?,
+        }),
+        4 => Ok(d::CommandV1::Review {
+            deliberation: d::DeliberationIdV1(r.raw()?),
         }),
         _ => Err(CodecErrorV1::Unsupported),
     }
@@ -130,6 +137,34 @@ fn mutation(w: &mut Writer, value: &d::MutationV1) -> Result<(), CodecErrorV1> {
             w.raw(&deliberation.0)?;
             human_gate_request(w, *request)
         }
+        d::MutationV1::BeginReview { deliberation } => {
+            w.byte(4)?;
+            w.raw(&deliberation.0)
+        }
+        d::MutationV1::SubmitFinding {
+            deliberation,
+            finding: value,
+        } => {
+            w.byte(5)?;
+            w.raw(&deliberation.0)?;
+            review_finding(w, value)
+        }
+        d::MutationV1::SubmitRebuttal {
+            deliberation,
+            rebuttal: value,
+        } => {
+            w.byte(6)?;
+            w.raw(&deliberation.0)?;
+            rebuttal(w, value)
+        }
+        d::MutationV1::DisposeFinding {
+            deliberation,
+            disposition: value,
+        } => {
+            w.byte(7)?;
+            w.raw(&deliberation.0)?;
+            finding_disposition(w, value)
+        }
     }
 }
 
@@ -147,6 +182,21 @@ fn read_mutation(r: &mut Reader<'_>) -> Result<d::MutationV1, CodecErrorV1> {
         3 => Ok(d::MutationV1::RequestHumanGate {
             deliberation: d::DeliberationIdV1(r.raw()?),
             request: read_human_gate_request(r)?,
+        }),
+        4 => Ok(d::MutationV1::BeginReview {
+            deliberation: d::DeliberationIdV1(r.raw()?),
+        }),
+        5 => Ok(d::MutationV1::SubmitFinding {
+            deliberation: d::DeliberationIdV1(r.raw()?),
+            finding: read_review_finding(r)?,
+        }),
+        6 => Ok(d::MutationV1::SubmitRebuttal {
+            deliberation: d::DeliberationIdV1(r.raw()?),
+            rebuttal: read_rebuttal(r)?,
+        }),
+        7 => Ok(d::MutationV1::DisposeFinding {
+            deliberation: d::DeliberationIdV1(r.raw()?),
+            disposition: read_finding_disposition(r)?,
         }),
         _ => Err(CodecErrorV1::Unsupported),
     }
@@ -173,6 +223,22 @@ fn outcome(w: &mut Writer, value: &d::OutcomeV1) -> Result<(), CodecErrorV1> {
             w.byte(2)?;
             w.option(value.as_deref(), view)
         }
+        d::OutcomeV1::ReviewApplied {
+            revision,
+            deliberation,
+            review,
+            replayed,
+        } => {
+            w.byte(3)?;
+            w.u64(*revision)?;
+            view(w, deliberation)?;
+            review_view(w, review)?;
+            boolean(w, *replayed)
+        }
+        d::OutcomeV1::Review(value) => {
+            w.byte(4)?;
+            w.option(value.as_deref(), review_view)
+        }
     }
 }
 
@@ -189,6 +255,15 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<d::OutcomeV1, CodecErrorV1> {
         })),
         2 => Ok(d::OutcomeV1::Deliberation(
             r.option(read_view)?.map(Box::new),
+        )),
+        3 => Ok(d::OutcomeV1::ReviewApplied {
+            revision: r.u64()?,
+            deliberation: Box::new(read_view(r)?),
+            review: Box::new(read_review_view(r)?),
+            replayed: read_boolean(r)?,
+        }),
+        4 => Ok(d::OutcomeV1::Review(
+            r.option(read_review_view)?.map(Box::new),
         )),
         _ => Err(CodecErrorV1::Unsupported),
     }
@@ -225,6 +300,169 @@ fn read_view(r: &mut Reader<'_>) -> Result<d::DeliberationViewV1, CodecErrorV1> 
         remaining_fuel: r.u32()?,
         phase: read_phase(r.byte()?)?,
     })
+}
+
+fn review_view(w: &mut Writer, value: &d::ReviewViewV1) -> Result<(), CodecErrorV1> {
+    w.byte(value.version)?;
+    w.raw(&value.deliberation.0)?;
+    review_limits(w, value.limits)?;
+    write_len(w, value.reports.len())?;
+    for value in &value.reports {
+        report(w, value)?;
+    }
+    w.option(value.admitted_human_gate_response.as_ref(), |w, value| {
+        human_gate_response(w, *value)
+    })?;
+    write_len(w, value.findings.len())?;
+    for value in &value.findings {
+        review_finding(w, value)?;
+    }
+    write_len(w, value.rebuttals.len())?;
+    for value in &value.rebuttals {
+        rebuttal(w, value)?;
+    }
+    write_len(w, value.dispositions.len())?;
+    for value in &value.dispositions {
+        finding_disposition(w, value)?;
+    }
+    w.byte(review_phase_tag(value.phase))
+}
+
+fn read_review_view(r: &mut Reader<'_>) -> Result<d::ReviewViewV1, CodecErrorV1> {
+    Ok(d::ReviewViewV1 {
+        version: r.byte()?,
+        deliberation: d::DeliberationIdV1(r.raw()?),
+        limits: read_review_limits(r)?,
+        reports: read_many(r, read_report)?,
+        admitted_human_gate_response: r.option(read_human_gate_response)?,
+        findings: read_many(r, read_review_finding)?,
+        rebuttals: read_many(r, read_rebuttal)?,
+        dispositions: read_many(r, read_finding_disposition)?,
+        phase: read_review_phase(r.byte()?)?,
+    })
+}
+
+fn review_limits(w: &mut Writer, value: d::ReviewLimitsV1) -> Result<(), CodecErrorV1> {
+    w.usize(value.max_findings)?;
+    w.usize(value.max_rebuttals)?;
+    w.usize(value.max_evidence_per_item)
+}
+
+fn read_review_limits(r: &mut Reader<'_>) -> Result<d::ReviewLimitsV1, CodecErrorV1> {
+    Ok(d::ReviewLimitsV1 {
+        max_findings: r.usize()?,
+        max_rebuttals: r.usize()?,
+        max_evidence_per_item: r.usize()?,
+    })
+}
+
+fn review_finding(w: &mut Writer, value: &d::ReviewFindingV1) -> Result<(), CodecErrorV1> {
+    w.raw(&value.id.0)?;
+    w.raw(&value.source_report.0)?;
+    w.raw(&value.owner)?;
+    w.raw(&value.finding_digest)?;
+    digests(w, &value.evidence_digests)?;
+    boolean(w, value.requires_human_gate)
+}
+
+fn read_review_finding(r: &mut Reader<'_>) -> Result<d::ReviewFindingV1, CodecErrorV1> {
+    Ok(d::ReviewFindingV1 {
+        id: d::FindingIdV1(r.raw()?),
+        source_report: d::ReportIdV1(r.raw()?),
+        owner: r.raw()?,
+        finding_digest: r.raw()?,
+        evidence_digests: read_many(r, |r| r.raw())?,
+        requires_human_gate: read_boolean(r)?,
+    })
+}
+
+fn rebuttal(w: &mut Writer, value: &d::RebuttalV1) -> Result<(), CodecErrorV1> {
+    w.raw(&value.id.0)?;
+    w.raw(&value.finding.0)?;
+    w.raw(&value.member.0)?;
+    w.raw(&value.rebuttal_digest)?;
+    digests(w, &value.evidence_digests)
+}
+
+fn read_rebuttal(r: &mut Reader<'_>) -> Result<d::RebuttalV1, CodecErrorV1> {
+    Ok(d::RebuttalV1 {
+        id: d::RebuttalIdV1(r.raw()?),
+        finding: d::FindingIdV1(r.raw()?),
+        member: d::EnsembleMemberIdV1(r.raw()?),
+        rebuttal_digest: r.raw()?,
+        evidence_digests: read_many(r, |r| r.raw())?,
+    })
+}
+
+fn finding_disposition(
+    w: &mut Writer,
+    value: &d::FindingDispositionV1,
+) -> Result<(), CodecErrorV1> {
+    w.raw(&value.id.0)?;
+    w.raw(&value.finding.0)?;
+    w.raw(&value.owner)?;
+    w.byte(finding_disposition_kind_tag(value.kind))?;
+    w.raw(&value.rationale_digest)?;
+    digests(w, &value.evidence_digests)?;
+    w.option(value.human_gate_response.as_ref(), |w, value| {
+        w.raw(&value.0)
+    })?;
+    w.u64(value.decided_at)
+}
+
+fn read_finding_disposition(r: &mut Reader<'_>) -> Result<d::FindingDispositionV1, CodecErrorV1> {
+    Ok(d::FindingDispositionV1 {
+        id: d::FindingDispositionIdV1(r.raw()?),
+        finding: d::FindingIdV1(r.raw()?),
+        owner: r.raw()?,
+        kind: read_finding_disposition_kind(r.byte()?)?,
+        rationale_digest: r.raw()?,
+        evidence_digests: read_many(r, |r| r.raw())?,
+        human_gate_response: r.option(|r| r.raw().map(d::HumanGateResponseIdV1))?,
+        decided_at: r.u64()?,
+    })
+}
+
+fn finding_disposition_kind_tag(value: d::FindingDispositionKindV1) -> u8 {
+    match value {
+        d::FindingDispositionKindV1::Accepted => 0,
+        d::FindingDispositionKindV1::Mitigated => 1,
+        d::FindingDispositionKindV1::Tested => 2,
+        d::FindingDispositionKindV1::Deferred => 3,
+        d::FindingDispositionKindV1::RiskAccepted => 4,
+        d::FindingDispositionKindV1::Disputed => 5,
+        d::FindingDispositionKindV1::OutOfScope => 6,
+    }
+}
+
+fn read_finding_disposition_kind(value: u8) -> Result<d::FindingDispositionKindV1, CodecErrorV1> {
+    match value {
+        0 => Ok(d::FindingDispositionKindV1::Accepted),
+        1 => Ok(d::FindingDispositionKindV1::Mitigated),
+        2 => Ok(d::FindingDispositionKindV1::Tested),
+        3 => Ok(d::FindingDispositionKindV1::Deferred),
+        4 => Ok(d::FindingDispositionKindV1::RiskAccepted),
+        5 => Ok(d::FindingDispositionKindV1::Disputed),
+        6 => Ok(d::FindingDispositionKindV1::OutOfScope),
+        _ => Err(CodecErrorV1::Unsupported),
+    }
+}
+
+fn review_phase_tag(value: d::ReviewPhaseV1) -> u8 {
+    match value {
+        d::ReviewPhaseV1::FirstPassComplete => 0,
+        d::ReviewPhaseV1::Challenged => 1,
+        d::ReviewPhaseV1::Disposed => 2,
+    }
+}
+
+fn read_review_phase(value: u8) -> Result<d::ReviewPhaseV1, CodecErrorV1> {
+    match value {
+        0 => Ok(d::ReviewPhaseV1::FirstPassComplete),
+        1 => Ok(d::ReviewPhaseV1::Challenged),
+        2 => Ok(d::ReviewPhaseV1::Disposed),
+        _ => Err(CodecErrorV1::Unsupported),
+    }
 }
 
 fn human_gate_request(w: &mut Writer, value: d::HumanGateRequestV1) -> Result<(), CodecErrorV1> {

@@ -179,6 +179,13 @@ impl DeliberationStore for RegistryStore {
         self.0.deliberation(id)
     }
 
+    fn review(
+        &self,
+        id: DeliberationIdV1,
+    ) -> Option<moira_core::deliberation::review::ReviewExchangeCheckpointV1> {
+        self.0.review(id)
+    }
+
     fn apply(
         &mut self,
         expected_revision: RegistryRevisionV1,

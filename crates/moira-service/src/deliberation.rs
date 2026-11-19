@@ -61,7 +61,9 @@ impl<S: DeliberationStore> DeliberationService<S> {
         let allowed = match command {
             protocol::CommandV1::Apply { .. } => access.mutate,
             protocol::CommandV1::RespondHumanGate { .. } => false,
-            protocol::CommandV1::Status | protocol::CommandV1::Deliberation { .. } => access.read,
+            protocol::CommandV1::Status
+            | protocol::CommandV1::Deliberation { .. }
+            | protocol::CommandV1::Review { .. } => access.read,
         };
         if !allowed {
             return Ok(protocol::ReplyV1::Refused(
@@ -73,10 +75,30 @@ impl<S: DeliberationStore> DeliberationService<S> {
                 expected_revision,
                 mutation,
             } => {
+                let review_mutation = matches!(
+                    &mutation,
+                    protocol::MutationV1::BeginReview { .. }
+                        | protocol::MutationV1::SubmitFinding { .. }
+                        | protocol::MutationV1::SubmitRebuttal { .. }
+                        | protocol::MutationV1::DisposeFinding { .. }
+                );
                 match self.store.apply(
                     registry::RegistryRevisionV1(expected_revision),
                     mutation_domain(mutation),
                 ) {
+                    Ok(receipt) if review_mutation => {
+                        let review = receipt
+                            .review
+                            .expect("review mutation must retain a review checkpoint");
+                        Ok(protocol::ReplyV1::Accepted(
+                            protocol::OutcomeV1::ReviewApplied {
+                                revision: receipt.revision.0,
+                                deliberation: Box::new(checkpoint_view(receipt.deliberation)),
+                                review: Box::new(review_view(review)),
+                                replayed: receipt.replayed,
+                            },
+                        ))
+                    }
                     Ok(receipt) => Ok(protocol::ReplyV1::Accepted(protocol::OutcomeV1::Applied {
                         revision: receipt.revision.0,
                         deliberation: Box::new(checkpoint_view(receipt.deliberation)),
@@ -102,6 +124,14 @@ impl<S: DeliberationStore> DeliberationService<S> {
                         .map(Box::new),
                 ),
             )),
+            protocol::CommandV1::Review { deliberation } => {
+                Ok(protocol::ReplyV1::Accepted(protocol::OutcomeV1::Review(
+                    self.store
+                        .review(domain::DeliberationIdV1(deliberation.0))
+                        .map(review_view)
+                        .map(Box::new),
+                )))
+            }
             protocol::CommandV1::RespondHumanGate { .. } => unreachable!("refused above"),
         }
     }
@@ -137,10 +167,21 @@ impl<S: DeliberationStore> DeliberationService<S> {
                 .deliberation(domain::DeliberationIdV1(operation.deliberation.0))
             && retained.human_gate_response == Some(response)
         {
-            return Ok(protocol::ReplyV1::Accepted(protocol::OutcomeV1::Applied {
-                revision: current_revision.0,
-                deliberation: Box::new(checkpoint_view(retained)),
-                replayed: true,
+            let review = self
+                .store
+                .review(domain::DeliberationIdV1(operation.deliberation.0));
+            return Ok(protocol::ReplyV1::Accepted(match review {
+                Some(review) => protocol::OutcomeV1::ReviewApplied {
+                    revision: current_revision.0,
+                    deliberation: Box::new(checkpoint_view(retained)),
+                    review: Box::new(review_view(review)),
+                    replayed: true,
+                },
+                None => protocol::OutcomeV1::Applied {
+                    revision: current_revision.0,
+                    deliberation: Box::new(checkpoint_view(retained)),
+                    replayed: true,
+                },
             }));
         }
         match self.store.apply(
@@ -150,10 +191,18 @@ impl<S: DeliberationStore> DeliberationService<S> {
                 response,
             },
         ) {
-            Ok(receipt) => Ok(protocol::ReplyV1::Accepted(protocol::OutcomeV1::Applied {
-                revision: receipt.revision.0,
-                deliberation: Box::new(checkpoint_view(receipt.deliberation)),
-                replayed: receipt.replayed,
+            Ok(receipt) => Ok(protocol::ReplyV1::Accepted(match receipt.review {
+                Some(review) => protocol::OutcomeV1::ReviewApplied {
+                    revision: receipt.revision.0,
+                    deliberation: Box::new(checkpoint_view(receipt.deliberation)),
+                    review: Box::new(review_view(review)),
+                    replayed: receipt.replayed,
+                },
+                None => protocol::OutcomeV1::Applied {
+                    revision: receipt.revision.0,
+                    deliberation: Box::new(checkpoint_view(receipt.deliberation)),
+                    replayed: receipt.replayed,
+                },
             })),
             Err(DeliberationApplyErrorV1::Domain(value)) => {
                 Ok(protocol::ReplyV1::Refused(refusal(value)))
@@ -193,6 +242,86 @@ fn mutation_domain(value: protocol::MutationV1) -> registry::RegistryCommandV1 {
             deliberation: domain::DeliberationIdV1(deliberation.0),
             request: human_gate_request_domain(request),
         },
+        protocol::MutationV1::BeginReview { deliberation } => {
+            registry::RegistryCommandV1::BeginReview {
+                deliberation: domain::DeliberationIdV1(deliberation.0),
+            }
+        }
+        protocol::MutationV1::SubmitFinding {
+            deliberation,
+            finding,
+        } => registry::RegistryCommandV1::SubmitFinding {
+            deliberation: domain::DeliberationIdV1(deliberation.0),
+            finding: finding_domain(finding),
+        },
+        protocol::MutationV1::SubmitRebuttal {
+            deliberation,
+            rebuttal,
+        } => registry::RegistryCommandV1::SubmitRebuttal {
+            deliberation: domain::DeliberationIdV1(deliberation.0),
+            rebuttal: rebuttal_domain(rebuttal),
+        },
+        protocol::MutationV1::DisposeFinding {
+            deliberation,
+            disposition,
+        } => registry::RegistryCommandV1::DisposeFinding {
+            deliberation: domain::DeliberationIdV1(deliberation.0),
+            disposition: finding_disposition_domain(disposition),
+        },
+    }
+}
+
+fn finding_domain(value: protocol::ReviewFindingV1) -> domain::review::ReviewFindingV1 {
+    domain::review::ReviewFindingV1 {
+        id: domain::FindingIdV1(value.id.0),
+        source_report: domain::ReportIdV1(value.source_report.0),
+        owner: value.owner,
+        finding_digest: value.finding_digest,
+        evidence_digests: value.evidence_digests,
+        requires_human_gate: value.requires_human_gate,
+    }
+}
+
+fn rebuttal_domain(value: protocol::RebuttalV1) -> domain::review::RebuttalV1 {
+    domain::review::RebuttalV1 {
+        id: domain::RebuttalIdV1(value.id.0),
+        finding: domain::FindingIdV1(value.finding.0),
+        member: domain::EnsembleMemberIdV1(value.member.0),
+        rebuttal_digest: value.rebuttal_digest,
+        evidence_digests: value.evidence_digests,
+    }
+}
+
+fn finding_disposition_domain(
+    value: protocol::FindingDispositionV1,
+) -> domain::review::FindingDispositionV1 {
+    domain::review::FindingDispositionV1 {
+        id: domain::FindingDispositionIdV1(value.id.0),
+        finding: domain::FindingIdV1(value.finding.0),
+        owner: value.owner,
+        kind: finding_disposition_kind_domain(value.kind),
+        rationale_digest: value.rationale_digest,
+        evidence_digests: value.evidence_digests,
+        human_gate_response: value
+            .human_gate_response
+            .map(|id| domain::HumanGateResponseIdV1(id.0)),
+        decided_at: value.decided_at,
+    }
+}
+
+fn finding_disposition_kind_domain(
+    value: protocol::FindingDispositionKindV1,
+) -> domain::review::FindingDispositionKindV1 {
+    use domain::review::FindingDispositionKindV1 as D;
+    use protocol::FindingDispositionKindV1 as P;
+    match value {
+        P::Accepted => D::Accepted,
+        P::Mitigated => D::Mitigated,
+        P::Tested => D::Tested,
+        P::Deferred => D::Deferred,
+        P::RiskAccepted => D::RiskAccepted,
+        P::Disputed => D::Disputed,
+        P::OutOfScope => D::OutOfScope,
     }
 }
 
@@ -440,6 +569,97 @@ fn checkpoint_view(value: domain::DeliberationCheckpointV1) -> protocol::Deliber
         human_gate_response: value.human_gate_response.map(human_gate_response_view),
         remaining_fuel: value.remaining_fuel,
         phase,
+    }
+}
+
+fn review_view(value: domain::review::ReviewExchangeCheckpointV1) -> protocol::ReviewViewV1 {
+    let phase = if !value.findings.is_empty() && value.dispositions.len() == value.findings.len() {
+        protocol::ReviewPhaseV1::Disposed
+    } else if value.rebuttals.is_empty() {
+        protocol::ReviewPhaseV1::FirstPassComplete
+    } else {
+        protocol::ReviewPhaseV1::Challenged
+    };
+    protocol::ReviewViewV1 {
+        version: value.version,
+        deliberation: protocol::DeliberationIdV1(value.deliberation.0),
+        limits: protocol::ReviewLimitsV1 {
+            max_findings: value.limits.max_findings,
+            max_rebuttals: value.limits.max_rebuttals,
+            max_evidence_per_item: value.limits.max_evidence_per_item,
+        },
+        reports: value.reports.into_iter().map(report_view).collect(),
+        admitted_human_gate_response: value
+            .admitted_human_gate_response
+            .map(human_gate_response_view),
+        findings: value.findings.into_iter().map(finding_view).collect(),
+        rebuttals: value.rebuttals.into_iter().map(rebuttal_view).collect(),
+        dispositions: value
+            .dispositions
+            .into_iter()
+            .map(finding_disposition_view)
+            .collect(),
+        phase,
+    }
+}
+
+fn finding_view(value: domain::review::ReviewFindingV1) -> protocol::ReviewFindingV1 {
+    protocol::ReviewFindingV1 {
+        id: protocol::FindingIdV1(value.id.0),
+        source_report: protocol::ReportIdV1(value.source_report.0),
+        owner: value.owner,
+        finding_digest: value.finding_digest,
+        evidence_digests: value.evidence_digests,
+        requires_human_gate: value.requires_human_gate,
+    }
+}
+
+fn rebuttal_view(value: domain::review::RebuttalV1) -> protocol::RebuttalV1 {
+    protocol::RebuttalV1 {
+        id: protocol::RebuttalIdV1(value.id.0),
+        finding: protocol::FindingIdV1(value.finding.0),
+        member: protocol::EnsembleMemberIdV1(value.member.0),
+        rebuttal_digest: value.rebuttal_digest,
+        evidence_digests: value.evidence_digests,
+    }
+}
+
+fn finding_disposition_view(
+    value: domain::review::FindingDispositionV1,
+) -> protocol::FindingDispositionV1 {
+    protocol::FindingDispositionV1 {
+        id: protocol::FindingDispositionIdV1(value.id.0),
+        finding: protocol::FindingIdV1(value.finding.0),
+        owner: value.owner,
+        kind: match value.kind {
+            domain::review::FindingDispositionKindV1::Accepted => {
+                protocol::FindingDispositionKindV1::Accepted
+            }
+            domain::review::FindingDispositionKindV1::Mitigated => {
+                protocol::FindingDispositionKindV1::Mitigated
+            }
+            domain::review::FindingDispositionKindV1::Tested => {
+                protocol::FindingDispositionKindV1::Tested
+            }
+            domain::review::FindingDispositionKindV1::Deferred => {
+                protocol::FindingDispositionKindV1::Deferred
+            }
+            domain::review::FindingDispositionKindV1::RiskAccepted => {
+                protocol::FindingDispositionKindV1::RiskAccepted
+            }
+            domain::review::FindingDispositionKindV1::Disputed => {
+                protocol::FindingDispositionKindV1::Disputed
+            }
+            domain::review::FindingDispositionKindV1::OutOfScope => {
+                protocol::FindingDispositionKindV1::OutOfScope
+            }
+        },
+        rationale_digest: value.rationale_digest,
+        evidence_digests: value.evidence_digests,
+        human_gate_response: value
+            .human_gate_response
+            .map(|id| protocol::HumanGateResponseIdV1(id.0)),
+        decided_at: value.decided_at,
     }
 }
 

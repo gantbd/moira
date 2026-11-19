@@ -46,9 +46,11 @@ fn capability_clients_emit_only_their_closed_command_shapes() {
     let mut reader = DeliberationReadOnlyClient::new(port);
     reader.status().unwrap();
     reader.deliberation(DeliberationIdV1([1; 16])).unwrap();
+    reader.review(DeliberationIdV1([1; 16])).unwrap();
     let port = reader.into_port();
     assert!(matches!(port.0[1], CommandV1::Status));
     assert!(matches!(port.0[2], CommandV1::Deliberation { .. }));
+    assert!(matches!(port.0[3], CommandV1::Review { .. }));
 
     let mut gate = DeliberationHumanGateClient::new(port);
     gate.respond(HumanGateOperationV1 {
@@ -70,5 +72,5 @@ fn capability_clients_emit_only_their_closed_command_shapes() {
     })
     .unwrap();
     let port = gate.into_port();
-    assert!(matches!(port.0[3], CommandV1::RespondHumanGate { .. }));
+    assert!(matches!(port.0[4], CommandV1::RespondHumanGate { .. }));
 }

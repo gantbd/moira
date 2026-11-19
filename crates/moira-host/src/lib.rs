@@ -295,6 +295,10 @@ pub trait DeliberationStore {
     fn revision(&self) -> RegistryRevisionV1;
     fn needs_reopen(&self) -> bool;
     fn deliberation(&self, id: DeliberationIdV1) -> Option<DeliberationCheckpointV1>;
+    fn review(
+        &self,
+        id: DeliberationIdV1,
+    ) -> Option<moira_core::deliberation::review::ReviewExchangeCheckpointV1>;
     fn apply(
         &mut self,
         expected_revision: RegistryRevisionV1,
