@@ -19,7 +19,8 @@ use moira_daimon::{
 };
 use moira_host::{DeliberationApplyErrorV1, DeliberationStore};
 use moira_local_harness::{
-    GovernedRunErrorV1, resolve_explicit, resume_member_and_retain, run, unix::connect_daimon,
+    GovernedReviewErrorV1, GovernedRunErrorV1, begin_review_from_governed_run, resolve_explicit,
+    resume_member_and_retain, run, unix::connect_daimon,
 };
 use moira_protocol::{EffectIdV1, TaskRefV1};
 use moira_sqlite::deliberation::{DeliberationSqliteStore, DeliberationStoreLimitsV1};
@@ -451,14 +452,41 @@ fn exact_cohort_is_admitted_executed_retained_then_explicitly_resolved() {
         assert_eq!(evidence.observed_members, 2);
         assert_eq!(evidence.distinct_values, 1);
     }
+    let begun = begin_review_from_governed_run(&mut store, &completed).unwrap();
+    assert_eq!(begun.revision, RegistryRevisionV1(4));
+    assert_eq!(
+        begun.review.unwrap().correlation,
+        completed.correlation,
+        "review must retain the governed run's exact observed correlation"
+    );
 
     let resolved =
         resolve_explicit(&mut store, plan.id, ResolutionV1::Maybe(MaybeValueV1::Both)).unwrap();
-    assert_eq!(resolved.revision, RegistryRevisionV1(4));
+    assert_eq!(resolved.revision, RegistryRevisionV1(5));
     assert_eq!(
         resolved.deliberation.resolution,
         Some(ResolutionV1::Maybe(MaybeValueV1::Both))
     );
+}
+
+#[test]
+fn stale_governed_run_cannot_begin_review_after_store_change() {
+    let calls = Rc::new(Cell::new(0));
+    let mut store = Store::new();
+    let mut adapter = ModelExecutionAdapter::new(
+        daimon::SessionHandleV1(1),
+        Port {
+            calls,
+            output: RESPONSE.to_vec(),
+        },
+    );
+    let plan = plan();
+    let completed = run(&mut store, &mut adapter, plan.clone(), runs(&plan), 10).unwrap();
+    resolve_explicit(&mut store, plan.id, ResolutionV1::Maybe(MaybeValueV1::Both)).unwrap();
+    assert!(matches!(
+        begin_review_from_governed_run(&mut store, &completed),
+        Err(GovernedReviewErrorV1::StaleRun)
+    ));
 }
 
 #[test]
@@ -531,12 +559,22 @@ fn governed_reports_survive_sqlite_close_and_reopen() {
         );
         let completed = run(&mut store, &mut adapter, plan.clone(), runs(&plan), 10).unwrap();
         assert_eq!(completed.retained.reports.len(), 2);
+        begin_review_from_governed_run(&mut store, &completed).unwrap();
     }
     let reopened = fixture.open();
-    assert_eq!(reopened.revision(), RegistryRevisionV1(3));
+    assert_eq!(reopened.revision(), RegistryRevisionV1(4));
     let retained = reopened.deliberation(plan.id).unwrap();
     assert_eq!(retained.reports.len(), 2);
     assert_eq!(retained.reports[0].dissent_digests, vec![[0xbb; 32]]);
+    let review = reopened.review(plan.id).unwrap();
+    assert_eq!(
+        review
+            .correlation
+            .dimension(CorrelationDimensionV1::Provider)
+            .unwrap()
+            .observed_members,
+        2
+    );
 }
 
 #[test]

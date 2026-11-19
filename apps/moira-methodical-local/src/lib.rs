@@ -27,6 +27,7 @@ use moira_dendrite::{
 };
 use moira_host::{ToolExecutionOutcomeV1, ToolExecutorV1, ToolInvocationV1};
 use moira_local_harness::{
+    begin_review_from_governed_run,
     process_tool::{ProcessToolErrorV1, ProcessToolExecutorV1, ToolProcessProfileV1},
     resolution::{resolve_authorized_choice, resolve_proven_bool},
     resolve_explicit, resume_member_and_retain, run,
@@ -74,6 +75,7 @@ pub enum ErrorV1 {
     Tooling,
     Resolution,
     Peer,
+    Review,
 }
 
 impl fmt::Display for ErrorV1 {
@@ -98,6 +100,8 @@ pub struct ConfigV1 {
     pub tooling: Option<ToolingConfigV1>,
     #[serde(default)]
     pub resolution: Option<ResolutionConfigV1>,
+    #[serde(default)]
+    pub begin_review: bool,
     #[serde(default)]
     pub peer_action: Option<PeerActionConfigV1>,
     pub now: u64,
@@ -419,6 +423,7 @@ pub struct ValidatedConfigV1 {
     runs: Vec<MemberRunV1>,
     tooling: Option<ValidatedToolingConfigV1>,
     resolution: Option<ValidatedResolutionV1>,
+    begin_review: bool,
     peer_action: Option<peer::ValidatedPeerActionV1>,
     now: u64,
 }
@@ -731,6 +736,7 @@ pub struct SummaryV1 {
     pub failed: usize,
     pub ready_to_resolve: bool,
     pub resolved: bool,
+    pub review_begun: bool,
     pub peer_completed: bool,
     pub peer_uncertain: bool,
     pub peer_failed: bool,
@@ -760,6 +766,7 @@ impl SummaryV1 {
             "failed": self.failed,
             "ready_to_resolve": self.ready_to_resolve,
             "resolved": self.resolved,
+            "review_begun": self.review_begun,
             "peer_completed": self.peer_completed,
             "peer_uncertain": self.peer_uncertain,
             "peer_failed": self.peer_failed
@@ -803,6 +810,7 @@ pub fn validate(raw: ConfigV1) -> Result<ValidatedConfigV1, ErrorV1> {
         || raw.plan.fuel > 1_024
         || usize::try_from(raw.plan.fuel).map_or(true, |fuel| fuel < raw.plan.members.len())
         || raw.runs.len() != raw.plan.members.len()
+        || (raw.begin_review && raw.resolution.is_some())
     {
         return Err(ErrorV1::InvalidConfig);
     }
@@ -993,6 +1001,7 @@ pub fn validate(raw: ConfigV1) -> Result<ValidatedConfigV1, ErrorV1> {
         runs,
         tooling,
         resolution,
+        begin_review: raw.begin_review,
         peer_action,
         now: raw.now,
     })
@@ -1008,6 +1017,7 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         runs,
         tooling,
         resolution,
+        begin_review,
         peer_action,
         now,
     } = config;
@@ -1047,6 +1057,15 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         .outcomes
         .iter()
         .any(|outcome| matches!(outcome, MemberOutcomeV1::ToolContinuation { .. }));
+    let review_begun = if begin_review {
+        if needs_tool_runtime || completed.retained.reports.len() != plan.members.len() {
+            return Err(ErrorV1::Review);
+        }
+        begin_review_from_governed_run(&mut store, &completed).map_err(|_| ErrorV1::Review)?;
+        true
+    } else {
+        false
+    };
     let mut tool_runtime = if needs_tool_runtime {
         Some(ToolRuntimeV1::open(
             tooling.ok_or(ErrorV1::Tooling)?,
@@ -1087,6 +1106,7 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         failed: 0,
         ready_to_resolve: false,
         resolved: false,
+        review_begun,
         peer_completed: false,
         peer_uncertain: false,
         peer_failed: false,
@@ -1231,7 +1251,7 @@ pub fn execute(config: ValidatedConfigV1) -> Result<SummaryV1, ErrorV1> {
         }
     }
     summary.revision = store.revision().0;
-    summary.ready_to_resolve = reports_complete && !summary.resolved;
+    summary.ready_to_resolve = reports_complete && !summary.resolved && !summary.review_begun;
     Ok(summary)
 }
 
@@ -1816,6 +1836,17 @@ mod tests {
     static LIVE_NEXT: AtomicU64 = AtomicU64::new(0);
     const RESPONSE: &[u8] = br#"{"schema":"moira.member-response.v1","claims":[{"kind":"empirical","statement":"local model completed","evidence_digests":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"dissent_digests":["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]}]}"#;
 
+    fn invocation_evidence() -> Option<Box<daimon_protocol::ModelInvocationEvidenceV1>> {
+        Some(Box::new(daimon_protocol::ModelInvocationEvidenceV1 {
+            provider: daimon_protocol::ProviderProfileIdV1::new([81; 16]),
+            provider_document_digest: daimon_protocol::ContentDigestV1::new([82; 32]),
+            model_digest: daimon_protocol::ContentDigestV1::new([83; 32]),
+            context_manifest_digest: daimon_protocol::ContentDigestV1::new([84; 32]),
+            message_manifest_digest: daimon_protocol::ContentDigestV1::new([85; 32]),
+            evidence_scope_digest: daimon_protocol::ContentDigestV1::new([86; 32]),
+        }))
+    }
+
     struct CleanupDirectory(PathBuf);
 
     impl Drop for CleanupDirectory {
@@ -1938,6 +1969,7 @@ mod tests {
                         execution_id: request.execution_id,
                         disposition: daimon_protocol::ExecutionDispositionV1::Completed,
                         evidence_digest: daimon_protocol::ContentDigestV1::new([90; 32]),
+                        invocation_evidence: invocation_evidence(),
                         input_tokens: 2,
                         output_tokens: 3,
                         output: RESPONSE.to_vec(),
@@ -2001,6 +2033,7 @@ mod tests {
                         execution_id,
                         disposition: daimon_protocol::ExecutionDispositionV1::Completed,
                         evidence_digest: daimon_protocol::ContentDigestV1::new([95; 32]),
+                        invocation_evidence: invocation_evidence(),
                         input_tokens: 2,
                         output_tokens: 3,
                         output,
@@ -2694,6 +2727,17 @@ mod tests {
     }
 
     #[test]
+    fn review_request_cannot_share_a_run_with_resolution() {
+        let mut value = config();
+        value["begin_review"] = serde_json::json!(true);
+        value["resolution"] = serde_json::json!({"kind": "maybe", "value": "both"});
+        assert_eq!(
+            validate(serde_json::from_value(value).unwrap()).unwrap_err(),
+            ErrorV1::InvalidConfig
+        );
+    }
+
+    #[test]
     fn summary_is_content_free_and_stably_named() {
         let summary = SummaryV1 {
             cohort_members: 2,
@@ -2714,13 +2758,14 @@ mod tests {
             failed: 0,
             ready_to_resolve: true,
             resolved: false,
+            review_begun: false,
             peer_completed: false,
             peer_uncertain: false,
             peer_failed: false,
         };
         assert_eq!(
             summary.json(),
-            r#"{"cohort_members":2,"distinct_context_manifests":2,"distinct_principals":1,"distinct_profiles":1,"failed":0,"independence":"correlated","invalid_reports":0,"non_completed":0,"peer_completed":false,"peer_failed":false,"peer_uncertain":false,"ready_to_resolve":true,"refused":0,"reports":2,"resolved":false,"revision":3,"shared_context_manifest":false,"shared_principal":true,"shared_profile":true,"tool_continuations":0,"uncertain":0}"#
+            r#"{"cohort_members":2,"distinct_context_manifests":2,"distinct_principals":1,"distinct_profiles":1,"failed":0,"independence":"correlated","invalid_reports":0,"non_completed":0,"peer_completed":false,"peer_failed":false,"peer_uncertain":false,"ready_to_resolve":true,"refused":0,"reports":2,"resolved":false,"review_begun":false,"revision":3,"shared_context_manifest":false,"shared_principal":true,"shared_profile":true,"tool_continuations":0,"uncertain":0}"#
         );
     }
 
@@ -2756,11 +2801,31 @@ mod tests {
         }
         raw["daimon"]["socket"] = serde_json::json!(socket);
         raw["store"]["path"] = serde_json::json!(database);
+        raw["begin_review"] = serde_json::json!(true);
         let summary = execute(validate(serde_json::from_value(raw).unwrap()).unwrap()).unwrap();
-        assert_eq!(summary.revision, 5);
+        assert_eq!(summary.revision, 6);
         assert_eq!(summary.reports, 4);
-        assert!(summary.ready_to_resolve);
+        assert!(summary.review_begun);
+        assert!(!summary.ready_to_resolve);
         assert_eq!(calls.load(Ordering::Relaxed), 4);
+        let reopened = DeliberationSqliteStore::open(
+            &database,
+            [1; 16],
+            store_limits(default_database_pages()),
+        )
+        .unwrap();
+        let review = reopened.review(DeliberationIdV1([2; 16])).unwrap();
+        for dimension in [
+            CorrelationDimensionV1::Model,
+            CorrelationDimensionV1::Provider,
+            CorrelationDimensionV1::Prompt,
+            CorrelationDimensionV1::EvidenceScope,
+        ] {
+            let evidence = review.correlation.dimension(dimension).unwrap();
+            assert_eq!(evidence.observed_members, 4);
+            assert_eq!(evidence.distinct_values, 1);
+        }
+        drop(reopened);
         server.join().unwrap();
         for name in ["moira.db", "moira.db-journal", "moira.db.owner.lock"] {
             let _ = fs::remove_file(directory.join(name));

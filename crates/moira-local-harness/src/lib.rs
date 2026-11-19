@@ -119,6 +119,12 @@ pub enum GovernedMemberResumeErrorV1<S, E> {
     },
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum GovernedReviewErrorV1<S> {
+    StaleRun,
+    Begin(DeliberationApplyErrorV1<S>),
+}
+
 pub type GovernedMemberResumeResultV1<P, S> = Result<
     GovernedMemberResumeV1<<P as ModelServicePort>::Error>,
     GovernedMemberResumeErrorV1<<S as DeliberationStore>::Error, <P as ModelServicePort>::Error>,
@@ -128,6 +134,31 @@ pub type GovernedRunResultV1<P, S> = Result<
     GovernedRunV1<<P as ModelServicePort>::Error>,
     GovernedRunErrorV1<<S as DeliberationStore>::Error, <P as ModelServicePort>::Error>,
 >;
+
+/// Begin review with the exact correlation derived by one governed run. The
+/// retained deliberation must still match the store, so callers cannot attach
+/// evidence from an earlier run or a different report set.
+pub fn begin_review_from_governed_run<S, E>(
+    store: &mut S,
+    run: &GovernedRunV1<E>,
+) -> Result<RegistryReceiptV1, GovernedReviewErrorV1<S::Error>>
+where
+    S: DeliberationStore,
+{
+    let deliberation = run.retained.plan.id;
+    if store.deliberation(deliberation).as_ref() != Some(&run.retained) {
+        return Err(GovernedReviewErrorV1::StaleRun);
+    }
+    store
+        .apply(
+            store.revision(),
+            RegistryCommandV1::BeginReview {
+                deliberation,
+                correlation: run.correlation.clone(),
+            },
+        )
+        .map_err(GovernedReviewErrorV1::Begin)
+}
 
 /// Admit, execute and retain one exact cohort. Matching replay is delegated to
 /// the store and Daimon identities. Invalid model envelopes remain outcomes and

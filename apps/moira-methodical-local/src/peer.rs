@@ -722,6 +722,7 @@ mod tests {
                     disposition: DispositionV1::Completed,
                 },
                 evidence_digest: [16; 32],
+                invocation_evidence: None,
                 input_tokens: 1,
                 output_tokens: 1,
                 output,
