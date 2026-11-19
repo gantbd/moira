@@ -5,7 +5,11 @@ use agora_engine::{
 use agora_protocol::v2::{ClientIdV2, ReplyV2, RequestV2};
 use agora_service::v2::{ServiceLimitsV2, ServiceV2};
 use moira_agora::{
-    PublicationLimitsV1, PublicationReplyV1, ResponsePublisher,
+    PublicationLimitsV1, PublicationReplyV1, PublishErrorV1, ResponsePublisher,
+    durable::{
+        DurablePublishErrorV1, DurableResponsePublisher, PublisherCheckpointV1, PublisherRecordV1,
+        PublisherStateStoreV1,
+    },
     review::{ReviewPublicationRefV1, ReviewPublicationRouteV1, project_review_publication},
 };
 use moira_core::deliberation::{
@@ -20,19 +24,67 @@ use moira_core::deliberation::{
 use moira_protocol::EffectIdV1;
 use std::convert::Infallible;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PortError {
+    LostReply,
+}
+
 struct RealAgoraPort {
     service: ServiceV2,
+    lose_next_reply: bool,
 }
 
 impl ServicePortV2 for RealAgoraPort {
-    type Error = Infallible;
+    type Error = PortError;
 
     fn execute(
         &mut self,
         client: ClientIdV2,
         request: RequestV2,
     ) -> Result<ReplyV2, PortFailureV2<Self::Error>> {
-        Ok(self.service.execute(client, request))
+        let reply = self.service.execute(client, request);
+        if self.lose_next_reply {
+            self.lose_next_reply = false;
+            Err(PortFailureV2::OutcomeUnknown(PortError::LostReply))
+        } else {
+            Ok(reply)
+        }
+    }
+}
+
+struct StateStore {
+    record: PublisherRecordV1,
+}
+
+impl StateStore {
+    fn new(client: ClientIdV2) -> Self {
+        Self {
+            record: PublisherRecordV1 {
+                revision: 0,
+                checkpoint: PublisherCheckpointV1::initial(client),
+            },
+        }
+    }
+}
+
+impl PublisherStateStoreV1 for StateStore {
+    type Error = Infallible;
+
+    fn load(&mut self) -> Result<PublisherRecordV1, Self::Error> {
+        Ok(self.record.clone())
+    }
+
+    fn compare_exchange(
+        &mut self,
+        expected_revision: u64,
+        checkpoint: &PublisherCheckpointV1,
+    ) -> Result<PublisherRecordV1, Self::Error> {
+        assert_eq!(self.record.revision, expected_revision);
+        self.record = PublisherRecordV1 {
+            revision: expected_revision + 1,
+            checkpoint: checkpoint.clone(),
+        };
+        Ok(self.record.clone())
     }
 }
 
@@ -228,7 +280,10 @@ fn retained_review_facts_roundtrip_through_real_agora_service() {
     assert_eq!(service.engine().revision().0, 6);
     let mut publisher = ResponsePublisher::new(
         client,
-        RealAgoraPort { service },
+        RealAgoraPort {
+            service,
+            lose_next_reply: false,
+        },
         PublicationLimitsV1::default(),
     )
     .unwrap();
@@ -277,4 +332,62 @@ fn retained_review_facts_roundtrip_through_real_agora_service() {
     assert!(bodies[0].contains("kind=finding"));
     assert!(bodies[1].contains("kind=rebuttal"));
     assert!(bodies[2].contains("kind=disposition"));
+}
+
+#[test]
+fn projected_finding_recovers_lost_real_service_reply_without_a_second_message() {
+    let review = retained_review();
+    let (service, client) = agora();
+    let intent = project_review_publication(
+        route(1, 6),
+        ReviewPublicationRefV1::Finding(&review.findings[0]),
+    )
+    .unwrap();
+    let store = StateStore::new(client);
+    let mut publisher = DurableResponsePublisher::new(
+        store,
+        RealAgoraPort {
+            service,
+            lose_next_reply: true,
+        },
+        PublicationLimitsV1::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        publisher.publish(intent.clone()),
+        Err(DurablePublishErrorV1::Publisher(PublishErrorV1::Client(
+            agora_client::v2::ClientErrorV2::OutcomeUnknown(PortError::LostReply)
+        )))
+    ));
+
+    let (store, port) = publisher.into_parts();
+    let port = port.unwrap();
+    assert_eq!(port.service.engine().revision().0, 7);
+    let mut recovered =
+        DurableResponsePublisher::new(store, port, PublicationLimitsV1::default()).unwrap();
+    let completed = recovered.publish(intent).unwrap();
+    assert!(!completed.replayed);
+    let PublicationReplyV1::Published(published) = completed.reply else {
+        panic!("recovered review publication expected");
+    };
+    assert_eq!(published.receipt.message.message_sequence, 0);
+    assert_eq!(published.receipt.agora_revision, 7);
+
+    let (_, port) = recovered.into_parts();
+    let service = port.unwrap().service;
+    assert_eq!(service.engine().revision().0, 7);
+    assert!(
+        service
+            .engine()
+            .message(&RoomId::new("review-room"), 1)
+            .is_none()
+    );
+    assert!(
+        service
+            .engine()
+            .message(&RoomId::new("review-room"), 0)
+            .unwrap()
+            .body()
+            .contains("kind=finding")
+    );
 }
