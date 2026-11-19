@@ -444,6 +444,38 @@ pub enum RefusalV1 {
     DuplicateDeliberation,
     CheckpointMismatch,
     Deliberation(DeliberationRefusalV1),
+    Review(ReviewRefusalV1),
+    DuplicateReview,
+    ReviewNotBegun,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReviewRefusalV1 {
+    InvalidLimits,
+    FirstPassIncomplete,
+    FindingLimit,
+    RebuttalLimit,
+    EvidenceLimit,
+    InvalidFinding,
+    InvalidRebuttal,
+    InvalidDisposition,
+    UnknownReport,
+    UnknownFinding,
+    UnknownMember,
+    SelfRebuttal,
+    FindingConflict,
+    RebuttalConflict,
+    DispositionConflict,
+    AlreadyDisposed,
+    RebuttalRequired,
+    OwnerMismatch,
+    HumanGateRequired,
+    HumanGateNotApproved,
+    HumanGateMismatch,
+    InvalidReports,
+    DeliberationMismatch,
+    UnsupportedVersion,
+    CheckpointMismatch,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -191,6 +191,13 @@ impl DeliberationSqliteStore {
         self.registry.deliberation(id)
     }
 
+    pub fn review(
+        &self,
+        id: DeliberationIdV1,
+    ) -> Option<moira_core::deliberation::review::ReviewExchangeCheckpointV1> {
+        self.registry.review(id)
+    }
+
     pub fn apply(
         &mut self,
         expected: RegistryRevisionV1,

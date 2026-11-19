@@ -108,9 +108,9 @@ fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
         current[length_start..child_start].try_into().unwrap(),
     ))
     .unwrap();
-    assert_eq!(child_start + child_length, current.len());
+    assert_eq!(child_start + child_length + 8, current.len());
 
-    let mut child = current[child_start..].to_vec();
+    let mut child = current[child_start..child_start + child_length].to_vec();
     assert_eq!(&child[child.len() - 10..child.len() - 8], &[0, 0]);
     child[..8].copy_from_slice(b"MOIRADL3");
     child[8] = 3;
@@ -124,7 +124,8 @@ fn version_two_registry_and_version_three_child_migrate_without_gate_state() {
     legacy.extend_from_slice(&child);
 
     let migrated = decode(&legacy, limits).unwrap();
-    assert_eq!(migrated.version, 3);
+    assert_eq!(migrated.version, 4);
+    assert!(migrated.reviews.is_empty());
     assert_eq!(migrated.deliberations[0].version, 5);
     assert_eq!(migrated.deliberations[0].human_gate_request, None);
     assert_eq!(migrated.deliberations[0].human_gate_response, None);

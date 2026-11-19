@@ -688,6 +688,41 @@ fn refusal(value: registry::RegistryRefusalV1) -> protocol::RefusalV1 {
         registry::RegistryRefusalV1::Deliberation(v) => {
             protocol::RefusalV1::Deliberation(deliberation_refusal(v))
         }
+        registry::RegistryRefusalV1::Review(v) => protocol::RefusalV1::Review(review_refusal(v)),
+        registry::RegistryRefusalV1::DuplicateReview => protocol::RefusalV1::DuplicateReview,
+        registry::RegistryRefusalV1::ReviewNotBegun => protocol::RefusalV1::ReviewNotBegun,
+    }
+}
+
+fn review_refusal(value: domain::review::ReviewRefusalV1) -> protocol::ReviewRefusalV1 {
+    use domain::review::ReviewRefusalV1 as D;
+    use protocol::ReviewRefusalV1 as P;
+    match value {
+        D::InvalidLimits => P::InvalidLimits,
+        D::FirstPassIncomplete => P::FirstPassIncomplete,
+        D::FindingLimit => P::FindingLimit,
+        D::RebuttalLimit => P::RebuttalLimit,
+        D::EvidenceLimit => P::EvidenceLimit,
+        D::InvalidFinding => P::InvalidFinding,
+        D::InvalidRebuttal => P::InvalidRebuttal,
+        D::InvalidDisposition => P::InvalidDisposition,
+        D::UnknownReport => P::UnknownReport,
+        D::UnknownFinding => P::UnknownFinding,
+        D::UnknownMember => P::UnknownMember,
+        D::SelfRebuttal => P::SelfRebuttal,
+        D::FindingConflict => P::FindingConflict,
+        D::RebuttalConflict => P::RebuttalConflict,
+        D::DispositionConflict => P::DispositionConflict,
+        D::AlreadyDisposed => P::AlreadyDisposed,
+        D::RebuttalRequired => P::RebuttalRequired,
+        D::OwnerMismatch => P::OwnerMismatch,
+        D::HumanGateRequired => P::HumanGateRequired,
+        D::HumanGateNotApproved => P::HumanGateNotApproved,
+        D::HumanGateMismatch => P::HumanGateMismatch,
+        D::InvalidReports => P::InvalidReports,
+        D::DeliberationMismatch => P::DeliberationMismatch,
+        D::UnsupportedVersion => P::UnsupportedVersion,
+        D::CheckpointMismatch => P::CheckpointMismatch,
     }
 }
 

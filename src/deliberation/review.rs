@@ -10,6 +10,8 @@ use super::{
     HumanGateResponseV1, MemberReportV1, RebuttalIdV1, ReportIdV1,
 };
 
+pub mod persistence;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReviewLimitsV1 {
     pub max_findings: usize,
@@ -100,6 +102,7 @@ pub enum ReviewRefusalV1 {
     HumanGateNotApproved,
     HumanGateMismatch,
     InvalidReports,
+    DeliberationMismatch,
     UnsupportedVersion,
     CheckpointMismatch,
 }
@@ -167,6 +170,23 @@ impl ReviewExchangeV1 {
 
     pub fn dispositions(&self) -> &[FindingDispositionV1] {
         &self.dispositions
+    }
+
+    pub fn refresh_human_gate(
+        &mut self,
+        deliberation: &DeliberationV1,
+    ) -> Result<(), ReviewRefusalV1> {
+        if deliberation.plan().id != self.deliberation || deliberation.reports() != self.reports {
+            return Err(ReviewRefusalV1::DeliberationMismatch);
+        }
+        let response = deliberation.human_gate_response().copied();
+        if self.admitted_human_gate_response.is_some()
+            && self.admitted_human_gate_response != response
+        {
+            return Err(ReviewRefusalV1::HumanGateMismatch);
+        }
+        self.admitted_human_gate_response = response;
+        Ok(())
     }
 
     pub fn submit_finding(&mut self, finding: ReviewFindingV1) -> Result<(), ReviewRefusalV1> {

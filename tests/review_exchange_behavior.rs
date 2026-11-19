@@ -9,6 +9,7 @@ use moira_core::deliberation::{
     review::{
         FindingDispositionKindV1, FindingDispositionV1, RebuttalV1, ReviewExchangeV1,
         ReviewFindingV1, ReviewLimitsV1, ReviewPhaseV1, ReviewRefusalV1,
+        persistence::{ReviewCodecLimitsV1, decode_review_checkpoint, encode_review_checkpoint},
     },
 };
 
@@ -221,4 +222,26 @@ fn non_approved_human_responses_never_authorize_disposition() {
             Err(ReviewRefusalV1::HumanGateNotApproved)
         );
     }
+}
+
+#[test]
+fn canonical_review_bytes_roundtrip_and_reject_truncation() {
+    let mut exchange = ReviewExchangeV1::try_new(
+        &resolved(Some(HumanGateDispositionV1::Approved)),
+        ReviewLimitsV1::default(),
+    )
+    .unwrap();
+    exchange.submit_finding(finding(true)).unwrap();
+    exchange.submit_rebuttal(rebuttal(2)).unwrap();
+    exchange
+        .dispose_finding(disposition(Some(HumanGateResponseIdV1([30; 16]))))
+        .unwrap();
+    let checkpoint = exchange.checkpoint();
+    let limits = ReviewCodecLimitsV1::default();
+    let bytes = encode_review_checkpoint(&checkpoint, limits).unwrap();
+    assert_eq!(
+        decode_review_checkpoint(&bytes, limits).unwrap(),
+        checkpoint
+    );
+    assert!(decode_review_checkpoint(&bytes[..bytes.len() - 1], limits).is_err());
 }

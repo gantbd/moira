@@ -299,6 +299,8 @@ fn status_optional_view_and_all_refusals_roundtrip() {
         d::RefusalV1::InputConflict,
         d::RefusalV1::DuplicateDeliberation,
         d::RefusalV1::CheckpointMismatch,
+        d::RefusalV1::DuplicateReview,
+        d::RefusalV1::ReviewNotBegun,
     ];
     let domain = [
         d::DeliberationRefusalV1::UnsupportedVersion,
@@ -324,6 +326,37 @@ fn status_optional_view_and_all_refusals_roundtrip() {
         d::DeliberationRefusalV1::CheckpointMismatch,
     ];
     refusals.extend(domain.into_iter().map(d::RefusalV1::Deliberation));
+    refusals.extend(
+        [
+            d::ReviewRefusalV1::InvalidLimits,
+            d::ReviewRefusalV1::FirstPassIncomplete,
+            d::ReviewRefusalV1::FindingLimit,
+            d::ReviewRefusalV1::RebuttalLimit,
+            d::ReviewRefusalV1::EvidenceLimit,
+            d::ReviewRefusalV1::InvalidFinding,
+            d::ReviewRefusalV1::InvalidRebuttal,
+            d::ReviewRefusalV1::InvalidDisposition,
+            d::ReviewRefusalV1::UnknownReport,
+            d::ReviewRefusalV1::UnknownFinding,
+            d::ReviewRefusalV1::UnknownMember,
+            d::ReviewRefusalV1::SelfRebuttal,
+            d::ReviewRefusalV1::FindingConflict,
+            d::ReviewRefusalV1::RebuttalConflict,
+            d::ReviewRefusalV1::DispositionConflict,
+            d::ReviewRefusalV1::AlreadyDisposed,
+            d::ReviewRefusalV1::RebuttalRequired,
+            d::ReviewRefusalV1::OwnerMismatch,
+            d::ReviewRefusalV1::HumanGateRequired,
+            d::ReviewRefusalV1::HumanGateNotApproved,
+            d::ReviewRefusalV1::HumanGateMismatch,
+            d::ReviewRefusalV1::InvalidReports,
+            d::ReviewRefusalV1::DeliberationMismatch,
+            d::ReviewRefusalV1::UnsupportedVersion,
+            d::ReviewRefusalV1::CheckpointMismatch,
+        ]
+        .into_iter()
+        .map(d::RefusalV1::Review),
+    );
     for value in [
         d::FrontierRefusalV1::NoCriteria,
         d::FrontierRefusalV1::NoCandidates,

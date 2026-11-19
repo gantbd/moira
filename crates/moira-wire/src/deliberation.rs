@@ -713,6 +713,12 @@ fn refusal(w: &mut Writer, value: d::RefusalV1) -> Result<(), CodecErrorV1> {
             w.byte(10)?;
             deliberation_refusal(w, value)
         }
+        d::RefusalV1::Review(value) => {
+            w.byte(11)?;
+            w.byte(review_refusal_tag(value))
+        }
+        d::RefusalV1::DuplicateReview => w.byte(12),
+        d::RefusalV1::ReviewNotBegun => w.byte(13),
     }
 }
 
@@ -732,8 +738,72 @@ fn read_refusal(r: &mut Reader<'_>) -> Result<d::RefusalV1, CodecErrorV1> {
         8 => d::RefusalV1::DuplicateDeliberation,
         9 => d::RefusalV1::CheckpointMismatch,
         10 => d::RefusalV1::Deliberation(read_deliberation_refusal(r)?),
+        11 => d::RefusalV1::Review(read_review_refusal(r.byte()?)?),
+        12 => d::RefusalV1::DuplicateReview,
+        13 => d::RefusalV1::ReviewNotBegun,
         _ => return Err(CodecErrorV1::Unsupported),
     })
+}
+
+fn review_refusal_tag(value: d::ReviewRefusalV1) -> u8 {
+    match value {
+        d::ReviewRefusalV1::InvalidLimits => 0,
+        d::ReviewRefusalV1::FirstPassIncomplete => 1,
+        d::ReviewRefusalV1::FindingLimit => 2,
+        d::ReviewRefusalV1::RebuttalLimit => 3,
+        d::ReviewRefusalV1::EvidenceLimit => 4,
+        d::ReviewRefusalV1::InvalidFinding => 5,
+        d::ReviewRefusalV1::InvalidRebuttal => 6,
+        d::ReviewRefusalV1::InvalidDisposition => 7,
+        d::ReviewRefusalV1::UnknownReport => 8,
+        d::ReviewRefusalV1::UnknownFinding => 9,
+        d::ReviewRefusalV1::UnknownMember => 10,
+        d::ReviewRefusalV1::SelfRebuttal => 11,
+        d::ReviewRefusalV1::FindingConflict => 12,
+        d::ReviewRefusalV1::RebuttalConflict => 13,
+        d::ReviewRefusalV1::DispositionConflict => 14,
+        d::ReviewRefusalV1::AlreadyDisposed => 15,
+        d::ReviewRefusalV1::RebuttalRequired => 16,
+        d::ReviewRefusalV1::OwnerMismatch => 17,
+        d::ReviewRefusalV1::HumanGateRequired => 18,
+        d::ReviewRefusalV1::HumanGateNotApproved => 19,
+        d::ReviewRefusalV1::HumanGateMismatch => 20,
+        d::ReviewRefusalV1::InvalidReports => 21,
+        d::ReviewRefusalV1::DeliberationMismatch => 22,
+        d::ReviewRefusalV1::UnsupportedVersion => 23,
+        d::ReviewRefusalV1::CheckpointMismatch => 24,
+    }
+}
+
+fn read_review_refusal(value: u8) -> Result<d::ReviewRefusalV1, CodecErrorV1> {
+    match value {
+        0 => Ok(d::ReviewRefusalV1::InvalidLimits),
+        1 => Ok(d::ReviewRefusalV1::FirstPassIncomplete),
+        2 => Ok(d::ReviewRefusalV1::FindingLimit),
+        3 => Ok(d::ReviewRefusalV1::RebuttalLimit),
+        4 => Ok(d::ReviewRefusalV1::EvidenceLimit),
+        5 => Ok(d::ReviewRefusalV1::InvalidFinding),
+        6 => Ok(d::ReviewRefusalV1::InvalidRebuttal),
+        7 => Ok(d::ReviewRefusalV1::InvalidDisposition),
+        8 => Ok(d::ReviewRefusalV1::UnknownReport),
+        9 => Ok(d::ReviewRefusalV1::UnknownFinding),
+        10 => Ok(d::ReviewRefusalV1::UnknownMember),
+        11 => Ok(d::ReviewRefusalV1::SelfRebuttal),
+        12 => Ok(d::ReviewRefusalV1::FindingConflict),
+        13 => Ok(d::ReviewRefusalV1::RebuttalConflict),
+        14 => Ok(d::ReviewRefusalV1::DispositionConflict),
+        15 => Ok(d::ReviewRefusalV1::AlreadyDisposed),
+        16 => Ok(d::ReviewRefusalV1::RebuttalRequired),
+        17 => Ok(d::ReviewRefusalV1::OwnerMismatch),
+        18 => Ok(d::ReviewRefusalV1::HumanGateRequired),
+        19 => Ok(d::ReviewRefusalV1::HumanGateNotApproved),
+        20 => Ok(d::ReviewRefusalV1::HumanGateMismatch),
+        21 => Ok(d::ReviewRefusalV1::InvalidReports),
+        22 => Ok(d::ReviewRefusalV1::DeliberationMismatch),
+        23 => Ok(d::ReviewRefusalV1::UnsupportedVersion),
+        24 => Ok(d::ReviewRefusalV1::CheckpointMismatch),
+        _ => Err(CodecErrorV1::Unsupported),
+    }
 }
 
 fn deliberation_refusal(

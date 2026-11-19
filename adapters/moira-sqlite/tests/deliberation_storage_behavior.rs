@@ -1,11 +1,12 @@
 use moira_core::deliberation::{
     CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1,
     DeliberationIdV1, DeliberationLimitsV1, DeliberationPlanV1, EnsembleMemberIdV1,
-    EnsembleMemberV1, GroundingRefV1, MaybeValueV1, MemberReportV1, MethodRefV1,
-    OrthogonalityEvidenceV1, PersonaLensV1, ReportIdV1, ResolutionV1, SurfaceDepthV1,
+    EnsembleMemberV1, FindingIdV1, GroundingRefV1, MaybeValueV1, MemberReportV1, MethodRefV1,
+    OrthogonalityEvidenceV1, PersonaLensV1, RebuttalIdV1, ReportIdV1, ResolutionV1, SurfaceDepthV1,
     registry::{
         RegistryCommandV1, RegistryLimitsV1, RegistryRevisionV1, persistence::CodecLimitsV1,
     },
+    review::{RebuttalV1, ReviewFindingV1},
 };
 use moira_sqlite::deliberation::{
     ApplyFailureV1, DeliberationSqliteStore, DeliberationStoreErrorV1, DeliberationStoreLimitsV1,
@@ -130,6 +131,33 @@ fn report() -> MemberReportV1 {
     }
 }
 
+fn review_plan() -> DeliberationPlanV1 {
+    let mut value = plan();
+    value.members.push(EnsembleMemberV1 {
+        id: EnsembleMemberIdV1([17; 16]),
+        stakeholder: moira_core::deliberation::StakeholderRefV1::technical_sme([17; 16], [18; 32]),
+        lens: PersonaLensV1::RigorReviewer,
+        concern_root_digest: [18; 32],
+        grounding: GroundingRefV1 {
+            authority_digest: [19; 32],
+            surface_digest: [20; 32],
+            depth: SurfaceDepthV1::Activated,
+        },
+    });
+    value.fuel = 4;
+    value
+}
+
+fn second_report() -> MemberReportV1 {
+    MemberReportV1 {
+        id: ReportIdV1([21; 16]),
+        member: EnsembleMemberIdV1([17; 16]),
+        output_digest: [22; 32],
+        evidence_digests: vec![[23; 32]],
+        dissent_digests: vec![[24; 32]],
+    }
+}
+
 #[test]
 fn registry_reopens_and_matching_replay_does_not_advance_revision() {
     let fixture = Fixture::new();
@@ -213,6 +241,76 @@ fn stale_revision_remains_a_domain_refusal_without_persistent_change() {
     ));
     drop(store);
     assert_eq!(fixture.open().revision(), RegistryRevisionV1(1));
+}
+
+#[test]
+fn review_findings_and_rebuttals_survive_owner_restart() {
+    let fixture = Fixture::new();
+    let id = DeliberationIdV1([1; 16]);
+    {
+        let mut store = fixture.open();
+        store
+            .apply(
+                store.revision(),
+                RegistryCommandV1::Admit(Box::new(review_plan())),
+            )
+            .unwrap();
+        for retained in [report(), second_report()] {
+            store
+                .apply(
+                    store.revision(),
+                    RegistryCommandV1::SubmitReport {
+                        deliberation: id,
+                        report: retained,
+                    },
+                )
+                .unwrap();
+        }
+        store
+            .apply(
+                store.revision(),
+                RegistryCommandV1::BeginReview { deliberation: id },
+            )
+            .unwrap();
+        store
+            .apply(
+                store.revision(),
+                RegistryCommandV1::SubmitFinding {
+                    deliberation: id,
+                    finding: ReviewFindingV1 {
+                        id: FindingIdV1([25; 16]),
+                        source_report: ReportIdV1([12; 16]),
+                        owner: [26; 16],
+                        finding_digest: [27; 32],
+                        evidence_digests: vec![[28; 32]],
+                        requires_human_gate: false,
+                    },
+                },
+            )
+            .unwrap();
+        store
+            .apply(
+                store.revision(),
+                RegistryCommandV1::SubmitRebuttal {
+                    deliberation: id,
+                    rebuttal: RebuttalV1 {
+                        id: RebuttalIdV1([29; 16]),
+                        finding: FindingIdV1([25; 16]),
+                        member: EnsembleMemberIdV1([17; 16]),
+                        rebuttal_digest: [30; 32],
+                        evidence_digests: vec![[31; 32]],
+                    },
+                },
+            )
+            .unwrap();
+        assert_eq!(store.revision(), RegistryRevisionV1(6));
+    }
+
+    let reopened = fixture.open();
+    let review = reopened.review(id).expect("review survives restart");
+    assert_eq!(review.findings.len(), 1);
+    assert_eq!(review.rebuttals.len(), 1);
+    assert_eq!(review.reports.len(), 2);
 }
 
 #[test]

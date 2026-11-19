@@ -5,11 +5,16 @@ use crate::deliberation::persistence::{
     CodecErrorV1 as ChildCodecErrorV1, CodecLimitsV1 as ChildCodecLimitsV1, decode as decode_child,
     encode as encode_child,
 };
+use crate::deliberation::review::persistence::{
+    ReviewCodecErrorV1, ReviewCodecLimitsV1, decode_review_checkpoint, encode_review_checkpoint,
+};
 
-const MAGIC: &[u8; 8] = b"MOIRADR3";
-const CODEC_VERSION: u8 = 3;
-const LEGACY_MAGIC: &[u8; 8] = b"MOIRADR2";
-const LEGACY_CODEC_VERSION: u8 = 2;
+const MAGIC: &[u8; 8] = b"MOIRADR4";
+const CODEC_VERSION: u8 = 4;
+const LEGACY_MAGIC_V3: &[u8; 8] = b"MOIRADR3";
+const LEGACY_CODEC_VERSION_V3: u8 = 3;
+const LEGACY_MAGIC_V2: &[u8; 8] = b"MOIRADR2";
+const LEGACY_CODEC_VERSION_V2: u8 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CodecLimitsV1 {
@@ -37,6 +42,7 @@ pub enum CodecErrorV1 {
     Invalid,
     NonCanonical,
     Child(ChildCodecErrorV1),
+    Review(ReviewCodecErrorV1),
     Registry(RegistryRefusalV1),
 }
 
@@ -157,6 +163,13 @@ pub fn encode(
         let bytes = encode_child(deliberation, child_limits).map_err(CodecErrorV1::Child)?;
         writer.bytes(&bytes, limits.max_deliberation_bytes)?;
     }
+    writer.count(checkpoint.reviews.len())?;
+    let review_limits = review_limits(limits);
+    for review in &checkpoint.reviews {
+        let bytes =
+            encode_review_checkpoint(review, review_limits).map_err(CodecErrorV1::Review)?;
+        writer.bytes(&bytes, limits.max_deliberation_bytes)?;
+    }
     Ok(writer.bytes)
 }
 
@@ -167,7 +180,8 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
     let version = reader.byte()?;
     let legacy = match (&magic, version) {
         (value, CODEC_VERSION) if value == MAGIC => false,
-        (value, LEGACY_CODEC_VERSION) if value == LEGACY_MAGIC => true,
+        (value, LEGACY_CODEC_VERSION_V3) if value == LEGACY_MAGIC_V3 => true,
+        (value, LEGACY_CODEC_VERSION_V2) if value == LEGACY_MAGIC_V2 => true,
         _ => return Err(CodecErrorV1::Invalid),
     };
     let registry_limits = decode_limits(&mut reader, limits.registry)?;
@@ -185,18 +199,43 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<RegistryCheckpointV
         let child = reader.bytes(limits.max_deliberation_bytes)?;
         deliberations.push(decode_child(child, child_limits).map_err(CodecErrorV1::Child)?);
     }
+    let mut reviews = Vec::new();
+    if !legacy {
+        let review_count = reader.count(registry_limits.max_deliberations)?;
+        reviews
+            .try_reserve(review_count)
+            .map_err(|_| CodecErrorV1::Capacity)?;
+        let review_limits = review_limits(limits);
+        for _ in 0..review_count {
+            let child = reader.bytes(limits.max_deliberation_bytes)?;
+            reviews.push(
+                decode_review_checkpoint(child, review_limits).map_err(CodecErrorV1::Review)?,
+            );
+        }
+    }
     reader.finish()?;
     let checkpoint = RegistryCheckpointV1 {
         version: CODEC_VERSION,
         limits: registry_limits,
         revision,
         deliberations,
+        reviews,
     };
     DeliberationRegistryV1::recover(checkpoint.clone()).map_err(CodecErrorV1::Registry)?;
     if !legacy && encode(&checkpoint, limits)? != bytes {
         return Err(CodecErrorV1::NonCanonical);
     }
     Ok(checkpoint)
+}
+
+fn review_limits(limits: CodecLimitsV1) -> ReviewCodecLimitsV1 {
+    ReviewCodecLimitsV1 {
+        max_bytes: limits.max_deliberation_bytes,
+        review: crate::deliberation::review::ReviewLimitsV1::default(),
+        max_reports: limits.registry.deliberation.max_members,
+        max_evidence_per_report: limits.registry.deliberation.max_evidence_per_report,
+        max_dissent_per_report: limits.registry.deliberation.max_dissent_per_report,
+    }
 }
 
 fn encode_limits(writer: &mut Writer, limits: RegistryLimitsV1) -> Result<(), CodecErrorV1> {
