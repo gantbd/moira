@@ -72,9 +72,20 @@ pub enum ModelProposalV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelInvocationEvidenceV1 {
+    pub provider: [u8; 16],
+    pub provider_document_digest: [u8; 32],
+    pub model_digest: [u8; 32],
+    pub context_manifest_digest: [u8; 32],
+    pub prompt_digest: [u8; 32],
+    pub evidence_scope_digest: [u8; 32],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelResultV1 {
     pub receipt: ResultReceiptV1,
     pub evidence_digest: [u8; 32],
+    pub invocation_evidence: Option<Box<ModelInvocationEvidenceV1>>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub output: Vec<u8>,
@@ -273,6 +284,16 @@ fn model_reply<E>(
             Ok(ModelExecutionReplyV1::Result(ModelResultV1 {
                 receipt: receipt(intent, disposition(result.disposition)),
                 evidence_digest: result.evidence_digest.into_bytes(),
+                invocation_evidence: result.invocation_evidence.map(|evidence| {
+                    Box::new(ModelInvocationEvidenceV1 {
+                        provider: evidence.provider.into_bytes(),
+                        provider_document_digest: evidence.provider_document_digest.into_bytes(),
+                        model_digest: evidence.model_digest.into_bytes(),
+                        context_manifest_digest: evidence.context_manifest_digest.into_bytes(),
+                        prompt_digest: evidence.message_manifest_digest.into_bytes(),
+                        evidence_scope_digest: evidence.evidence_scope_digest.into_bytes(),
+                    })
+                }),
                 input_tokens: result.input_tokens,
                 output_tokens: result.output_tokens,
                 output: result.output,

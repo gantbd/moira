@@ -334,6 +334,9 @@ dependencies = [
 [[package]]
 name = "daimon-protocol"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "daimon-service"
@@ -623,6 +626,7 @@ dependencies = [
  "agora-client",
  "agora-protocol",
  "moira-agora",
+ "moira-core",
  "moira-protocol",
  "moira-sqlite",
  "rusqlite",

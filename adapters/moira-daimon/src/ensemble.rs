@@ -97,6 +97,7 @@ pub enum EnsembleRefusalV1 {
     DuplicateExecution,
     DuplicateIdempotencyKey,
     DuplicateEffect,
+    OutcomeMismatch,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -524,6 +525,91 @@ pub fn analyze_correlation(
         unknown: runs.len(),
     };
     Ok(correlation)
+}
+
+/// Add only invocation facts that Daimon published with member outcomes.
+/// Legacy or non-dispatched outcomes leave those dimensions explicitly
+/// unobserved; no provider/model/prompt identity is inferred from output.
+pub fn analyze_observed_correlation<E>(
+    plan: &DeliberationPlanV1,
+    runs: &[MemberRunV1],
+    outcomes: &[MemberOutcomeV1<E>],
+) -> Result<EnsembleCorrelationV1, EnsembleRefusalV1> {
+    validate_runs(plan, runs)?;
+    let expected = runs.iter().map(|run| run.member).collect::<BTreeSet<_>>();
+    let observed = outcomes.iter().map(outcome_member).collect::<BTreeSet<_>>();
+    if outcomes.len() != runs.len() || observed.len() != outcomes.len() || observed != expected {
+        return Err(EnsembleRefusalV1::OutcomeMismatch);
+    }
+    let evidence = outcomes
+        .iter()
+        .filter_map(outcome_result)
+        .filter_map(|result| result.invocation_evidence.as_deref())
+        .collect::<Vec<_>>();
+    let contexts = evidence
+        .iter()
+        .map(|value| value.context_manifest_digest)
+        .collect::<BTreeSet<_>>();
+    let models = evidence
+        .iter()
+        .map(|value| value.model_digest)
+        .collect::<BTreeSet<_>>();
+    let providers = evidence
+        .iter()
+        .map(|value| (value.provider, value.provider_document_digest))
+        .collect::<BTreeSet<_>>();
+    let prompts = evidence
+        .iter()
+        .map(|value| value.prompt_digest)
+        .collect::<BTreeSet<_>>();
+    let scopes = evidence
+        .iter()
+        .map(|value| value.evidence_scope_digest)
+        .collect::<BTreeSet<_>>();
+    let mut correlation = analyze_correlation(plan, runs)?;
+    for (dimension, distinct_values) in [
+        (CorrelationDimensionV1::ContextManifest, contexts.len()),
+        (CorrelationDimensionV1::Model, models.len()),
+        (CorrelationDimensionV1::Provider, providers.len()),
+        (CorrelationDimensionV1::Prompt, prompts.len()),
+        (CorrelationDimensionV1::EvidenceScope, scopes.len()),
+    ] {
+        let dimension_evidence = correlation
+            .dimensions
+            .iter_mut()
+            .find(|evidence| evidence.dimension == dimension)
+            .expect("all correlation dimensions are constructed above");
+        *dimension_evidence = CorrelationDimensionEvidenceV1 {
+            dimension,
+            observed_members: evidence.len(),
+            distinct_values,
+        };
+    }
+    Ok(correlation)
+}
+
+fn outcome_member<E>(outcome: &MemberOutcomeV1<E>) -> EnsembleMemberIdV1 {
+    match outcome {
+        MemberOutcomeV1::Report { member, .. }
+        | MemberOutcomeV1::InvalidReport { member, .. }
+        | MemberOutcomeV1::ToolContinuation { member, .. }
+        | MemberOutcomeV1::Uncertain { member, .. }
+        | MemberOutcomeV1::NonCompleted { member, .. }
+        | MemberOutcomeV1::Refused { member, .. }
+        | MemberOutcomeV1::Failed { member, .. } => *member,
+    }
+}
+
+fn outcome_result<E>(outcome: &MemberOutcomeV1<E>) -> Option<&ModelResultV1> {
+    match outcome {
+        MemberOutcomeV1::Report { result, .. }
+        | MemberOutcomeV1::InvalidReport { result, .. }
+        | MemberOutcomeV1::ToolContinuation { result, .. }
+        | MemberOutcomeV1::NonCompleted { result, .. } => Some(result),
+        MemberOutcomeV1::Uncertain { .. }
+        | MemberOutcomeV1::Refused { .. }
+        | MemberOutcomeV1::Failed { .. } => None,
+    }
 }
 
 fn context_manifest_digest(context: &[[u8; 16]]) -> [u8; 32] {

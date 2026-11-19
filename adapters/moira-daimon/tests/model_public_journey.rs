@@ -305,6 +305,9 @@ fn model_result_retains_moira_effect_attempt_and_typed_proposals_on_replay() {
     assert_eq!(result.receipt.effect, EffectIdV1([1; 16]));
     assert_eq!(result.receipt.task.incarnation, 4);
     assert_eq!(result.receipt.disposition, DispositionV1::Completed);
+    let invocation = result.invocation_evidence.as_ref().unwrap();
+    assert_eq!(invocation.provider, [21; 16]);
+    assert_eq!(invocation.provider_document_digest, [22; 32]);
     assert_eq!(result.proposals.len(), 3);
     assert!(matches!(
         &result.proposals[0],
@@ -650,6 +653,57 @@ fn cohort_correlation_exposes_shared_execution_identity() {
     assert_eq!(
         correlation.independence(),
         IndependenceAssessmentV1::Correlated
+    );
+}
+
+#[test]
+fn observed_invocations_populate_owner_published_correlation_dimensions() {
+    let calls = Rc::new(Cell::new(0));
+    let mut service = ModelService::new(
+        daimon_harness::Limits::default(),
+        ServiceLimitsV1::default(),
+        Allow,
+        Current,
+        Profile,
+        Context,
+        Provider {
+            calls: Rc::clone(&calls),
+            output: MEMBER_RESPONSE.to_vec(),
+        },
+    )
+    .unwrap();
+    let session = service
+        .open_session(AuthenticatedSessionV1 {
+            principal: [5; 16],
+            authority_context: [9; 16],
+        })
+        .unwrap();
+    let mut adapter = ModelExecutionAdapter::new(session, Port(service));
+    let plan = ensemble_plan();
+    let runs = vec![
+        member_run(plan.members[0].id, 50),
+        member_run(plan.members[1].id, 60),
+    ];
+    let outcomes = ensemble::execute(&mut adapter, &plan, runs.clone(), 10).unwrap();
+    let correlation = ensemble::analyze_observed_correlation(&plan, &runs, &outcomes).unwrap();
+    assert_eq!(calls.get(), 2);
+    for (dimension, distinct_values) in [
+        (CorrelationDimensionV1::ContextManifest, 2),
+        (CorrelationDimensionV1::Model, 1),
+        (CorrelationDimensionV1::Provider, 1),
+        (CorrelationDimensionV1::Prompt, 1),
+        (CorrelationDimensionV1::EvidenceScope, 1),
+    ] {
+        let evidence = correlation.dimension(dimension).unwrap();
+        assert_eq!(evidence.observed_members, 2);
+        assert_eq!(evidence.distinct_values, distinct_values);
+    }
+    assert_eq!(
+        correlation
+            .dimension(CorrelationDimensionV1::Organization)
+            .unwrap()
+            .observed_members,
+        0
     );
 }
 
