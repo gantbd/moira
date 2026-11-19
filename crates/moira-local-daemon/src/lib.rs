@@ -73,6 +73,30 @@ where
         moira_wire::encode_deliberation_reply,
     )
 }
+
+/// Task-agent journey admission profile. Its distinct frame kind prevents a
+/// preview or named-human instantiation from crossing another Moira service.
+pub fn serve_task_agent_journey_up_to<IO, F, E>(
+    io: &mut IO,
+    limits: LimitsV1,
+    max_requests: usize,
+    mut execute: F,
+) -> Result<usize, ConnectionErrorV1<E>>
+where
+    IO: Read + Write,
+    F: FnMut(
+        moira_protocol::task_agent_journey::CommandV1,
+    ) -> Result<moira_protocol::task_agent_journey::ReplyV1, E>,
+{
+    serve_frames(
+        io,
+        limits,
+        max_requests,
+        &mut execute,
+        moira_wire::decode_task_agent_journey_request,
+        moira_wire::encode_task_agent_journey_reply,
+    )
+}
 use std::io::{Read, Write};
 
 #[cfg(unix)]

@@ -3,11 +3,12 @@
 use crate::{
     ConnectionErrorV1, LocalCommand, LocalReply, serve_agent_participation_up_to,
     serve_agent_up_to, serve_deliberation_up_to, serve_local_up_to, serve_saga_up_to,
+    serve_task_agent_journey_up_to,
 };
 use keystone_unix_listener::OwnedUnixListener;
 use moira_host::{
     AgentGateway, AgentParticipationStore, AgentPromptCommitV1, AgentPromptStoreV1,
-    AttemptReceiptStore, CoordinatorStore, DeliberationStore, SagaStore,
+    AttemptReceiptStore, CoordinatorStore, DeliberationStore, SagaStore, TaskAgentJourneyStore,
 };
 use moira_protocol::attempt_lookup::{AttemptLookup, AttemptLookupRequestV1};
 use moira_protocol::{OperatorOperationV1, SagaCommandV1, agent_participation as participation};
@@ -18,6 +19,9 @@ use moira_service::{
     attempt_lookup::{AttemptLookupPolicy, ExactAttempt},
     deliberation::{DeliberationService, HumanGateAccessV1},
     saga::{OperatorAccessV1, SagaService},
+    task_agent_journey::{
+        ErrorV1 as TaskAgentJourneyServiceErrorV1, TaskAgentJourneyService, TrustedTimeV1,
+    },
 };
 use moira_wire::{LimitsV1, ReadyV1, encode_ready};
 use std::{
@@ -639,6 +643,113 @@ impl<S: DeliberationStore, A: Authenticator> DeliberationDaemon<S, A> {
     }
 
     pub fn into_parts(self) -> (DeliberationService<S>, A) {
+        (self.service, self.authenticator)
+    }
+}
+
+/// Private task-agent journey admission owner. Authentication supplies only
+/// read/mutate access; named-human confirmation remains explicit protocol data
+/// validated against the owner-issued preview and grants no peer authority.
+pub struct TaskAgentJourneyDaemon<S: TaskAgentJourneyStore, T: TrustedTimeV1, A: Authenticator> {
+    listener: OwnedUnixListener,
+    service: TaskAgentJourneyService<S, T>,
+    authenticator: A,
+    wire_limits: LimitsV1,
+    io_timeout: Duration,
+    max_requests: usize,
+    health: HealthV1,
+}
+
+pub type TaskAgentJourneyDaemonErrorV1<A, S, T> = DaemonErrorV1<
+    <A as Authenticator>::Error,
+    TaskAgentJourneyServiceErrorV1<
+        <S as TaskAgentJourneyStore>::Error,
+        <T as TrustedTimeV1>::Error,
+    >,
+>;
+type TaskAgentJourneyDaemonResultV1<S, T, A> = Result<(), TaskAgentJourneyDaemonErrorV1<A, S, T>>;
+
+impl<S: TaskAgentJourneyStore, T: TrustedTimeV1, A: Authenticator> TaskAgentJourneyDaemon<S, T, A> {
+    pub fn bind_new(
+        socket_path: impl AsRef<Path>,
+        service: TaskAgentJourneyService<S, T>,
+        authenticator: A,
+        wire_limits: LimitsV1,
+        io_timeout: Duration,
+        max_requests: usize,
+    ) -> io::Result<Self> {
+        if io_timeout.is_zero() || max_requests == 0 || wire_limits.max_frame_bytes == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "disabled limit",
+            ));
+        }
+        Ok(Self {
+            listener: OwnedUnixListener::bind_new(socket_path)?,
+            service,
+            authenticator,
+            wire_limits,
+            io_timeout,
+            max_requests,
+            health: HealthV1 {
+                ready: true,
+                ..HealthV1::default()
+            },
+        })
+    }
+
+    pub fn health(&self) -> HealthV1 {
+        self.health
+    }
+
+    pub fn serve_next(&mut self) -> TaskAgentJourneyDaemonResultV1<S, T, A> {
+        let (mut stream, _) = self.listener.accept().map_err(DaemonErrorV1::Io)?;
+        increment(
+            &mut self.health.active_connections,
+            &mut self.health.saturated,
+        );
+        let result = self.serve_stream(&mut stream);
+        self.health.active_connections = self.health.active_connections.saturating_sub(1);
+        if result.is_err() {
+            increment(
+                &mut self.health.refused_connections,
+                &mut self.health.saturated,
+            );
+        } else {
+            increment(
+                &mut self.health.accepted_connections,
+                &mut self.health.saturated,
+            );
+        }
+        if matches!(
+            &result,
+            Err(DaemonErrorV1::Connection(
+                ConnectionErrorV1::OutcomeUnknown(_)
+            ))
+        ) {
+            increment(&mut self.health.outcome_unknown, &mut self.health.saturated);
+        }
+        result
+    }
+
+    fn serve_stream(&mut self, stream: &mut UnixStream) -> TaskAgentJourneyDaemonResultV1<S, T, A> {
+        stream
+            .set_read_timeout(Some(self.io_timeout))
+            .and_then(|()| stream.set_write_timeout(Some(self.io_timeout)))
+            .map_err(DaemonErrorV1::Io)?;
+        let access = self
+            .authenticator
+            .authenticate(stream)
+            .map_err(DaemonErrorV1::Authentication)?;
+        write_ready(stream, self.wire_limits, self.max_requests).map_err(DaemonErrorV1::Io)?;
+        serve_task_agent_journey_up_to(stream, self.wire_limits, self.max_requests, |command| {
+            self.service.execute_authorized(access, command)
+        })
+        .map(|_| ())
+        .map_err(DaemonErrorV1::Connection)
+    }
+
+    pub fn into_parts(self) -> (TaskAgentJourneyService<S, T>, A) {
         (self.service, self.authenticator)
     }
 }

@@ -8,6 +8,7 @@ use moira_protocol::agent;
 use moira_protocol::agent_participation as participation;
 use moira_protocol::deliberation;
 use moira_protocol::model_saga as model;
+use moira_protocol::task_agent_journey as journey;
 use moira_protocol::tool_continuation as tools;
 use moira_protocol::{CommandV1, MutationV1, ReplyV1, WorkflowIdV1};
 use moira_protocol::{SagaCommandV1, SagaIdV1, SagaMutationV1, SagaReplyV1};
@@ -23,6 +24,72 @@ pub trait AgentParticipationServicePort {
         &mut self,
         command: participation::CommandV1,
     ) -> Result<participation::ReplyV1, Self::Error>;
+}
+
+pub trait TaskAgentJourneyServicePort {
+    type Error;
+    fn execute_task_agent_journey(
+        &mut self,
+        command: journey::CommandV1,
+    ) -> Result<journey::ReplyV1, Self::Error>;
+}
+
+pub struct TaskAgentJourneyReadOnlyClient<P>(P);
+impl<P: TaskAgentJourneyServicePort> TaskAgentJourneyReadOnlyClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+    pub fn catalogue(&mut self) -> Result<journey::ReplyV1, P::Error> {
+        self.0
+            .execute_task_agent_journey(journey::CommandV1::Catalogue)
+    }
+    pub fn preview(&mut self, preview: journey::PreviewIdV1) -> Result<journey::ReplyV1, P::Error> {
+        self.0
+            .execute_task_agent_journey(journey::CommandV1::PreviewView { preview })
+    }
+    pub fn journey(&mut self, journey: journey::JourneyIdV1) -> Result<journey::ReplyV1, P::Error> {
+        self.0
+            .execute_task_agent_journey(journey::CommandV1::Journey { journey })
+    }
+    pub fn status(&mut self) -> Result<journey::ReplyV1, P::Error> {
+        self.0
+            .execute_task_agent_journey(journey::CommandV1::Status)
+    }
+    pub fn into_port(self) -> P {
+        self.0
+    }
+}
+
+pub struct TaskAgentJourneyMutationClient<P>(P);
+impl<P: TaskAgentJourneyServicePort> TaskAgentJourneyMutationClient<P> {
+    pub const fn new(port: P) -> Self {
+        Self(port)
+    }
+    pub fn preview(
+        &mut self,
+        expected_storage_revision: Option<u64>,
+        request: journey::PreviewRequestV1,
+    ) -> Result<journey::ReplyV1, P::Error> {
+        self.0
+            .execute_task_agent_journey(journey::CommandV1::Preview {
+                expected_storage_revision,
+                request,
+            })
+    }
+    pub fn instantiate(
+        &mut self,
+        expected_storage_revision: Option<u64>,
+        request: journey::InstantiateRequestV1,
+    ) -> Result<journey::ReplyV1, P::Error> {
+        self.0
+            .execute_task_agent_journey(journey::CommandV1::Instantiate {
+                expected_storage_revision,
+                request,
+            })
+    }
+    pub fn into_port(self) -> P {
+        self.0
+    }
 }
 
 pub struct AgentParticipationMutationClient<P>(P);

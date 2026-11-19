@@ -1,13 +1,17 @@
 //! Bounded private Unix transport for Moira's governed participation service.
 
-use crate::{AgentParticipationServicePort, DeliberationServicePort, SagaServicePort};
+use crate::{
+    AgentParticipationServicePort, DeliberationServicePort, SagaServicePort,
+    TaskAgentJourneyServicePort,
+};
 use moira_protocol::agent_participation as participation;
 use moira_protocol::deliberation;
+use moira_protocol::task_agent_journey as journey;
 use moira_protocol::{SagaCommandV1, SagaReplyV1};
 use moira_wire::{
     LimitsV1, decode_agent_participation_reply, decode_deliberation_reply, decode_ready,
-    decode_saga_reply, encode_agent_participation_request, encode_deliberation_request,
-    encode_saga_request,
+    decode_saga_reply, decode_task_agent_journey_reply, encode_agent_participation_request,
+    encode_deliberation_request, encode_saga_request, encode_task_agent_journey_request,
 };
 use std::{
     io::{self, Read, Write},
@@ -47,6 +51,8 @@ pub type DeliberationClientLimitsV1 = ParticipationClientLimitsV1;
 pub type DeliberationClientErrorV1 = ParticipationClientErrorV1;
 pub type SagaClientLimitsV1 = ParticipationClientLimitsV1;
 pub type SagaClientErrorV1 = ParticipationClientErrorV1;
+pub type TaskAgentJourneyClientLimitsV1 = ParticipationClientLimitsV1;
+pub type TaskAgentJourneyClientErrorV1 = ParticipationClientErrorV1;
 
 /// Reconnectable public Unix port for Moira's closed saga service.
 ///
@@ -210,6 +216,48 @@ impl DeliberationServicePort for DeliberationUnixPort {
             .map_err(|error| ParticipationClientErrorV1::OutcomeUnknown(error.kind()))?;
         decode_deliberation_reply(&reply, self.wire_limits)
             .map_err(|_| ParticipationClientErrorV1::InvalidReply)
+    }
+}
+
+pub struct TaskAgentJourneyUnixPort {
+    stream: UnixStream,
+    wire_limits: LimitsV1,
+    requests_left: usize,
+}
+
+impl TaskAgentJourneyUnixPort {
+    pub fn connect(
+        path: impl AsRef<Path>,
+        limits: TaskAgentJourneyClientLimitsV1,
+    ) -> Result<Self, TaskAgentJourneyClientErrorV1> {
+        let negotiated = connect(path, limits)?;
+        Ok(Self {
+            stream: negotiated.stream,
+            wire_limits: negotiated.wire_limits,
+            requests_left: negotiated.requests_left,
+        })
+    }
+}
+
+impl TaskAgentJourneyServicePort for TaskAgentJourneyUnixPort {
+    type Error = TaskAgentJourneyClientErrorV1;
+
+    fn execute_task_agent_journey(
+        &mut self,
+        command: journey::CommandV1,
+    ) -> Result<journey::ReplyV1, Self::Error> {
+        if self.requests_left == 0 {
+            return Err(TaskAgentJourneyClientErrorV1::RequestLimit);
+        }
+        let bytes = encode_task_agent_journey_request(&command, self.wire_limits)
+            .map_err(|_| TaskAgentJourneyClientErrorV1::NotSent(io::ErrorKind::InvalidData))?;
+        write_frame(&mut self.stream, &bytes)
+            .map_err(|error| TaskAgentJourneyClientErrorV1::OutcomeUnknown(error.kind()))?;
+        self.requests_left -= 1;
+        let reply = read_frame(&mut self.stream, self.wire_limits.max_frame_bytes)
+            .map_err(|error| TaskAgentJourneyClientErrorV1::OutcomeUnknown(error.kind()))?;
+        decode_task_agent_journey_reply(&reply, self.wire_limits)
+            .map_err(|_| TaskAgentJourneyClientErrorV1::InvalidReply)
     }
 }
 
