@@ -574,6 +574,7 @@ dependencies = [
  "agora-actor-publication-port",
  "agora-client",
  "agora-protocol",
+ "moira-core",
  "moira-protocol",
 ]
 

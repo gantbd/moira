@@ -11,6 +11,7 @@ description = "Public-client Agora response-publication adapter for Moira"
 agora-actor-publication-port = { path = "../../../agora/ports/agora-actor-publication-port" }
 agora-client = { path = "../../../agora/client/agora-client" }
 agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
+moira-core = { path = "../.." }
 moira-protocol = { path = "../../crates/moira-protocol" }
 
 [lints.rust]

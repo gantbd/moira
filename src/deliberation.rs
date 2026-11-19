@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 pub mod grounding;
 pub mod persistence;
 pub mod registry;
+pub mod review;
 
 macro_rules! id {
     ($name:ident) => {
@@ -25,6 +26,9 @@ id!(EnsembleMemberIdV1);
 id!(ReportIdV1);
 id!(HumanGateRequestIdV1);
 id!(HumanGateResponseIdV1);
+id!(FindingIdV1);
+id!(RebuttalIdV1);
+id!(FindingDispositionIdV1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClaimKindV1 {
@@ -436,8 +440,14 @@ impl DeliberationV1 {
     pub fn reports(&self) -> &[MemberReportV1] {
         &self.reports
     }
+    pub fn plan(&self) -> &DeliberationPlanV1 {
+        &self.plan
+    }
     pub fn resolution(&self) -> Option<&ResolutionV1> {
         self.resolution.as_ref()
+    }
+    pub fn human_gate_response(&self) -> Option<&HumanGateResponseV1> {
+        self.human_gate_response.as_ref()
     }
 
     pub fn checkpoint(&self) -> DeliberationCheckpointV1 {
