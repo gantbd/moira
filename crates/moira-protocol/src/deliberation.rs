@@ -264,6 +264,31 @@ pub struct MemberReportV1 {
     pub dissent_digests: Vec<[u8; 32]>,
 }
 
+/// One content-free dissent identity that remains unresolved in Moira's
+/// current deliberation contract. Reports are immutable and no command settles
+/// a dissent digest; findings and their dispositions are separate review facts
+/// and therefore cannot silently erase this reference.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct UnresolvedDissentRefV1 {
+    pub source_report: ReportIdV1,
+    pub dissent_digest: [u8; 32],
+}
+
+pub fn unresolved_dissent(
+    reports: &[MemberReportV1],
+) -> impl Iterator<Item = UnresolvedDissentRefV1> + '_ {
+    reports.iter().flat_map(|report| {
+        report
+            .dissent_digests
+            .iter()
+            .copied()
+            .map(|dissent_digest| UnresolvedDissentRefV1 {
+                source_report: report.id,
+                dissent_digest,
+            })
+    })
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HumanGateMaterialRefV1 {
     pub owner_route: [u8; 16],
@@ -347,6 +372,12 @@ pub struct DeliberationViewV1 {
     pub human_gate_response: Option<HumanGateResponseV1>,
     pub remaining_fuel: u32,
     pub phase: DeliberationPhaseV1,
+}
+
+impl DeliberationViewV1 {
+    pub fn unresolved_dissent(&self) -> impl Iterator<Item = UnresolvedDissentRefV1> + '_ {
+        unresolved_dissent(&self.reports)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -490,6 +521,12 @@ pub struct ReviewViewV1 {
     pub rebuttals: Vec<RebuttalV1>,
     pub dispositions: Vec<FindingDispositionV1>,
     pub phase: ReviewPhaseV1,
+}
+
+impl ReviewViewV1 {
+    pub fn unresolved_dissent(&self) -> impl Iterator<Item = UnresolvedDissentRefV1> + '_ {
+        unresolved_dissent(&self.reports)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
