@@ -229,9 +229,12 @@ allocates owner-scoped monotonic journey/workflow identities, and admits at
 most one journey per preview with exact replay and changed-replay conflict.
 Canonical `MOIRATJ1` checkpoints reject foreign-owner identities, template
 drift, truncation, tails, mutation and host-limit overflow. This first slice
-stops at `Admitted`: public protocol/service/store/transport, fresh Chronos
-claim/lease, room and participation effects, Daimon dispatch and settlement
-remain open and cannot be inferred from admission.
+stops at `Admitted`. A transport-neutral public catalogue/preview/instantiate/
+observe/status contract and disjoint canonical wire family now carry requested
+TTL and confirmation content while only owner views publish observation,
+expiry and confirmation times. Service, transactional store, client/daemon,
+fresh Chronos claim/lease, room and participation effects, Daimon dispatch and
+settlement remain open and cannot be inferred from admission.
 
 `moira-client` now also owns a bounded optional Unix port for the governed
 participation service, so runtime workers do not depend on terminal presentation

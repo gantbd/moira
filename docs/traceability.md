@@ -247,9 +247,13 @@ operations conflict and a second operation cannot instantiate the same preview.
 The canonical `MOIRATJ1` codec revalidates the full checkpoint and refuses
 foreign ownership, noncanonical ordering, truncation, tails, mutation and host
 limit violations. Six focused domain/codec tests and strict Clippy pass. This
-is core and checkpoint evidence only: public DTOs, transactional storage,
-service/wire/Unix clients, trusted peer progression and Pantheon composition
-remain open.
+is now available through independent public DTOs and a disjoint bounded wire
+family covering every command, outcome and refusal plus truncation, tail and
+cross-family rejection. Client requests carry only a bounded requested TTL and
+human confirmation content; owner-issued observation, expiry and confirmation
+times appear only in retained views. Transactional storage, service/time port,
+Unix client/daemon, trusted peer progression and Pantheon composition remain
+open.
 
 ## Daimon execution adapter
 
