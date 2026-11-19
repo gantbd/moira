@@ -9,6 +9,7 @@ pub mod agent_participation;
 pub mod attempt_lookup;
 pub mod deliberation;
 pub mod model_saga;
+pub mod task_agent_journey;
 pub mod tool_continuation;
 
 macro_rules! opaque_id {

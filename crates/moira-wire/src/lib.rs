@@ -22,6 +22,11 @@ pub use deliberation::{
 };
 mod saga;
 pub use saga::{decode_saga_reply, decode_saga_request, encode_saga_reply, encode_saga_request};
+mod task_agent_journey;
+pub use task_agent_journey::{
+    decode_task_agent_journey_reply, decode_task_agent_journey_request,
+    encode_task_agent_journey_reply, encode_task_agent_journey_request,
+};
 
 const MAGIC: &[u8; 8] = b"MOIRAW01";
 const REQUEST: u8 = 1;
