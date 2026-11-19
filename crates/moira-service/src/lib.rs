@@ -10,6 +10,7 @@ pub mod attempt_lookup;
 pub mod deliberation;
 pub mod model_saga;
 pub mod saga;
+pub mod task_agent_journey;
 pub mod tool_continuation;
 
 pub struct Service<S> {

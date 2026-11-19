@@ -12,6 +12,14 @@ use moira_core::deliberation::{
     ReportIdV1,
     registry::{RegistryCommandV1, RegistryReceiptV1, RegistryRefusalV1, RegistryRevisionV1},
 };
+use moira_core::task_agent_journey::{
+    InstantiateRequestV1 as TaskAgentInstantiateRequestV1, JourneyIdV1 as TaskAgentJourneyIdV1,
+    JourneyReceiptV1 as TaskAgentJourneyReceiptV1, JourneySnapshotV1 as TaskAgentJourneySnapshotV1,
+    OwnerIdV1 as TaskAgentOwnerIdV1, PreviewIdV1 as TaskAgentPreviewIdV1,
+    PreviewReceiptV1 as TaskAgentPreviewReceiptV1, PreviewRequestV1 as TaskAgentPreviewRequestV1,
+    PreviewSnapshotV1 as TaskAgentPreviewSnapshotV1, RefusalV1 as TaskAgentJourneyRefusalV1,
+    TemplateV1 as TaskAgentTemplateV1,
+};
 use moira_core::tool_continuation::{
     CommandV1 as ToolContinuationCommandV1, RefusalV1 as ToolContinuationRefusalV1,
     SnapshotV1 as ToolContinuationSnapshotV1, TransitionV1 as ToolContinuationTransitionV1,
@@ -152,6 +160,64 @@ pub trait AgentParticipationStore {
         expected_storage_revision: Option<u64>,
         mutation: AgentParticipationMutationV1,
     ) -> Result<AgentParticipationApplyReceiptV1, AgentParticipationApplyErrorV1<Self::Error>>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TaskAgentJourneyCensusV1 {
+    pub templates: u64,
+    pub previews: u64,
+    pub journeys: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskAgentJourneyMutationV1 {
+    Preview {
+        request: TaskAgentPreviewRequestV1,
+        observed_at: u64,
+    },
+    Instantiate {
+        request: TaskAgentInstantiateRequestV1,
+        observed_at: u64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskAgentJourneyApplyV1 {
+    Preview(TaskAgentPreviewReceiptV1),
+    Instantiate(TaskAgentJourneyReceiptV1),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TaskAgentJourneyApplyReceiptV1 {
+    pub storage_revision: u64,
+    pub outcome: TaskAgentJourneyApplyV1,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum TaskAgentJourneyApplyErrorV1<E> {
+    Domain(TaskAgentJourneyRefusalV1),
+    Conflict { expected: Option<u64>, actual: u64 },
+    Backend(E),
+}
+
+/// Exclusive durable owner for task-agent journey admission. Implementations
+/// advance storage revision only when the canonical checkpoint changes.
+pub trait TaskAgentJourneyStore {
+    type Error;
+
+    fn owner(&self) -> TaskAgentOwnerIdV1;
+    fn owner_revision(&self) -> u64;
+    fn storage_revision(&self) -> u64;
+    fn needs_reopen(&self) -> bool;
+    fn catalogue(&self) -> Vec<TaskAgentTemplateV1>;
+    fn census(&self) -> TaskAgentJourneyCensusV1;
+    fn preview(&self, id: TaskAgentPreviewIdV1) -> Option<TaskAgentPreviewSnapshotV1>;
+    fn journey(&self, id: TaskAgentJourneyIdV1) -> Option<TaskAgentJourneySnapshotV1>;
+    fn apply(
+        &mut self,
+        expected_storage_revision: Option<u64>,
+        mutation: TaskAgentJourneyMutationV1,
+    ) -> Result<TaskAgentJourneyApplyReceiptV1, TaskAgentJourneyApplyErrorV1<Self::Error>>;
 }
 use moira_core::model_saga::{
     CommandV1 as ModelSagaCommandV1, RefusalV1 as ModelSagaRefusalV1,

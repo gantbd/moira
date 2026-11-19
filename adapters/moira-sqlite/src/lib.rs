@@ -10,6 +10,7 @@ pub mod deliberation;
 pub mod model_saga;
 mod resource;
 pub mod saga;
+pub mod task_agent_journey;
 pub mod tool_continuation;
 pub mod tool_output;
 pub use backup::{OnlineBackupLimitsV1, OnlineBackupReceiptV1};
