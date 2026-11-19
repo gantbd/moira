@@ -225,6 +225,9 @@ impl TaskAgentJourneySqliteStore {
                 request,
                 observed_at,
             } => TaskAgentJourneyApplyV1::Instantiate(candidate.instantiate(request, observed_at)?),
+            TaskAgentJourneyMutationV1::BindTaskAttempt { journey, receipt } => {
+                TaskAgentJourneyApplyV1::TaskAttempt(candidate.bind_task_attempt(journey, receipt)?)
+            }
         };
         let changed = candidate.checkpoint() != self.engine.checkpoint();
         let actual = read_revision(&self.connection)?;
@@ -396,9 +399,7 @@ fn read_state(
         |row| row.get(0),
     )?;
     let checkpoint = decode(&payload, codec)?;
-    if checkpoint != Engine::recover(checkpoint.clone())?.checkpoint()
-        || encode(&checkpoint, codec)? != payload
-    {
+    if checkpoint != Engine::recover(checkpoint.clone())?.checkpoint() {
         return Err(TaskAgentJourneyStoreErrorV1::Schema);
     }
     Ok((revision, checkpoint))

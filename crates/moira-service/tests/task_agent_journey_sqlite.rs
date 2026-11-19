@@ -1,7 +1,12 @@
 #![cfg(unix)]
 
 use moira_core::{
+    ChronosAttemptReceiptV1, ChronosTaskRefV1,
     agent_participation::ProfileIdV1 as DomainProfileIdV1, task_agent_journey as domain,
+};
+use moira_host::{
+    TaskAgentJourneyApplyErrorV1, TaskAgentJourneyApplyV1, TaskAgentJourneyMutationV1,
+    TaskAgentJourneyStore,
 };
 use moira_protocol::{TaskRefV1, agent_participation::ProfileIdV1, task_agent_journey as public};
 use moira_service::{
@@ -240,7 +245,73 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
     assert_eq!(storage_revision, 2);
     assert!(receipt.replayed);
     assert_eq!(receipt.journey, journey);
-    drop(service);
+    let (mut store, _) = service.into_parts();
+    let domain_journey = domain::JourneyIdV1 {
+        owner: domain::OwnerIdV1(journey.id.owner.0),
+        sequence: journey.id.sequence,
+    };
+    let attempt = ChronosAttemptReceiptV1::new(
+        ChronosTaskRefV1::new(
+            journey.preview.request.task.task.external_task_key,
+            journey.preview.request.task.task.incarnation,
+        ),
+        2,
+        12,
+    );
+    let ready = store
+        .apply(
+            Some(2),
+            TaskAgentJourneyMutationV1::BindTaskAttempt {
+                journey: domain_journey,
+                receipt: attempt,
+            },
+        )
+        .unwrap();
+    assert_eq!(ready.storage_revision, 3);
+    let TaskAgentJourneyApplyV1::TaskAttempt(ready) = ready.outcome else {
+        panic!("task-attempt transition expected")
+    };
+    assert!(!ready.replayed);
+    assert_eq!(ready.journey.phase, domain::PhaseV1::TaskAttemptReady);
+    assert_eq!(
+        store
+            .apply(
+                Some(3),
+                TaskAgentJourneyMutationV1::BindTaskAttempt {
+                    journey: domain_journey,
+                    receipt: attempt,
+                },
+            )
+            .unwrap()
+            .storage_revision,
+        3
+    );
+    assert!(matches!(
+        store.apply(
+            Some(3),
+            TaskAgentJourneyMutationV1::BindTaskAttempt {
+                journey: domain_journey,
+                receipt: ChronosAttemptReceiptV1::new(attempt.task(), 3, 13),
+            },
+        ),
+        Err(TaskAgentJourneyApplyErrorV1::Domain(
+            domain::RefusalV1::TaskAttemptConflict
+        ))
+    ));
+    drop(store);
+
+    let ready_view = public::JourneyViewV1 {
+        revision: 1,
+        phase: public::PhaseV1::TaskAttemptReady,
+        task_attempt: Some(public::TaskAttemptBindingV1 {
+            journey: journey.id,
+            expected_journey_revision: 0,
+            task: journey.preview.request.task.task,
+            attempt_number: 2,
+            chronos_revision: 12,
+        }),
+        ..journey
+    };
 
     let mut service = TaskAgentJourneyService::new(fixture.store(), Time(200));
     assert_eq!(
@@ -248,7 +319,7 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Status(public::StatusV1 {
             owner: public::OwnerIdV1([1; 16]),
             owner_revision: 1,
-            storage_revision: 2,
+            storage_revision: 3,
             template_count: 1,
             preview_count: 1,
             journey_count: 1,
@@ -261,7 +332,7 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
                 journey: journey.id,
             })
             .unwrap(),
-        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Journey(Some(journey))))
+        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Journey(Some(ready_view))))
     );
     assert_eq!(
         service.execute(preview_command).unwrap(),

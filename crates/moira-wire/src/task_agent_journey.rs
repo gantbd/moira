@@ -317,10 +317,12 @@ fn journey_view(writer: &mut Writer, value: p::JourneyViewV1) -> Result<(), Code
     writer.u64(value.revision)?;
     writer.byte(match value.phase {
         p::PhaseV1::Admitted => 1,
+        p::PhaseV1::TaskAttemptReady => 2,
     })?;
     instantiate_request(writer, value.admission)?;
     writer.u64(value.confirmed_at)?;
-    preview_view(writer, value.preview)
+    preview_view(writer, value.preview)?;
+    writer.option(value.task_attempt, task_attempt)
 }
 
 fn read_journey_view(reader: &mut Reader<'_>) -> Result<p::JourneyViewV1, CodecErrorV1> {
@@ -333,11 +335,38 @@ fn read_journey_view(reader: &mut Reader<'_>) -> Result<p::JourneyViewV1, CodecE
         revision: reader.u64()?,
         phase: match reader.byte()? {
             1 => p::PhaseV1::Admitted,
+            2 => p::PhaseV1::TaskAttemptReady,
             _ => return Err(CodecErrorV1::Unsupported),
         },
         admission: read_instantiate_request(reader)?,
         confirmed_at: reader.u64()?,
         preview: read_preview_view(reader)?,
+        task_attempt: reader.option(read_task_attempt)?,
+    })
+}
+
+fn task_attempt(writer: &mut Writer, value: p::TaskAttemptBindingV1) -> Result<(), CodecErrorV1> {
+    journey_id(writer, value.journey)?;
+    writer.u64(value.expected_journey_revision)?;
+    writer.raw(&value.task.external_task_key)?;
+    writer.u64(value.task.incarnation)?;
+    writer.u64(u64::from(value.attempt_number))?;
+    writer.u64(value.chronos_revision)
+}
+
+fn read_task_attempt(reader: &mut Reader<'_>) -> Result<p::TaskAttemptBindingV1, CodecErrorV1> {
+    Ok(p::TaskAttemptBindingV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.u64()?,
+        task: TaskRefV1 {
+            external_task_key: reader.raw()?,
+            incarnation: reader.u64()?,
+        },
+        attempt_number: reader
+            .u64()?
+            .try_into()
+            .map_err(|_| CodecErrorV1::Unsupported)?,
+        chronos_revision: reader.u64()?,
     })
 }
 

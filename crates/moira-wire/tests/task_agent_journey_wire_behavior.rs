@@ -55,6 +55,19 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
         admission: instantiate,
         confirmed_at: 1_002,
         preview,
+        task_attempt: None,
+    };
+    let ready = p::JourneyViewV1 {
+        revision: 1,
+        phase: p::PhaseV1::TaskAttemptReady,
+        task_attempt: Some(p::TaskAttemptBindingV1 {
+            journey: journey.id,
+            expected_journey_revision: 0,
+            task: preview.request.task.task,
+            attempt_number: 2,
+            chronos_revision: 12,
+        }),
+        ..journey
     };
     let replies = vec![
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Catalogue {
@@ -80,6 +93,7 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Preview(Some(preview)))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Preview(None))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(Some(journey)))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(Some(ready)))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(None))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Status(p::StatusV1 {
             owner: preview.id.owner,

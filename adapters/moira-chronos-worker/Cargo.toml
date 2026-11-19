@@ -10,6 +10,8 @@ description = "Trusted in-process Chronos worker ownership for Moira"
 [dependencies]
 chronos-engine = { path = "../../../chronos/engine/chronos-engine" }
 chronos-host = { path = "../../../chronos/host/chronos-host" }
+moira-core = { path = "../.." }
+moira-host = { path = "../../crates/moira-host" }
 moira-protocol = { path = "../../crates/moira-protocol" }
 
 [lints.rust]

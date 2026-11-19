@@ -161,6 +161,9 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
                         },
                     })),
                 ),
+                (_, TaskAgentJourneyApplyV1::TaskAttempt(_)) => Ok(public::ReplyV1::Refused(
+                    public::RefusalV1::InvalidCheckpoint,
+                )),
                 _ => Ok(public::ReplyV1::Refused(
                     public::RefusalV1::InvalidCheckpoint,
                 )),
@@ -375,10 +378,22 @@ fn journey_view(value: domain::JourneySnapshotV1) -> public::JourneyViewV1 {
             sequence: value.workflow.sequence,
         },
         revision: value.revision,
-        phase: public::PhaseV1::Admitted,
+        phase: match value.phase {
+            domain::PhaseV1::Admitted => public::PhaseV1::Admitted,
+            domain::PhaseV1::TaskAttemptReady => public::PhaseV1::TaskAttemptReady,
+        },
         admission: instantiate_request_view(value.admission),
         confirmed_at: value.confirmed_at,
         preview: preview_view(value.preview),
+        task_attempt: value
+            .task_attempt
+            .map(|binding| public::TaskAttemptBindingV1 {
+                journey: journey_id_view(binding.journey),
+                expected_journey_revision: binding.expected_journey_revision,
+                task: task_view(binding.task),
+                attempt_number: binding.attempt_number,
+                chronos_revision: binding.chronos_revision,
+            }),
     }
 }
 
@@ -406,6 +421,11 @@ fn refusal(value: domain::RefusalV1) -> public::RefusalV1 {
         domain::RefusalV1::PreviewAlreadyInstantiated => {
             public::RefusalV1::PreviewAlreadyInstantiated
         }
+        domain::RefusalV1::JourneyNotFound
+        | domain::RefusalV1::InvalidTaskAttempt
+        | domain::RefusalV1::TaskAttemptMismatch
+        | domain::RefusalV1::TaskAttemptConflict
+        | domain::RefusalV1::StaleChronosRevision => public::RefusalV1::InvalidCheckpoint,
         domain::RefusalV1::IdentityExhausted => public::RefusalV1::IdentityExhausted,
         domain::RefusalV1::InvalidCheckpoint => public::RefusalV1::InvalidCheckpoint,
     }

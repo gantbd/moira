@@ -4,9 +4,20 @@ use chronos_client::WireClientV1;
 use chronos_local::LocalClient;
 use chronos_wire::{Command, Outcome, Phase, Request, RetrySafety, Revision, TaskSpec};
 use moira_chronos_worker::{
-    ClaimIntentV1, ConfigurationV1, ErrorV1, ResultBindingV1, SettlementV1, TrustedWorkerV1,
+    ClaimAndBindErrorV1, ClaimIntentV1, ConfigurationV1, ErrorV1, JourneyBindingErrorV1,
+    ResultBindingV1, SettlementV1, TrustedWorkerV1,
+};
+use moira_core::{
+    ChronosTaskRefV1, agent_participation::ProfileIdV1, task_agent_journey as journey,
+};
+use moira_host::{
+    TaskAgentJourneyApplyErrorV1, TaskAgentJourneyApplyV1, TaskAgentJourneyMutationV1,
+    TaskAgentJourneyStore,
 };
 use moira_protocol::{DispositionV1, EffectIdV1, ResultReceiptV1};
+use moira_sqlite::task_agent_journey::{
+    TaskAgentJourneySqliteStore, TaskAgentJourneyStoreLimitsV1,
+};
 use std::{
     io::Write,
     os::unix::net::UnixStream,
@@ -122,6 +133,115 @@ fn configuration() -> ConfigurationV1 {
     .unwrap()
 }
 
+fn journey_template() -> journey::TemplateV1 {
+    journey::TemplateV1 {
+        id: journey::TemplateIdV1([2; 16]),
+        version: 1,
+        digest: [3; 32],
+        work_mode: journey::WorkModeV1::Collaborator,
+        profile: ProfileIdV1([4; 16]),
+        room_policy: journey::RoomPolicyV1::SharedContext,
+        budget: journey::BudgetV1 {
+            max_context_bytes: 4_096,
+            max_output_tokens: 512,
+            max_elapsed_millis: 10_000,
+        },
+        grounding_policy_digest: [5; 32],
+        authority_policy_digest: [6; 32],
+        consequence_digest: [7; 32],
+        retired: false,
+    }
+}
+
+fn journey_store(directory: &Directory) -> TaskAgentJourneySqliteStore {
+    let domain = journey::LimitsV1 {
+        max_templates: 2,
+        max_previews: 4,
+        max_journeys: 4,
+        max_preview_ttl: 60,
+    };
+    TaskAgentJourneySqliteStore::open(
+        directory.0.join("task-agent.db"),
+        journey::OwnerIdV1([1; 16]),
+        TaskAgentJourneyStoreLimitsV1 {
+            codec: journey::persistence::CodecLimitsV1 {
+                max_bytes: 65_536,
+                domain,
+            },
+            domain,
+            max_database_pages: 64,
+        },
+        [journey_template()],
+    )
+    .unwrap()
+}
+
+fn admitted_journey(
+    directory: &Directory,
+    external_task_key: [u8; 16],
+) -> (TaskAgentJourneySqliteStore, journey::JourneySnapshotV1) {
+    let mut store = journey_store(directory);
+    let template = journey_template();
+    let preview = match store
+        .apply(
+            Some(0),
+            TaskAgentJourneyMutationV1::Preview {
+                request: journey::PreviewRequestV1 {
+                    operation: journey::PreviewOperationIdV1([8; 16]),
+                    template: journey::TemplateRefV1 {
+                        id: template.id,
+                        version: template.version,
+                        digest: template.digest,
+                    },
+                    task: journey::TaskAdmissionV1 {
+                        task: ChronosTaskRefV1::new(external_task_key, 0),
+                        chronos_revision: 1,
+                        evidence_digest: [9; 32],
+                    },
+                    profile: template.profile,
+                    room_policy: template.room_policy,
+                    initiating_principal: journey::PrincipalIdV1([10; 16]),
+                    accountable_human: journey::PrincipalIdV1([11; 16]),
+                    objective_digest: [12; 32],
+                    acceptance_digest: [13; 32],
+                    current_evidence_digest: [14; 32],
+                    requested_ttl: 30,
+                },
+                observed_at: 100,
+            },
+        )
+        .unwrap()
+        .outcome
+    {
+        TaskAgentJourneyApplyV1::Preview(receipt) => receipt.preview,
+        _ => panic!("preview expected"),
+    };
+    let admitted = match store
+        .apply(
+            Some(1),
+            TaskAgentJourneyMutationV1::Instantiate {
+                request: journey::InstantiateRequestV1 {
+                    operation: journey::InstantiateOperationIdV1([15; 16]),
+                    preview: preview.id,
+                    expected_owner_revision: preview.owner_revision,
+                    confirmation: journey::HumanConfirmationV1 {
+                        preview: preview.id,
+                        accountable_human: preview.request.accountable_human,
+                        consequence_digest: preview.consequence_digest,
+                    },
+                },
+                observed_at: 101,
+            },
+        )
+        .unwrap()
+        .outcome
+    {
+        TaskAgentJourneyApplyV1::Instantiate(receipt) => receipt.journey,
+        _ => panic!("admission expected"),
+    };
+    (store, admitted)
+}
+
 #[test]
 fn exact_result_settles_the_coordination_admitted_task() {
     let directory = Directory::new();
@@ -139,15 +259,30 @@ fn exact_result_settles_the_coordination_admitted_task() {
     let mut client = LocalClient::new(&directory.0);
     submit(&mut client, "j1-owned-task");
 
+    let (mut store, admitted) = admitted_journey(&directory, [8; 16]);
     let mut worker = TrustedWorkerV1::new(handle, configuration()).unwrap();
-    let claimed = worker
-        .claim(ClaimIntentV1 {
-            task_id: "j1-owned-task".into(),
-            external_task_key: [8; 16],
-            expected_revision: 1,
-            now: SystemTime::UNIX_EPOCH,
-        })
+    let ready = worker
+        .claim_and_bind(
+            &mut store,
+            Some(2),
+            admitted.id,
+            ClaimIntentV1 {
+                task_id: "j1-owned-task".into(),
+                external_task_key: [8; 16],
+                expected_revision: 1,
+                now: SystemTime::UNIX_EPOCH,
+            },
+        )
         .unwrap();
+    let claimed = ready.claim;
+    assert_eq!(ready.storage_revision, 3);
+    assert_eq!(ready.journey.phase, journey::PhaseV1::TaskAttemptReady);
+    assert_eq!(ready.journey.task_attempt.unwrap().attempt_number, 1);
+    drop(store);
+    let reopened = journey_store(&directory);
+    assert_eq!(TaskAgentJourneyStore::storage_revision(&reopened), 3);
+    assert_eq!(reopened.journey(admitted.id), Some(ready.journey));
+    drop(reopened);
     assert_eq!(claimed.receipt.task.external_task_key, [8; 16]);
     assert_eq!(claimed.receipt.task.incarnation, 0);
     assert_eq!(claimed.receipt.attempt_number, 1);
@@ -261,6 +396,75 @@ fn uncertain_result_fences_without_a_second_claim() {
     ));
     drop(worker);
     owner.stop();
+}
+
+#[test]
+fn storage_conflict_retains_the_claim_for_bind_only_recovery() {
+    let directory = Directory::new();
+    let mut server = chronos_standalone::Server::bind_with_options(
+        &directory.0,
+        chronos_standalone::ServerOptions {
+            allow_writes: true,
+            atomic_state: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let handle = server.trusted_worker().unwrap();
+    let owner = RunningServer::start(server);
+    let mut client = LocalClient::new(&directory.0);
+    submit(&mut client, "j1-bind-recovery");
+    let (mut store, admitted) = admitted_journey(&directory, [18; 16]);
+    let mut worker = TrustedWorkerV1::new(handle, configuration()).unwrap();
+
+    let error = worker
+        .claim_and_bind(
+            &mut store,
+            Some(1),
+            admitted.id,
+            ClaimIntentV1 {
+                task_id: "j1-bind-recovery".into(),
+                external_task_key: [18; 16],
+                expected_revision: 1,
+                now: SystemTime::UNIX_EPOCH,
+            },
+        )
+        .unwrap_err();
+    let ClaimAndBindErrorV1::Bind(JourneyBindingErrorV1::Store { claim, error }) = error else {
+        panic!("retained-claim storage conflict expected")
+    };
+    assert!(matches!(
+        error,
+        TaskAgentJourneyApplyErrorV1::Conflict {
+            expected: Some(1),
+            actual: 2
+        }
+    ));
+    assert_eq!(worker.active(), Some(claim));
+    assert_eq!(TaskAgentJourneyStore::storage_revision(&store), 2);
+    assert_eq!(store.journey(admitted.id), Some(admitted));
+
+    let ready = worker
+        .bind_active_journey(&mut store, Some(2), admitted.id)
+        .unwrap();
+    assert_eq!(ready.claim, claim);
+    assert_eq!(ready.storage_revision, 3);
+    assert!(!ready.replayed);
+    assert!(
+        worker
+            .bind_active_journey(&mut store, Some(3), admitted.id)
+            .unwrap()
+            .replayed
+    );
+    assert!(matches!(
+        snapshot(&mut client, "j1-bind-recovery"),
+        Phase::Running
+    ));
+
+    drop(worker);
+    drop(store);
+    let server = owner.stop();
+    assert_eq!(server.signals().worker_requests, 3);
 }
 
 #[test]

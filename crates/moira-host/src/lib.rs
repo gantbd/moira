@@ -1,6 +1,5 @@
 //! Trusted persistence port. It owns no workflow or connector semantics.
 
-use moira_core::EffectId;
 use moira_core::agent_participation::{
     BindingV1 as AgentParticipationBindingV1, ObservationV1 as AgentParticipationObservationV1,
     OperationV1 as AgentParticipationOperationV1, ParticipationIdV1 as AgentParticipationIdV1,
@@ -24,6 +23,7 @@ use moira_core::tool_continuation::{
     CommandV1 as ToolContinuationCommandV1, RefusalV1 as ToolContinuationRefusalV1,
     SnapshotV1 as ToolContinuationSnapshotV1, TransitionV1 as ToolContinuationTransitionV1,
 };
+use moira_core::{ChronosAttemptReceiptV1, EffectId};
 use moira_protocol::agent;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -179,12 +179,17 @@ pub enum TaskAgentJourneyMutationV1 {
         request: TaskAgentInstantiateRequestV1,
         observed_at: u64,
     },
+    BindTaskAttempt {
+        journey: TaskAgentJourneyIdV1,
+        receipt: ChronosAttemptReceiptV1,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TaskAgentJourneyApplyV1 {
     Preview(TaskAgentPreviewReceiptV1),
     Instantiate(TaskAgentJourneyReceiptV1),
+    TaskAttempt(TaskAgentJourneyReceiptV1),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

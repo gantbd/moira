@@ -1,4 +1,7 @@
-use moira_core::{ChronosTaskRefV1, agent_participation::ProfileIdV1, task_agent_journey as j};
+use moira_core::{
+    ChronosAttemptReceiptV1, ChronosTaskRefV1, agent_participation::ProfileIdV1,
+    task_agent_journey as j,
+};
 
 #[test]
 fn canonical_checkpoint_round_trips_and_reopens_exact_journey() {
@@ -8,14 +11,44 @@ fn canonical_checkpoint_round_trips_and_reopens_exact_journey() {
         .instantiate(instantiate_request(preview), 1_002)
         .unwrap()
         .journey;
+    let ready = engine
+        .bind_task_attempt(
+            admitted.id,
+            ChronosAttemptReceiptV1::new(preview.request.task.task, 2, 12),
+        )
+        .unwrap()
+        .journey;
     let limits = j::persistence::CodecLimitsV1::default();
     let bytes = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
     let checkpoint = j::persistence::decode(&bytes, limits).unwrap();
     let reopened = j::Engine::recover(checkpoint).unwrap();
-    assert_eq!(reopened.journey(admitted.id), Some(&admitted));
+    assert_eq!(reopened.journey(admitted.id), Some(&ready));
     assert_eq!(
         j::persistence::encode(&reopened.checkpoint(), limits).unwrap(),
         bytes
+    );
+}
+
+#[test]
+fn legacy_admitted_checkpoint_decodes_and_upgrades_canonically() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let limits = j::persistence::CodecLimitsV1::default();
+    let mut legacy = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
+    legacy[8] = 1;
+    assert_eq!(legacy.pop(), Some(0));
+
+    let checkpoint = j::persistence::decode(&legacy, limits).unwrap();
+    assert_eq!(checkpoint.journeys, vec![admitted]);
+    let upgraded = j::persistence::encode(&checkpoint, limits).unwrap();
+    assert_eq!(upgraded[8], 2);
+    assert_eq!(
+        j::persistence::decode(&upgraded, limits).unwrap(),
+        checkpoint
     );
 }
 

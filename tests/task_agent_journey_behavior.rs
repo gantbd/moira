@@ -17,6 +17,7 @@ fn exact_preview_and_human_confirmation_admit_one_owner_journey() {
     let admitted = engine.instantiate(request, 1_002).unwrap();
     assert!(!admitted.replayed);
     assert_eq!(admitted.journey.phase, j::PhaseV1::Admitted);
+    assert_eq!(admitted.journey.task_attempt, None);
     assert_eq!(admitted.journey.id.owner, j::OwnerIdV1([1; 16]));
     assert_eq!(admitted.journey.workflow.owner, j::OwnerIdV1([1; 16]));
     assert_eq!(
@@ -134,6 +135,65 @@ fn trusted_exact_chronos_claim_derives_one_task_attempt_binding() {
             chronos_revision: 12,
         })
     );
+}
+
+#[test]
+fn trusted_exact_chronos_claim_persists_one_replayable_ready_transition() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let receipt = ChronosAttemptReceiptV1::new(preview.request.task.task, 3, 12);
+
+    let ready = engine.bind_task_attempt(admitted.id, receipt).unwrap();
+    assert!(!ready.replayed);
+    assert_eq!(ready.journey.phase, j::PhaseV1::TaskAttemptReady);
+    assert_eq!(ready.journey.revision, admitted.revision + 1);
+    assert_eq!(
+        ready.journey.task_attempt,
+        Some(j::TaskAttemptBindingV1 {
+            journey: admitted.id,
+            expected_journey_revision: admitted.revision,
+            task: preview.request.task.task,
+            attempt_number: 3,
+            chronos_revision: 12,
+        })
+    );
+    assert!(
+        engine
+            .bind_task_attempt(admitted.id, receipt)
+            .unwrap()
+            .replayed
+    );
+
+    let recovered = j::Engine::recover(engine.checkpoint()).unwrap();
+    assert_eq!(recovered.journey(admitted.id), Some(&ready.journey));
+}
+
+#[test]
+fn persisted_task_attempt_refuses_forks_without_changing_the_journey() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let exact = ChronosAttemptReceiptV1::new(preview.request.task.task, 3, 12);
+    let ready = engine
+        .bind_task_attempt(admitted.id, exact)
+        .unwrap()
+        .journey;
+
+    assert_eq!(
+        engine.bind_task_attempt(
+            admitted.id,
+            ChronosAttemptReceiptV1::new(preview.request.task.task, 4, 13),
+        ),
+        Err(j::RefusalV1::TaskAttemptConflict)
+    );
+    assert_eq!(engine.journey(admitted.id), Some(&ready));
 }
 
 #[test]

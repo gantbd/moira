@@ -23,7 +23,10 @@ chronos-standalone = { path = "../../../chronos/applications/chronos-daemon" }
 chronos-wire = { path = "../../../chronos/protocol/chronos-wire" }
 moira-chronos = { path = "../../adapters/moira-chronos" }
 moira-chronos-worker = { path = "../../adapters/moira-chronos-worker" }
+moira-core = { path = "../.." }
+moira-host = { path = "../../crates/moira-host" }
 moira-protocol = { path = "../../crates/moira-protocol" }
+moira-sqlite = { path = "../../adapters/moira-sqlite" }
 
 [lints.rust]
 unsafe_code = "forbid"

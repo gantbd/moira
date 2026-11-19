@@ -10,6 +10,14 @@ use chronos_engine::{
     TaskState,
 };
 use chronos_host::worker::{WorkerClientV1, WorkerRefusalV1, WorkerRequestV1};
+use moira_core::{
+    ChronosAttemptReceiptV1, ChronosTaskRefV1,
+    task_agent_journey::{JourneyIdV1, JourneySnapshotV1},
+};
+use moira_host::{
+    TaskAgentJourneyApplyErrorV1, TaskAgentJourneyApplyV1, TaskAgentJourneyMutationV1,
+    TaskAgentJourneyStore,
+};
 use moira_protocol::{AttemptReceiptV1, DispositionV1, EffectIdV1, ResultReceiptV1, TaskRefV1};
 use std::time::{Duration, SystemTime};
 
@@ -66,6 +74,32 @@ impl std::fmt::Debug for ClaimIntentV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClaimedAttemptV1 {
     pub receipt: AttemptReceiptV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReadyTaskAttemptV1 {
+    pub claim: ClaimedAttemptV1,
+    pub storage_revision: u64,
+    pub journey: JourneySnapshotV1,
+    pub replayed: bool,
+}
+
+#[derive(Debug)]
+pub enum JourneyBindingErrorV1<E> {
+    NoActiveAttempt,
+    Store {
+        claim: ClaimedAttemptV1,
+        error: TaskAgentJourneyApplyErrorV1<E>,
+    },
+    UnexpectedOutcome {
+        claim: ClaimedAttemptV1,
+    },
+}
+
+#[derive(Debug)]
+pub enum ClaimAndBindErrorV1<W, S> {
+    Claim(ErrorV1<W>),
+    Bind(JourneyBindingErrorV1<S>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -302,6 +336,70 @@ impl<C: WorkerClientV1> TrustedWorkerV1<C> {
             binding: None,
         });
         Ok(ClaimedAttemptV1 { receipt })
+    }
+
+    /// Claim one exact Chronos attempt and immediately retain its journey
+    /// binding. If storage refuses or becomes indeterminate the returned error
+    /// retains the successful claim and the worker remains active; callers may
+    /// reconcile and invoke `bind_active_journey` without claiming again.
+    pub fn claim_and_bind<S: TaskAgentJourneyStore>(
+        &mut self,
+        store: &mut S,
+        expected_storage_revision: Option<u64>,
+        journey: JourneyIdV1,
+        intent: ClaimIntentV1,
+    ) -> Result<ReadyTaskAttemptV1, ClaimAndBindErrorV1<C::TransportError, S::Error>> {
+        self.claim(intent).map_err(ClaimAndBindErrorV1::Claim)?;
+        self.bind_active_journey(store, expected_storage_revision, journey)
+            .map_err(ClaimAndBindErrorV1::Bind)
+    }
+
+    /// Retain the already-active exact claim without issuing another Chronos
+    /// mutation. This is the only safe continuation after a storage conflict
+    /// or indeterminate persistence outcome from `claim_and_bind`.
+    pub fn bind_active_journey<S: TaskAgentJourneyStore>(
+        &mut self,
+        store: &mut S,
+        expected_storage_revision: Option<u64>,
+        journey: JourneyIdV1,
+    ) -> Result<ReadyTaskAttemptV1, JourneyBindingErrorV1<S::Error>> {
+        let claim = self
+            .active()
+            .ok_or(JourneyBindingErrorV1::NoActiveAttempt)?;
+        let receipt = ChronosAttemptReceiptV1::new(
+            ChronosTaskRefV1::new(
+                claim.receipt.task.external_task_key,
+                claim.receipt.task.incarnation,
+            ),
+            claim.receipt.attempt_number,
+            claim.receipt.chronos_revision,
+        );
+        let applied = store
+            .apply(
+                expected_storage_revision,
+                TaskAgentJourneyMutationV1::BindTaskAttempt { journey, receipt },
+            )
+            .map_err(|error| JourneyBindingErrorV1::Store { claim, error })?;
+        let TaskAgentJourneyApplyV1::TaskAttempt(bound) = applied.outcome else {
+            self.state = State::Fenced;
+            return Err(JourneyBindingErrorV1::UnexpectedOutcome { claim });
+        };
+        let exact = bound.journey.id == journey
+            && bound.journey.task_attempt.is_some_and(|binding| {
+                binding.task == receipt.task()
+                    && binding.attempt_number == receipt.attempt_number()
+                    && binding.chronos_revision == receipt.chronos_revision()
+            });
+        if !exact {
+            self.state = State::Fenced;
+            return Err(JourneyBindingErrorV1::UnexpectedOutcome { claim });
+        }
+        Ok(ReadyTaskAttemptV1 {
+            claim,
+            storage_revision: applied.storage_revision,
+            journey: bound.journey,
+            replayed: bound.replayed,
+        })
     }
 
     pub fn bind_result(

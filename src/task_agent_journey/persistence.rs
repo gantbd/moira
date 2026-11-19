@@ -137,6 +137,14 @@ impl<'a> Reader<'a> {
 }
 
 pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8>, CodecErrorV1> {
+    encode_version(checkpoint, limits, 2)
+}
+
+fn encode_version(
+    checkpoint: &CheckpointV1,
+    limits: CodecLimitsV1,
+    version: u8,
+) -> Result<Vec<u8>, CodecErrorV1> {
     validate_limits(limits)?;
     host_bounds(checkpoint.limits, limits.domain)?;
     let recovered = Engine::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
@@ -146,7 +154,7 @@ pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8
     }
     let mut writer = Writer::new(limits.max_bytes);
     writer.raw(MAGIC)?;
-    writer.byte(1)?;
+    writer.byte(version)?;
     writer.id(canonical.owner.0)?;
     domain_limits(&mut writer, canonical.limits)?;
     writer.number(canonical.owner_revision)?;
@@ -162,7 +170,7 @@ pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8
     }
     writer.number(to_u64(canonical.journeys.len())?)?;
     for value in canonical.journeys {
-        journey(&mut writer, value)?;
+        journey(&mut writer, value, version)?;
     }
     Ok(writer.bytes)
 }
@@ -170,7 +178,11 @@ pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8
 pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, CodecErrorV1> {
     validate_limits(limits)?;
     let mut reader = Reader::new(bytes, limits.max_bytes)?;
-    if reader.raw::<8>()? != *MAGIC || reader.byte()? != 1 {
+    if reader.raw::<8>()? != *MAGIC {
+        return Err(CodecErrorV1::Invalid);
+    }
+    let version = reader.byte()?;
+    if !matches!(version, 1 | 2) {
         return Err(CodecErrorV1::Invalid);
     }
     let owner = OwnerIdV1(reader.id()?);
@@ -200,7 +212,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         .try_reserve_exact(journey_count)
         .map_err(|_| CodecErrorV1::Capacity)?;
     for _ in 0..journey_count {
-        journeys.push(read_journey(&mut reader)?);
+        journeys.push(read_journey(&mut reader, version)?);
     }
     reader.finish()?;
     let checkpoint = CheckpointV1 {
@@ -214,7 +226,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         journeys,
     };
     Engine::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
-    if encode(&checkpoint, limits)? != bytes {
+    if encode_version(&checkpoint, limits, version)? != bytes {
         return Err(CodecErrorV1::NonCanonical);
     }
     Ok(checkpoint)
@@ -324,20 +336,34 @@ fn read_preview_request(reader: &mut Reader<'_>) -> Result<PreviewRequestV1, Cod
     })
 }
 
-fn journey(writer: &mut Writer, value: JourneySnapshotV1) -> Result<(), CodecErrorV1> {
+fn journey(writer: &mut Writer, value: JourneySnapshotV1, version: u8) -> Result<(), CodecErrorV1> {
     scoped_journey_id(writer, value.id)?;
     writer.id(value.workflow.owner.0)?;
     writer.number(value.workflow.sequence)?;
     writer.number(value.revision)?;
     writer.byte(match value.phase {
         PhaseV1::Admitted => 1,
+        PhaseV1::TaskAttemptReady => 2,
     })?;
     instantiate_request(writer, value.admission)?;
     writer.number(value.confirmed_at)?;
-    preview(writer, value.preview)
+    preview(writer, value.preview)?;
+    if version == 1 {
+        if value.task_attempt.is_some() || value.phase != PhaseV1::Admitted {
+            return Err(CodecErrorV1::Invalid);
+        }
+        return Ok(());
+    }
+    match value.task_attempt {
+        None => writer.byte(0),
+        Some(binding) => {
+            writer.byte(1)?;
+            task_attempt(writer, binding)
+        }
+    }
 }
 
-fn read_journey(reader: &mut Reader<'_>) -> Result<JourneySnapshotV1, CodecErrorV1> {
+fn read_journey(reader: &mut Reader<'_>, version: u8) -> Result<JourneySnapshotV1, CodecErrorV1> {
     let id = read_journey_id(reader)?;
     let workflow = WorkflowRefV1 {
         owner: OwnerIdV1(reader.id()?),
@@ -346,16 +372,52 @@ fn read_journey(reader: &mut Reader<'_>) -> Result<JourneySnapshotV1, CodecError
     let revision = reader.number()?;
     let phase = match reader.byte()? {
         1 => PhaseV1::Admitted,
+        2 if version >= 2 => PhaseV1::TaskAttemptReady,
         _ => return Err(CodecErrorV1::Invalid),
+    };
+    let admission = read_instantiate_request(reader)?;
+    let confirmed_at = reader.number()?;
+    let preview = read_preview(reader)?;
+    let task_attempt = if version == 1 {
+        None
+    } else {
+        match reader.byte()? {
+            0 => None,
+            1 => Some(read_task_attempt(reader)?),
+            _ => return Err(CodecErrorV1::Invalid),
+        }
     };
     Ok(JourneySnapshotV1 {
         id,
         workflow,
         revision,
         phase,
-        admission: read_instantiate_request(reader)?,
-        confirmed_at: reader.number()?,
-        preview: read_preview(reader)?,
+        admission,
+        confirmed_at,
+        preview,
+        task_attempt,
+    })
+}
+
+fn task_attempt(writer: &mut Writer, value: TaskAttemptBindingV1) -> Result<(), CodecErrorV1> {
+    scoped_journey_id(writer, value.journey)?;
+    writer.number(value.expected_journey_revision)?;
+    writer.id(value.task.external_task_key())?;
+    writer.number(value.task.incarnation())?;
+    writer.number(u64::from(value.attempt_number))?;
+    writer.number(value.chronos_revision)
+}
+
+fn read_task_attempt(reader: &mut Reader<'_>) -> Result<TaskAttemptBindingV1, CodecErrorV1> {
+    Ok(TaskAttemptBindingV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.number()?,
+        task: ChronosTaskRefV1::new(reader.id()?, reader.number()?),
+        attempt_number: reader
+            .number()?
+            .try_into()
+            .map_err(|_| CodecErrorV1::Invalid)?,
+        chronos_revision: reader.number()?,
     })
 }
 

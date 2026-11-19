@@ -140,6 +140,7 @@ pub struct InstantiateRequestV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PhaseV1 {
     Admitted,
+    TaskAttemptReady,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,6 +152,7 @@ pub struct JourneySnapshotV1 {
     pub admission: InstantiateRequestV1,
     pub confirmed_at: u64,
     pub preview: PreviewSnapshotV1,
+    pub task_attempt: Option<TaskAttemptBindingV1>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -253,6 +255,11 @@ pub enum RefusalV1 {
     JourneyLimit,
     InstantiateOperationConflict,
     PreviewAlreadyInstantiated,
+    JourneyNotFound,
+    InvalidTaskAttempt,
+    TaskAttemptMismatch,
+    TaskAttemptConflict,
+    StaleChronosRevision,
     IdentityExhausted,
     InvalidCheckpoint,
 }
@@ -461,6 +468,7 @@ impl Engine {
             admission: request,
             confirmed_at: observed_at,
             preview,
+            task_attempt: None,
         };
         self.journeys.insert(id, journey);
         self.instantiate_operations.insert(request.operation, id);
@@ -468,6 +476,58 @@ impl Engine {
         self.next_journey = next;
         Ok(JourneyReceiptV1 {
             journey,
+            replayed: false,
+        })
+    }
+
+    /// Persist the exact trusted Chronos claim that advances an admitted
+    /// journey. This transition grants no lease, delegation, session, or peer
+    /// authority; those remain later owner-evidence transitions.
+    pub fn bind_task_attempt(
+        &mut self,
+        journey: JourneyIdV1,
+        receipt: ChronosAttemptReceiptV1,
+    ) -> Result<JourneyReceiptV1, RefusalV1> {
+        let current = *self
+            .journeys
+            .get(&journey)
+            .ok_or(RefusalV1::JourneyNotFound)?;
+        if current.phase == PhaseV1::TaskAttemptReady {
+            let binding = current.task_attempt.ok_or(RefusalV1::InvalidCheckpoint)?;
+            return if binding.task == receipt.task()
+                && binding.attempt_number == receipt.attempt_number()
+                && binding.chronos_revision == receipt.chronos_revision()
+            {
+                Ok(JourneyReceiptV1 {
+                    journey: current,
+                    replayed: true,
+                })
+            } else {
+                Err(RefusalV1::TaskAttemptConflict)
+            };
+        }
+        let binding =
+            derive_task_attempt_binding(&current, receipt).map_err(|refusal| match refusal {
+                TaskAttemptBindingRefusalV1::JourneyNotAdmitted
+                | TaskAttemptBindingRefusalV1::InvalidReceipt => RefusalV1::InvalidTaskAttempt,
+                TaskAttemptBindingRefusalV1::TaskMismatch => RefusalV1::TaskAttemptMismatch,
+                TaskAttemptBindingRefusalV1::StaleChronosRevision => {
+                    RefusalV1::StaleChronosRevision
+                }
+            })?;
+        let revision = current
+            .revision
+            .checked_add(1)
+            .ok_or(RefusalV1::IdentityExhausted)?;
+        let next = JourneySnapshotV1 {
+            revision,
+            phase: PhaseV1::TaskAttemptReady,
+            task_attempt: Some(binding),
+            ..current
+        };
+        self.journeys.insert(journey, next);
+        Ok(JourneyReceiptV1 {
+            journey: next,
             replayed: false,
         })
     }
@@ -514,10 +574,27 @@ impl Engine {
                 || journey.workflow.owner != checkpoint.owner
                 || journey.id.sequence != journey.workflow.sequence
                 || journey.id.sequence >= checkpoint.next_journey
-                || engine
-                    .instantiate(journey.admission, journey.confirmed_at)?
-                    .journey
-                    != journey
+                || {
+                    let admitted = engine
+                        .instantiate(journey.admission, journey.confirmed_at)?
+                        .journey;
+                    let recovered = match journey.task_attempt {
+                        Some(binding) => {
+                            engine
+                                .bind_task_attempt(
+                                    journey.id,
+                                    ChronosAttemptReceiptV1::new(
+                                        binding.task,
+                                        binding.attempt_number,
+                                        binding.chronos_revision,
+                                    ),
+                                )?
+                                .journey
+                        }
+                        None => admitted,
+                    };
+                    recovered != journey
+                }
             {
                 return Err(RefusalV1::InvalidCheckpoint);
             }
@@ -561,7 +638,6 @@ fn valid_budget(value: BudgetV1) -> bool {
 fn valid_preview_request(value: PreviewRequestV1, max_ttl: u64) -> bool {
     value.operation.0 != [0; 16]
         && value.task.task.external_task_key() != [0; 16]
-        && value.task.task.incarnation() > 0
         && value.task.chronos_revision > 0
         && value.task.evidence_digest != [0; 32]
         && value.initiating_principal.0 != [0; 16]
