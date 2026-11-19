@@ -33,14 +33,20 @@ pub enum ReviewPublicationRefV1<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReviewProjectionRefusalV1 {
     Unaddressed,
+    DuplicateAddress,
 }
 
 pub fn project_review_publication(
     route: ReviewPublicationRouteV1,
     publication: ReviewPublicationRefV1<'_>,
 ) -> Result<PublicationIntentV1, ReviewProjectionRefusalV1> {
-    if route.addressed_to.is_empty() {
+    let mut addressed_to = route.addressed_to;
+    if addressed_to.is_empty() {
         return Err(ReviewProjectionRefusalV1::Unaddressed);
+    }
+    addressed_to.sort();
+    if addressed_to.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ReviewProjectionRefusalV1::DuplicateAddress);
     }
     Ok(PublicationIntentV1 {
         effect: route.effect,
@@ -50,7 +56,7 @@ pub fn project_review_publication(
         expected_agora_revision: route.expected_agora_revision,
         logical_time: route.logical_time,
         body: body(publication),
-        addressed_to: route.addressed_to,
+        addressed_to,
     })
 }
 
@@ -184,6 +190,10 @@ mod tests {
         assert!(finding_message.body.contains("kind=finding"));
         assert!(finding_message.body.contains("human_gate=required"));
         assert_eq!(finding_message.addressed_to.len(), 2);
+        assert_eq!(
+            finding_message.addressed_to,
+            vec!["human-advocate", "work-owner"]
+        );
 
         let rebuttal_message =
             project_review_publication(route(), ReviewPublicationRefV1::Rebuttal(&rebuttal))
@@ -225,6 +235,24 @@ mod tests {
         assert_eq!(
             project_review_publication(route, ReviewPublicationRefV1::Finding(&finding)),
             Err(ReviewProjectionRefusalV1::Unaddressed)
+        );
+    }
+
+    #[test]
+    fn duplicate_review_address_is_refused_before_agora_dispatch() {
+        let finding = ReviewFindingV1 {
+            id: FindingIdV1([1; 16]),
+            source_report: ReportIdV1([2; 16]),
+            owner: [3; 16],
+            finding_digest: [4; 32],
+            evidence_digests: vec![],
+            requires_human_gate: false,
+        };
+        let mut route = route();
+        route.addressed_to = vec!["work-owner".to_owned(), "work-owner".to_owned()];
+        assert_eq!(
+            project_review_publication(route, ReviewPublicationRefV1::Finding(&finding)),
+            Err(ReviewProjectionRefusalV1::DuplicateAddress)
         );
     }
 }

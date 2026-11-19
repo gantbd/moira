@@ -14,6 +14,10 @@ agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
 moira-core = { path = "../.." }
 moira-protocol = { path = "../../crates/moira-protocol" }
 
+[dev-dependencies]
+agora-engine = { path = "../../../agora/engine/agora-engine" }
+agora-service = { path = "../../../agora/service/agora-service" }
+
 [lints.rust]
 unsafe_code = "forbid"
 

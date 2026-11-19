@@ -96,12 +96,39 @@ name = "agora-engine"
 version = "0.3.0"
 
 [[package]]
+name = "agora-federated-publication-port"
+version = "0.1.0"
+
+[[package]]
+name = "agora-interaction-port"
+version = "0.1.0"
+
+[[package]]
 name = "agora-protocol"
 version = "0.1.0"
 
 [[package]]
 name = "agora-scheduled-publication-port"
 version = "0.1.0"
+
+[[package]]
+name = "agora-search-port"
+version = "0.1.0"
+
+[[package]]
+name = "agora-service"
+version = "0.1.0"
+dependencies = [
+ "agora-actor-publication-port",
+ "agora-delivery-projection-port",
+ "agora-engine",
+ "agora-federated-publication-port",
+ "agora-interaction-port",
+ "agora-protocol",
+ "agora-scheduled-publication-port",
+ "agora-search-port",
+ "agora-wire",
+]
 
 [[package]]
 name = "agora-wire"
@@ -573,7 +600,9 @@ version = "0.1.0"
 dependencies = [
  "agora-actor-publication-port",
  "agora-client",
+ "agora-engine",
  "agora-protocol",
+ "agora-service",
  "moira-core",
  "moira-protocol",
 ]
