@@ -442,6 +442,15 @@ fn exact_cohort_is_admitted_executed_retained_then_explicitly_resolved() {
     assert_eq!(completed.retained.reports.len(), 2);
     assert!(completed.retained.resolution.is_none());
     assert_eq!(store.revision(), RegistryRevisionV1(3));
+    assert_eq!(
+        completed
+            .correlation
+            .first_pass
+            .committed_before_cross_review,
+        2
+    );
+    assert_eq!(completed.correlation.first_pass.exposed_before_commit, 0);
+    assert_eq!(completed.correlation.first_pass.unknown, 0);
     for dimension in [
         CorrelationDimensionV1::Model,
         CorrelationDimensionV1::Provider,

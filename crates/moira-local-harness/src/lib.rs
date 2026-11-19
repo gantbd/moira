@@ -11,6 +11,7 @@ use daimon_client::ModelServicePort;
 use moira_core::deliberation::{
     DeliberationCheckpointV1, DeliberationPlanV1, ResolutionV1,
     registry::{RegistryCommandV1, RegistryReceiptV1},
+    review::FirstPassExposureV1,
 };
 use moira_daimon::{
     CompletedToolResultV1, ModelExecutionAdapter,
@@ -183,7 +184,7 @@ where
         .map_err(GovernedRunErrorV1::Admission)?;
     let outcomes = ensemble::execute(adapter, &plan, runs.clone(), now)
         .map_err(GovernedRunErrorV1::InvalidCohort)?;
-    let correlation = ensemble::analyze_observed_correlation(&plan, &runs, &outcomes)
+    let mut correlation = ensemble::analyze_observed_correlation(&plan, &runs, &outcomes)
         .map_err(GovernedRunErrorV1::InvalidCohort)?;
     let reports = outcomes
         .iter()
@@ -212,6 +213,13 @@ where
                 )));
             }
         }
+    }
+    if retained.reports.len() == plan.members.len() {
+        correlation.first_pass = FirstPassExposureV1 {
+            committed_before_cross_review: plan.members.len(),
+            exposed_before_commit: 0,
+            unknown: 0,
+        };
     }
     Ok(GovernedRunV1 {
         correlation,

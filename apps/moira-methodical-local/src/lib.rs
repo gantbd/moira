@@ -2815,6 +2815,12 @@ mod tests {
         )
         .unwrap();
         let review = reopened.review(DeliberationIdV1([2; 16])).unwrap();
+        assert_eq!(
+            review.correlation.first_pass.committed_before_cross_review,
+            4
+        );
+        assert_eq!(review.correlation.first_pass.exposed_before_commit, 0);
+        assert_eq!(review.correlation.first_pass.unknown, 0);
         for dimension in [
             CorrelationDimensionV1::Model,
             CorrelationDimensionV1::Provider,
