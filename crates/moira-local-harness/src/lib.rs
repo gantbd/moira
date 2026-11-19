@@ -143,16 +143,17 @@ where
     P: ModelServicePort,
     S: DeliberationStore,
 {
-    let correlation =
-        ensemble::analyze_correlation(&plan, &runs).map_err(GovernedRunErrorV1::InvalidCohort)?;
+    ensemble::validate_runs(&plan, &runs).map_err(GovernedRunErrorV1::InvalidCohort)?;
     let admitted = store
         .apply(
             store.revision(),
             RegistryCommandV1::Admit(Box::new(plan.clone())),
         )
         .map_err(GovernedRunErrorV1::Admission)?;
-    let outcomes =
-        ensemble::execute(adapter, &plan, runs, now).map_err(GovernedRunErrorV1::InvalidCohort)?;
+    let outcomes = ensemble::execute(adapter, &plan, runs.clone(), now)
+        .map_err(GovernedRunErrorV1::InvalidCohort)?;
+    let correlation = ensemble::analyze_observed_correlation(&plan, &runs, &outcomes)
+        .map_err(GovernedRunErrorV1::InvalidCohort)?;
     let reports = outcomes
         .iter()
         .filter_map(|outcome| match outcome {

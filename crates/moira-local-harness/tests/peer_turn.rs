@@ -91,6 +91,7 @@ fn result() -> ModelResultV1 {
             disposition: DispositionV1::Completed,
         },
         evidence_digest: [7; 32],
+        invocation_evidence: None,
         input_tokens: 8,
         output_tokens: 9,
         output: b"answer".to_vec(),

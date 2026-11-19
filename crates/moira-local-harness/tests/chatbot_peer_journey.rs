@@ -232,6 +232,7 @@ fn outcome() -> (
             disposition: DispositionV1::Completed,
         },
         evidence_digest: [19; 32],
+        invocation_evidence: None,
         input_tokens: 1,
         output_tokens: 1,
         output,

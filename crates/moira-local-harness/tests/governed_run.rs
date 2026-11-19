@@ -11,6 +11,7 @@ use moira_core::deliberation::{
         DeliberationRegistryV1, RegistryCommandV1, RegistryLimitsV1, RegistryRevisionV1,
         persistence::CodecLimitsV1,
     },
+    review::CorrelationDimensionV1,
 };
 use moira_daimon::{
     CompletedToolResultV1, ExecutionIntentV1, ModelExecutionAdapter,
@@ -39,6 +40,17 @@ use std::{
 const RESPONSE: &[u8] = br#"{"schema":"moira.member-response.v1","claims":[{"kind":"empirical","statement":"local model completed","evidence_digests":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],"dissent_digests":["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]}]}"#;
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
+
+fn invocation_evidence() -> Option<Box<daimon::ModelInvocationEvidenceV1>> {
+    Some(Box::new(daimon::ModelInvocationEvidenceV1 {
+        provider: daimon::ProviderProfileIdV1::new([21; 16]),
+        provider_document_digest: daimon::ContentDigestV1::new([22; 32]),
+        model_digest: daimon::ContentDigestV1::new([23; 32]),
+        context_manifest_digest: daimon::ContentDigestV1::new([24; 32]),
+        message_manifest_digest: daimon::ContentDigestV1::new([25; 32]),
+        evidence_scope_digest: daimon::ContentDigestV1::new([26; 32]),
+    }))
+}
 
 struct Fixture(PathBuf);
 
@@ -174,6 +186,7 @@ impl ModelServicePort for ResumePort {
                 execution_id: request.execution_id,
                 disposition: daimon::ExecutionDispositionV1::Completed,
                 evidence_digest: daimon::ContentDigestV1::new([24; 32]),
+                invocation_evidence: invocation_evidence(),
                 input_tokens: 2,
                 output_tokens: 3,
                 output: if self.tool_call {
@@ -204,6 +217,7 @@ impl ModelServicePort for Port {
                 execution_id: request.execution_id,
                 disposition: daimon::ExecutionDispositionV1::Completed,
                 evidence_digest: daimon::ContentDigestV1::new([24; 32]),
+                invocation_evidence: invocation_evidence(),
                 input_tokens: 2,
                 output_tokens: 3,
                 output: self.output.clone(),
@@ -234,6 +248,7 @@ impl daimon_local_daemon::ModelServicePort for SocketService {
                 execution_id: request.execution_id,
                 disposition: daimon::ExecutionDispositionV1::Completed,
                 evidence_digest: daimon::ContentDigestV1::new([24; 32]),
+                invocation_evidence: invocation_evidence(),
                 input_tokens: 2,
                 output_tokens: 3,
                 output: RESPONSE.to_vec(),
@@ -426,6 +441,16 @@ fn exact_cohort_is_admitted_executed_retained_then_explicitly_resolved() {
     assert_eq!(completed.retained.reports.len(), 2);
     assert!(completed.retained.resolution.is_none());
     assert_eq!(store.revision(), RegistryRevisionV1(3));
+    for dimension in [
+        CorrelationDimensionV1::Model,
+        CorrelationDimensionV1::Provider,
+        CorrelationDimensionV1::Prompt,
+        CorrelationDimensionV1::EvidenceScope,
+    ] {
+        let evidence = completed.correlation.dimension(dimension).unwrap();
+        assert_eq!(evidence.observed_members, 2);
+        assert_eq!(evidence.distinct_values, 1);
+    }
 
     let resolved =
         resolve_explicit(&mut store, plan.id, ResolutionV1::Maybe(MaybeValueV1::Both)).unwrap();
