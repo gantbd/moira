@@ -3,9 +3,9 @@ use moira_core::{ChronosTaskRefV1, agent_participation::ProfileIdV1, task_agent_
 #[test]
 fn canonical_checkpoint_round_trips_and_reopens_exact_journey() {
     let mut engine = engine();
-    let preview = engine.preview(preview_request()).unwrap().preview;
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
     let admitted = engine
-        .instantiate(instantiate_request(preview))
+        .instantiate(instantiate_request(preview), 1_002)
         .unwrap()
         .journey;
     let limits = j::persistence::CodecLimitsV1::default();
@@ -22,8 +22,10 @@ fn canonical_checkpoint_round_trips_and_reopens_exact_journey() {
 #[test]
 fn truncation_tail_mutation_and_host_limit_refuse() {
     let mut engine = engine();
-    let preview = engine.preview(preview_request()).unwrap().preview;
-    engine.instantiate(instantiate_request(preview)).unwrap();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap();
     let limits = j::persistence::CodecLimitsV1::default();
     let bytes = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
     for end in 0..bytes.len() {
@@ -90,8 +92,7 @@ fn preview_request() -> j::PreviewRequestV1 {
         objective_digest: [15; 32],
         acceptance_digest: [16; 32],
         current_evidence_digest: [17; 32],
-        observed_at: 1_000,
-        expires_at: 1_300,
+        requested_ttl: 300,
     }
 }
 
@@ -100,12 +101,10 @@ fn instantiate_request(preview: j::PreviewSnapshotV1) -> j::InstantiateRequestV1
         operation: j::InstantiateOperationIdV1([18; 16]),
         preview: preview.id,
         expected_owner_revision: preview.owner_revision,
-        observed_at: preview.request.observed_at + 2,
         confirmation: j::HumanConfirmationV1 {
             preview: preview.id,
             accountable_human: preview.request.accountable_human,
             consequence_digest: preview.consequence_digest,
-            confirmed_at: preview.request.observed_at + 1,
         },
     }
 }

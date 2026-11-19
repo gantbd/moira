@@ -105,8 +105,7 @@ pub struct PreviewRequestV1 {
     pub objective_digest: [u8; 32],
     pub acceptance_digest: [u8; 32],
     pub current_evidence_digest: [u8; 32],
-    pub observed_at: u64,
-    pub expires_at: u64,
+    pub requested_ttl: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,6 +113,8 @@ pub struct PreviewSnapshotV1 {
     pub id: PreviewIdV1,
     pub owner_revision: u64,
     pub request: PreviewRequestV1,
+    pub observed_at: u64,
+    pub expires_at: u64,
     pub work_mode: WorkModeV1,
     pub budget: BudgetV1,
     pub grounding_policy_digest: [u8; 32],
@@ -126,7 +127,6 @@ pub struct HumanConfirmationV1 {
     pub preview: PreviewIdV1,
     pub accountable_human: PrincipalIdV1,
     pub consequence_digest: [u8; 32],
-    pub confirmed_at: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -134,9 +134,6 @@ pub struct InstantiateRequestV1 {
     pub operation: InstantiateOperationIdV1,
     pub preview: PreviewIdV1,
     pub expected_owner_revision: u64,
-    /// Trusted composition time at which Moira evaluates this command. The
-    /// human confirmation time cannot substitute for this freshness check.
-    pub observed_at: u64,
     pub confirmation: HumanConfirmationV1,
 }
 
@@ -152,6 +149,7 @@ pub struct JourneySnapshotV1 {
     pub revision: u64,
     pub phase: PhaseV1,
     pub admission: InstantiateRequestV1,
+    pub confirmed_at: u64,
     pub preview: PreviewSnapshotV1,
 }
 
@@ -289,7 +287,11 @@ impl Engine {
         self.journeys.get(&id)
     }
 
-    pub fn preview(&mut self, request: PreviewRequestV1) -> Result<PreviewReceiptV1, RefusalV1> {
+    pub fn preview(
+        &mut self,
+        request: PreviewRequestV1,
+        observed_at: u64,
+    ) -> Result<PreviewReceiptV1, RefusalV1> {
         if let Some(id) = self.preview_operations.get(&request.operation) {
             let existing = self.previews.get(id).ok_or(RefusalV1::InvalidCheckpoint)?;
             return if existing.request == request {
@@ -304,9 +306,12 @@ impl Engine {
         if self.previews.len() >= self.limits.max_previews {
             return Err(RefusalV1::PreviewLimit);
         }
-        if !valid_preview_request(request, self.limits.max_preview_ttl) {
+        if !valid_preview_request(request, self.limits.max_preview_ttl) || observed_at == 0 {
             return Err(RefusalV1::InvalidPreview);
         }
+        let expires_at = observed_at
+            .checked_add(request.requested_ttl)
+            .ok_or(RefusalV1::InvalidPreview)?;
         let template = *self
             .templates
             .get(&request.template.id)
@@ -333,6 +338,8 @@ impl Engine {
             id,
             owner_revision: self.owner_revision,
             request,
+            observed_at,
+            expires_at,
             work_mode: template.work_mode,
             budget: template.budget,
             grounding_policy_digest: template.grounding_policy_digest,
@@ -351,6 +358,7 @@ impl Engine {
     pub fn instantiate(
         &mut self,
         request: InstantiateRequestV1,
+        observed_at: u64,
     ) -> Result<JourneyReceiptV1, RefusalV1> {
         if let Some(id) = self.instantiate_operations.get(&request.operation) {
             let existing = self.journeys.get(id).ok_or(RefusalV1::InvalidCheckpoint)?;
@@ -376,14 +384,12 @@ impl Engine {
         if self.preview_journeys.contains_key(&preview.id) {
             return Err(RefusalV1::PreviewAlreadyInstantiated);
         }
-        if request.observed_at > preview.request.expires_at {
+        if observed_at == 0 || observed_at >= preview.expires_at {
             return Err(RefusalV1::PreviewExpired);
         }
         if request.confirmation.preview != preview.id
             || request.confirmation.accountable_human != preview.request.accountable_human
             || request.confirmation.consequence_digest != preview.consequence_digest
-            || request.confirmation.confirmed_at < preview.request.observed_at
-            || request.confirmation.confirmed_at > request.observed_at
         {
             return Err(RefusalV1::InvalidConfirmation);
         }
@@ -404,6 +410,7 @@ impl Engine {
             revision: 0,
             phase: PhaseV1::Admitted,
             admission: request,
+            confirmed_at: observed_at,
             preview,
         };
         self.journeys.insert(id, journey);
@@ -445,7 +452,10 @@ impl Engine {
             if preview.id.owner != checkpoint.owner
                 || preview.id.sequence >= checkpoint.next_preview
                 || preview.owner_revision != checkpoint.owner_revision
-                || engine.preview(preview.request)?.preview != preview
+                || engine
+                    .preview(preview.request, preview.observed_at)?
+                    .preview
+                    != preview
             {
                 return Err(RefusalV1::InvalidCheckpoint);
             }
@@ -455,7 +465,10 @@ impl Engine {
                 || journey.workflow.owner != checkpoint.owner
                 || journey.id.sequence != journey.workflow.sequence
                 || journey.id.sequence >= checkpoint.next_journey
-                || engine.instantiate(journey.admission)?.journey != journey
+                || engine
+                    .instantiate(journey.admission, journey.confirmed_at)?
+                    .journey
+                    != journey
             {
                 return Err(RefusalV1::InvalidCheckpoint);
             }
@@ -507,9 +520,6 @@ fn valid_preview_request(value: PreviewRequestV1, max_ttl: u64) -> bool {
         && value.objective_digest != [0; 32]
         && value.acceptance_digest != [0; 32]
         && value.current_evidence_digest != [0; 32]
-        && value.expires_at > value.observed_at
-        && value
-            .expires_at
-            .checked_sub(value.observed_at)
-            .is_some_and(|ttl| ttl <= max_ttl)
+        && value.requested_ttl > 0
+        && value.requested_ttl <= max_ttl
 }

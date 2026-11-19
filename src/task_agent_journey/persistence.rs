@@ -270,6 +270,8 @@ fn preview(writer: &mut Writer, value: PreviewSnapshotV1) -> Result<(), CodecErr
     scoped_preview_id(writer, value.id)?;
     writer.number(value.owner_revision)?;
     preview_request(writer, value.request)?;
+    writer.number(value.observed_at)?;
+    writer.number(value.expires_at)?;
     writer.byte(work_mode_tag(value.work_mode))?;
     budget(writer, value.budget)?;
     writer.digest(value.grounding_policy_digest)?;
@@ -282,6 +284,8 @@ fn read_preview(reader: &mut Reader<'_>) -> Result<PreviewSnapshotV1, CodecError
         id: read_preview_id(reader)?,
         owner_revision: reader.number()?,
         request: read_preview_request(reader)?,
+        observed_at: reader.number()?,
+        expires_at: reader.number()?,
         work_mode: read_work_mode(reader.byte()?)?,
         budget: read_budget(reader)?,
         grounding_policy_digest: reader.digest()?,
@@ -301,8 +305,7 @@ fn preview_request(writer: &mut Writer, value: PreviewRequestV1) -> Result<(), C
     writer.digest(value.objective_digest)?;
     writer.digest(value.acceptance_digest)?;
     writer.digest(value.current_evidence_digest)?;
-    writer.number(value.observed_at)?;
-    writer.number(value.expires_at)
+    writer.number(value.requested_ttl)
 }
 
 fn read_preview_request(reader: &mut Reader<'_>) -> Result<PreviewRequestV1, CodecErrorV1> {
@@ -317,8 +320,7 @@ fn read_preview_request(reader: &mut Reader<'_>) -> Result<PreviewRequestV1, Cod
         objective_digest: reader.digest()?,
         acceptance_digest: reader.digest()?,
         current_evidence_digest: reader.digest()?,
-        observed_at: reader.number()?,
-        expires_at: reader.number()?,
+        requested_ttl: reader.number()?,
     })
 }
 
@@ -331,6 +333,7 @@ fn journey(writer: &mut Writer, value: JourneySnapshotV1) -> Result<(), CodecErr
         PhaseV1::Admitted => 1,
     })?;
     instantiate_request(writer, value.admission)?;
+    writer.number(value.confirmed_at)?;
     preview(writer, value.preview)
 }
 
@@ -351,6 +354,7 @@ fn read_journey(reader: &mut Reader<'_>) -> Result<JourneySnapshotV1, CodecError
         revision,
         phase,
         admission: read_instantiate_request(reader)?,
+        confirmed_at: reader.number()?,
         preview: read_preview(reader)?,
     })
 }
@@ -362,7 +366,6 @@ fn instantiate_request(
     writer.id(value.operation.0)?;
     scoped_preview_id(writer, value.preview)?;
     writer.number(value.expected_owner_revision)?;
-    writer.number(value.observed_at)?;
     confirmation(writer, value.confirmation)
 }
 
@@ -371,7 +374,6 @@ fn read_instantiate_request(reader: &mut Reader<'_>) -> Result<InstantiateReques
         operation: InstantiateOperationIdV1(reader.id()?),
         preview: read_preview_id(reader)?,
         expected_owner_revision: reader.number()?,
-        observed_at: reader.number()?,
         confirmation: read_confirmation(reader)?,
     })
 }
@@ -379,8 +381,7 @@ fn read_instantiate_request(reader: &mut Reader<'_>) -> Result<InstantiateReques
 fn confirmation(writer: &mut Writer, value: HumanConfirmationV1) -> Result<(), CodecErrorV1> {
     scoped_preview_id(writer, value.preview)?;
     writer.id(value.accountable_human.0)?;
-    writer.digest(value.consequence_digest)?;
-    writer.number(value.confirmed_at)
+    writer.digest(value.consequence_digest)
 }
 
 fn read_confirmation(reader: &mut Reader<'_>) -> Result<HumanConfirmationV1, CodecErrorV1> {
@@ -388,7 +389,6 @@ fn read_confirmation(reader: &mut Reader<'_>) -> Result<HumanConfirmationV1, Cod
         preview: read_preview_id(reader)?,
         accountable_human: PrincipalIdV1(reader.id()?),
         consequence_digest: reader.digest()?,
-        confirmed_at: reader.number()?,
     })
 }
 
