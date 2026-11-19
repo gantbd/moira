@@ -5,15 +5,20 @@
 //! retained by Moira's review exchange.
 
 use moira_core::deliberation::{
-    FindingDispositionIdV1, FindingIdV1, HumanGateResponseIdV1, RebuttalIdV1, ReportIdV1,
+    DeliberationIdV1, FindingDispositionIdV1, FindingIdV1, HumanGateResponseIdV1, RebuttalIdV1,
+    ReportIdV1,
     review::{FindingDispositionKindV1, FindingDispositionV1, RebuttalV1, ReviewFindingV1},
 };
 use moira_protocol::EffectIdV1;
 
-use crate::PublicationIntentV1;
+use crate::{
+    PublicationIntentV1, PublicationReplyV1,
+    durable::{DurablePublishErrorV1, DurableResponsePublisher, PublisherStateStoreV1},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewPublicationRouteV1 {
+    pub deliberation: DeliberationIdV1,
     pub effect: EffectIdV1,
     pub source: [u8; 16],
     pub room_sequence: u64,
@@ -32,14 +37,76 @@ pub enum ReviewPublicationRefV1<'a> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReviewProjectionRefusalV1 {
+    InvalidDeliberation,
     Unaddressed,
     DuplicateAddress,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReviewPublicationItemV1 {
+    Finding(FindingIdV1),
+    Rebuttal {
+        rebuttal: RebuttalIdV1,
+        finding: FindingIdV1,
+    },
+    Disposition {
+        disposition: FindingDispositionIdV1,
+        finding: FindingIdV1,
+    },
+}
+
+/// Exact owner correlation carried beside the Agora transport intent.
+///
+/// Agora does not interpret this value. A caller reconstructs it from Moira's
+/// retained review after restart and presents it with the durable publication
+/// outcome, without parsing the projected chat body.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReviewPublicationCorrelationV1 {
+    pub deliberation: DeliberationIdV1,
+    pub item: ReviewPublicationItemV1,
+    pub effect: EffectIdV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReviewPublicationIntentV1 {
+    correlation: ReviewPublicationCorrelationV1,
+    publication: PublicationIntentV1,
+}
+
+impl ReviewPublicationIntentV1 {
+    pub const fn correlation(&self) -> ReviewPublicationCorrelationV1 {
+        self.correlation
+    }
+
+    pub fn body(&self) -> &str {
+        &self.publication.body
+    }
+
+    pub fn addressed_to(&self) -> &[String] {
+        &self.publication.addressed_to
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReviewPublicationOutcomeV1 {
+    pub correlation: ReviewPublicationCorrelationV1,
+    pub reply: PublicationReplyV1,
+    pub replayed: bool,
+    pub storage_revision: u64,
 }
 
 pub fn project_review_publication(
     route: ReviewPublicationRouteV1,
     publication: ReviewPublicationRefV1<'_>,
-) -> Result<PublicationIntentV1, ReviewProjectionRefusalV1> {
+) -> Result<ReviewPublicationIntentV1, ReviewProjectionRefusalV1> {
+    if route.deliberation.0 == [0; 16] {
+        return Err(ReviewProjectionRefusalV1::InvalidDeliberation);
+    }
+    let correlation = ReviewPublicationCorrelationV1 {
+        deliberation: route.deliberation,
+        item: item(publication),
+        effect: route.effect,
+    };
     let mut addressed_to = route.addressed_to;
     if addressed_to.is_empty() {
         return Err(ReviewProjectionRefusalV1::Unaddressed);
@@ -48,16 +115,53 @@ pub fn project_review_publication(
     if addressed_to.windows(2).any(|pair| pair[0] == pair[1]) {
         return Err(ReviewProjectionRefusalV1::DuplicateAddress);
     }
-    Ok(PublicationIntentV1 {
-        effect: route.effect,
-        source: route.source,
-        room_sequence: route.room_sequence,
-        room_id: route.room_id,
-        expected_agora_revision: route.expected_agora_revision,
-        logical_time: route.logical_time,
-        body: body(publication),
-        addressed_to,
+    Ok(ReviewPublicationIntentV1 {
+        correlation,
+        publication: PublicationIntentV1 {
+            effect: route.effect,
+            source: route.source,
+            room_sequence: route.room_sequence,
+            room_id: route.room_id,
+            expected_agora_revision: route.expected_agora_revision,
+            logical_time: route.logical_time,
+            body: body(publication),
+            addressed_to,
+        },
     })
+}
+
+/// Publish one exact retained review item and return a typed correlation to the
+/// durable transport outcome. Retrying the same projected intent after restart
+/// reuses the generic publisher's exact replay contract.
+pub fn publish_review<S, P>(
+    publisher: &mut DurableResponsePublisher<S, P>,
+    intent: &ReviewPublicationIntentV1,
+) -> Result<ReviewPublicationOutcomeV1, DurablePublishErrorV1<S::Error, P::Error>>
+where
+    S: PublisherStateStoreV1,
+    P: agora_client::v2::ServicePortV2,
+{
+    let outcome = publisher.publish(intent.publication.clone())?;
+    Ok(ReviewPublicationOutcomeV1 {
+        correlation: intent.correlation,
+        reply: outcome.reply,
+        replayed: outcome.replayed,
+        storage_revision: outcome.storage_revision,
+    })
+}
+
+fn item(publication: ReviewPublicationRefV1<'_>) -> ReviewPublicationItemV1 {
+    match publication {
+        ReviewPublicationRefV1::Finding(value) => ReviewPublicationItemV1::Finding(value.id),
+        ReviewPublicationRefV1::Rebuttal(value) => ReviewPublicationItemV1::Rebuttal {
+            rebuttal: value.id,
+            finding: value.finding,
+        },
+        ReviewPublicationRefV1::Disposition(value) => ReviewPublicationItemV1::Disposition {
+            disposition: value.id,
+            finding: value.finding,
+        },
+    }
 }
 
 fn body(publication: ReviewPublicationRefV1<'_>) -> String {
@@ -147,6 +251,7 @@ mod tests {
 
     fn route() -> ReviewPublicationRouteV1 {
         ReviewPublicationRouteV1 {
+            deliberation: DeliberationIdV1([20; 16]),
             effect: EffectIdV1([1; 16]),
             source: [2; 16],
             room_sequence: 3,
@@ -187,21 +292,29 @@ mod tests {
 
         let finding_message =
             project_review_publication(route(), ReviewPublicationRefV1::Finding(&finding)).unwrap();
-        assert!(finding_message.body.contains("kind=finding"));
-        assert!(finding_message.body.contains("human_gate=required"));
-        assert_eq!(finding_message.addressed_to.len(), 2);
         assert_eq!(
-            finding_message.addressed_to,
+            finding_message.correlation(),
+            ReviewPublicationCorrelationV1 {
+                deliberation: DeliberationIdV1([20; 16]),
+                item: ReviewPublicationItemV1::Finding(finding.id),
+                effect: EffectIdV1([1; 16]),
+            }
+        );
+        assert!(finding_message.body().contains("kind=finding"));
+        assert!(finding_message.body().contains("human_gate=required"));
+        assert_eq!(finding_message.addressed_to().len(), 2);
+        assert_eq!(
+            finding_message.addressed_to(),
             vec!["human-advocate", "work-owner"]
         );
 
         let rebuttal_message =
             project_review_publication(route(), ReviewPublicationRefV1::Rebuttal(&rebuttal))
                 .unwrap();
-        assert!(rebuttal_message.body.contains("kind=rebuttal"));
+        assert!(rebuttal_message.body().contains("kind=rebuttal"));
         assert!(
             rebuttal_message
-                .body
+                .body()
                 .contains(&hex(&rebuttal.rebuttal_digest))
         );
 
@@ -210,12 +323,12 @@ mod tests {
                 .unwrap();
         assert!(
             disposition_message
-                .body
+                .body()
                 .contains("disposition=risk_accepted")
         );
         assert!(
             disposition_message
-                .body
+                .body()
                 .contains(&hex(&HumanGateResponseIdV1([18; 16]).0))
         );
     }
@@ -253,6 +366,24 @@ mod tests {
         assert_eq!(
             project_review_publication(route, ReviewPublicationRefV1::Finding(&finding)),
             Err(ReviewProjectionRefusalV1::DuplicateAddress)
+        );
+    }
+
+    #[test]
+    fn zero_deliberation_cannot_create_a_correlation() {
+        let finding = ReviewFindingV1 {
+            id: FindingIdV1([1; 16]),
+            source_report: ReportIdV1([2; 16]),
+            owner: [3; 16],
+            finding_digest: [4; 32],
+            evidence_digests: vec![],
+            requires_human_gate: false,
+        };
+        let mut route = route();
+        route.deliberation = DeliberationIdV1([0; 16]);
+        assert_eq!(
+            project_review_publication(route, ReviewPublicationRefV1::Finding(&finding)),
+            Err(ReviewProjectionRefusalV1::InvalidDeliberation)
         );
     }
 }

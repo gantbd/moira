@@ -5,9 +5,16 @@ use agora_protocol::v2::{
 use moira_agora::{
     PublicationIntentV1, PublicationLimitsV1, PublicationReplyV1,
     durable::{DurablePublishErrorV1, DurableResponsePublisher, PublisherStateStoreV1},
+    review::{
+        ReviewPublicationIntentV1, ReviewPublicationItemV1, ReviewPublicationRefV1,
+        ReviewPublicationRouteV1, project_review_publication, publish_review,
+    },
 };
 use moira_agora_publisher_sqlite::{
     PublisherSqliteStore, PublisherStoreErrorV1, PublisherStoreLimitsV1,
+};
+use moira_core::deliberation::{
+    DeliberationIdV1, FindingIdV1, ReportIdV1, review::ReviewFindingV1,
 };
 use moira_protocol::EffectIdV1;
 use std::{
@@ -111,6 +118,31 @@ fn intent() -> PublicationIntentV1 {
     }
 }
 
+fn review_intent() -> ReviewPublicationIntentV1 {
+    let finding = ReviewFindingV1 {
+        id: FindingIdV1([11; 16]),
+        source_report: ReportIdV1([12; 16]),
+        owner: [13; 16],
+        finding_digest: [14; 32],
+        evidence_digests: vec![[15; 32]],
+        requires_human_gate: true,
+    };
+    project_review_publication(
+        ReviewPublicationRouteV1 {
+            deliberation: DeliberationIdV1([16; 16]),
+            effect: EffectIdV1([17; 16]),
+            source: [2; 16],
+            room_sequence: 3,
+            room_id: "room".into(),
+            expected_agora_revision: 7,
+            logical_time: 4,
+            addressed_to: vec!["owner".into()],
+        },
+        ReviewPublicationRefV1::Finding(&finding),
+    )
+    .unwrap()
+}
+
 #[test]
 fn prepared_request_and_completed_outcome_survive_separate_sqlite_reopens() {
     let fixture = Fixture::new();
@@ -172,6 +204,71 @@ fn prepared_request_and_completed_outcome_survive_separate_sqlite_reopens() {
     .unwrap();
     let replay = publisher.publish(intent()).unwrap();
     assert!(replay.replayed);
+    assert_eq!(state.borrow().calls, 2);
+    assert_eq!(state.borrow().messages, 1);
+}
+
+#[test]
+fn typed_review_correlation_survives_prepare_outcome_and_replay_reopens() {
+    let fixture = Fixture::new();
+    let state = Rc::new(RefCell::new(AgoraState::default()));
+    let limits = PublisherStoreLimitsV1::default();
+    let store = PublisherSqliteStore::open(fixture.path(), [5; 16], ClientIdV2(6), limits).unwrap();
+    let mut publisher = DurableResponsePublisher::new(
+        store,
+        Port {
+            state: Rc::clone(&state),
+            lose_reply: true,
+        },
+        PublicationLimitsV1::default(),
+    )
+    .unwrap();
+    let projected = review_intent();
+    assert!(matches!(
+        publish_review(&mut publisher, &projected),
+        Err(DurablePublishErrorV1::Publisher(_))
+    ));
+    drop(publisher);
+    assert_eq!(state.borrow().messages, 1);
+
+    let store = PublisherSqliteStore::open(fixture.path(), [5; 16], ClientIdV2(6), limits).unwrap();
+    let mut publisher = DurableResponsePublisher::new(
+        store,
+        Port {
+            state: Rc::clone(&state),
+            lose_reply: false,
+        },
+        PublicationLimitsV1::default(),
+    )
+    .unwrap();
+    let reconstructed = review_intent();
+    let completed = publish_review(&mut publisher, &reconstructed).unwrap();
+    assert!(!completed.replayed);
+    assert_eq!(
+        completed.correlation.deliberation,
+        DeliberationIdV1([16; 16])
+    );
+    assert_eq!(
+        completed.correlation.item,
+        ReviewPublicationItemV1::Finding(FindingIdV1([11; 16]))
+    );
+    assert_eq!(completed.correlation.effect, EffectIdV1([17; 16]));
+    assert!(matches!(completed.reply, PublicationReplyV1::Published(_)));
+    drop(publisher);
+
+    let store = PublisherSqliteStore::open(fixture.path(), [5; 16], ClientIdV2(6), limits).unwrap();
+    let mut publisher = DurableResponsePublisher::new(
+        store,
+        Port {
+            state: Rc::clone(&state),
+            lose_reply: false,
+        },
+        PublicationLimitsV1::default(),
+    )
+    .unwrap();
+    let replay = publish_review(&mut publisher, &review_intent()).unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.correlation, completed.correlation);
     assert_eq!(state.borrow().calls, 2);
     assert_eq!(state.borrow().messages, 1);
 }

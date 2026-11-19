@@ -2,15 +2,18 @@ use agora_client::v2::{PortFailureV2, ServicePortV2};
 use agora_engine::{
     AdmissionPolicy, CommandV2 as EngineCommand, Engine, Participant, ParticipantKind, RoomId,
 };
-use agora_protocol::v2::{ClientIdV2, ReplyV2, RequestV2};
+use agora_protocol::v2::{ClientIdV2, RefusalV2, ReplyV2, RequestV2};
 use agora_service::v2::{ServiceLimitsV2, ServiceV2};
 use moira_agora::{
-    PublicationLimitsV1, PublicationReplyV1, PublishErrorV1, ResponsePublisher,
+    PublicationLimitsV1, PublicationReplyV1, PublishErrorV1,
     durable::{
         DurablePublishErrorV1, DurableResponsePublisher, PublisherCheckpointV1, PublisherRecordV1,
         PublisherStateStoreV1,
     },
-    review::{ReviewPublicationRefV1, ReviewPublicationRouteV1, project_review_publication},
+    review::{
+        ReviewPublicationItemV1, ReviewPublicationRefV1, ReviewPublicationRouteV1,
+        project_review_publication, publish_review,
+    },
 };
 use moira_core::deliberation::{
     CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1, CriterionIdV1, CriterionV1,
@@ -267,6 +270,7 @@ fn agora() -> (ServiceV2, ClientIdV2) {
 
 fn route(effect: u8, expected_agora_revision: u64) -> ReviewPublicationRouteV1 {
     ReviewPublicationRouteV1 {
+        deliberation: DeliberationIdV1([1; 16]),
         effect: EffectIdV1([effect; 16]),
         source: [41; 16],
         room_sequence: u64::from(effect),
@@ -282,8 +286,9 @@ fn retained_review_facts_roundtrip_through_real_agora_service() {
     let review = retained_review();
     let (service, client) = agora();
     assert_eq!(service.engine().revision().0, 6);
-    let mut publisher = ResponsePublisher::new(
-        client,
+    let store = StateStore::new(client);
+    let mut publisher = DurableResponsePublisher::new(
+        store,
         RealAgoraPort {
             service,
             lose_next_reply: false,
@@ -302,17 +307,16 @@ fn retained_review_facts_roundtrip_through_real_agora_service() {
         let effect = u8::try_from(index + 1).unwrap();
         let intent =
             project_review_publication(route(effect, 6 + index as u64), publication).unwrap();
-        bodies.push(intent.body.clone());
-        let outcome = publisher.publish(intent).unwrap();
-        let PublicationReplyV1::Published(published) = outcome else {
-            panic!("real Agora publication expected, got {outcome:?}");
+        bodies.push(intent.body().to_owned());
+        let outcome = publish_review(&mut publisher, &intent).unwrap();
+        let PublicationReplyV1::Published(published) = outcome.reply else {
+            panic!("real Agora publication expected, got {:?}", outcome.reply);
         };
         receipts.push(published.receipt);
     }
 
-    let (port, pending_intent, pending_request) = publisher.into_parts();
-    assert!(pending_intent.is_none());
-    assert!(pending_request.is_none());
+    let (_, port) = publisher.into_parts();
+    let port = port.unwrap();
     assert_eq!(port.service.engine().revision().0, 9);
     let room = RoomId::new("review-room");
     for sequence in 0..3 {
@@ -358,7 +362,7 @@ fn projected_finding_recovers_lost_real_service_reply_without_a_second_message()
     )
     .unwrap();
     assert!(matches!(
-        publisher.publish(intent.clone()),
+        publish_review(&mut publisher, &intent),
         Err(DurablePublishErrorV1::Publisher(PublishErrorV1::Client(
             agora_client::v2::ClientErrorV2::OutcomeUnknown(PortError::LostReply)
         )))
@@ -369,8 +373,17 @@ fn projected_finding_recovers_lost_real_service_reply_without_a_second_message()
     assert_eq!(port.service.engine().revision().0, 7);
     let mut recovered =
         DurableResponsePublisher::new(store, port, PublicationLimitsV1::default()).unwrap();
-    let completed = recovered.publish(intent).unwrap();
+    let completed = publish_review(&mut recovered, &intent).unwrap();
     assert!(!completed.replayed);
+    assert_eq!(
+        completed.correlation.deliberation,
+        DeliberationIdV1([1; 16])
+    );
+    assert_eq!(
+        completed.correlation.item,
+        ReviewPublicationItemV1::Finding(review.findings[0].id)
+    );
+    assert_eq!(completed.correlation.effect, EffectIdV1([1; 16]));
     let PublicationReplyV1::Published(published) = completed.reply else {
         panic!("recovered review publication expected");
     };
@@ -393,5 +406,43 @@ fn projected_finding_recovers_lost_real_service_reply_without_a_second_message()
             .unwrap()
             .body()
             .contains("kind=finding")
+    );
+}
+
+#[test]
+fn stale_review_publication_retains_typed_item_on_refusal() {
+    let review = retained_review();
+    let (service, client) = agora();
+    let store = StateStore::new(client);
+    let mut publisher = DurableResponsePublisher::new(
+        store,
+        RealAgoraPort {
+            service,
+            lose_next_reply: false,
+        },
+        PublicationLimitsV1::default(),
+    )
+    .unwrap();
+    let intent = project_review_publication(
+        route(1, 5),
+        ReviewPublicationRefV1::Finding(&review.findings[0]),
+    )
+    .unwrap();
+    let refused = publish_review(&mut publisher, &intent).unwrap();
+    assert_eq!(
+        refused.correlation.item,
+        ReviewPublicationItemV1::Finding(review.findings[0].id)
+    );
+    assert!(matches!(
+        refused.reply,
+        PublicationReplyV1::Refused(RefusalV2::Stale { actual_revision: 6 })
+    ));
+    let (_, port) = publisher.into_parts();
+    assert!(
+        port.unwrap()
+            .service
+            .engine()
+            .message(&RoomId::new("review-room"), 0)
+            .is_none()
     );
 }

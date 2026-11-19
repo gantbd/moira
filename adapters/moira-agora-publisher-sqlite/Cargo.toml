@@ -23,3 +23,6 @@ unsafe_code = "forbid"
 
 [lints.clippy]
 all = "warn"
+
+[dev-dependencies]
+moira-core = { path = "../.." }
