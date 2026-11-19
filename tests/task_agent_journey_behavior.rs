@@ -1,4 +1,7 @@
-use moira_core::{ChronosTaskRefV1, agent_participation::ProfileIdV1, task_agent_journey as j};
+use moira_core::{
+    ChronosAttemptReceiptV1, ChronosTaskRefV1, agent_participation::ProfileIdV1,
+    task_agent_journey as j,
+};
 
 #[test]
 fn exact_preview_and_human_confirmation_admit_one_owner_journey() {
@@ -110,6 +113,65 @@ fn invalid_checkpoint_cannot_restyle_foreign_owner_identity() {
         j::Engine::recover(checkpoint),
         Err(j::RefusalV1::InvalidCheckpoint)
     ));
+}
+
+#[test]
+fn trusted_exact_chronos_claim_derives_one_task_attempt_binding() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let journey = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let receipt = ChronosAttemptReceiptV1::new(preview.request.task.task, 3, 12);
+    assert_eq!(
+        j::derive_task_attempt_binding(&journey, receipt),
+        Ok(j::TaskAttemptBindingV1 {
+            journey: journey.id,
+            expected_journey_revision: 0,
+            task: preview.request.task.task,
+            attempt_number: 3,
+            chronos_revision: 12,
+        })
+    );
+}
+
+#[test]
+fn task_attempt_binding_refuses_alias_zero_and_stale_receipts() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let journey = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let exact_task = preview.request.task.task;
+    for (receipt, refusal) in [
+        (
+            ChronosAttemptReceiptV1::new(ChronosTaskRefV1::new([99; 16], 10), 3, 12),
+            j::TaskAttemptBindingRefusalV1::TaskMismatch,
+        ),
+        (
+            ChronosAttemptReceiptV1::new(ChronosTaskRefV1::new([9; 16], 99), 3, 12),
+            j::TaskAttemptBindingRefusalV1::TaskMismatch,
+        ),
+        (
+            ChronosAttemptReceiptV1::new(exact_task, 0, 12),
+            j::TaskAttemptBindingRefusalV1::InvalidReceipt,
+        ),
+        (
+            ChronosAttemptReceiptV1::new(exact_task, 3, 11),
+            j::TaskAttemptBindingRefusalV1::StaleChronosRevision,
+        ),
+        (
+            ChronosAttemptReceiptV1::new(exact_task, 3, 10),
+            j::TaskAttemptBindingRefusalV1::StaleChronosRevision,
+        ),
+    ] {
+        assert_eq!(
+            j::derive_task_attempt_binding(&journey, receipt),
+            Err(refusal)
+        );
+    }
 }
 
 fn engine() -> j::Engine {

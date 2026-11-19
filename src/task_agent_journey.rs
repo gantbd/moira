@@ -5,7 +5,7 @@
 //! room creation, participation admission, Daimon session creation or any peer
 //! effect. Those transitions require fresh evidence from their sovereign owners.
 
-use crate::{ChronosTaskRefV1, agent_participation::ProfileIdV1};
+use crate::{ChronosAttemptReceiptV1, ChronosTaskRefV1, agent_participation::ProfileIdV1};
 use std::collections::BTreeMap;
 
 pub mod persistence;
@@ -163,6 +163,55 @@ pub struct PreviewReceiptV1 {
 pub struct JourneyReceiptV1 {
     pub journey: JourneySnapshotV1,
     pub replayed: bool,
+}
+
+/// Deterministic output of reconciling one trusted Chronos claim receipt with
+/// an admitted journey. This value is not itself a persisted phase transition,
+/// lease, delegation, or authority grant. A Moira-owned progression store must
+/// retain it before any observer may claim `TaskAttemptReady`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TaskAttemptBindingV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub task: ChronosTaskRefV1,
+    pub attempt_number: u32,
+    pub chronos_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TaskAttemptBindingRefusalV1 {
+    JourneyNotAdmitted,
+    InvalidReceipt,
+    TaskMismatch,
+    StaleChronosRevision,
+}
+
+/// Check the algebraic boundary between durable journey admission and an exact
+/// Chronos claim. Callers cannot supply a task alias, retarget an incarnation,
+/// bind attempt zero, or replay admission-era evidence as a current claim.
+pub fn derive_task_attempt_binding(
+    journey: &JourneySnapshotV1,
+    receipt: ChronosAttemptReceiptV1,
+) -> Result<TaskAttemptBindingV1, TaskAttemptBindingRefusalV1> {
+    if journey.phase != PhaseV1::Admitted {
+        return Err(TaskAttemptBindingRefusalV1::JourneyNotAdmitted);
+    }
+    if receipt.attempt_number() == 0 || receipt.chronos_revision() == 0 {
+        return Err(TaskAttemptBindingRefusalV1::InvalidReceipt);
+    }
+    if receipt.task() != journey.preview.request.task.task {
+        return Err(TaskAttemptBindingRefusalV1::TaskMismatch);
+    }
+    if receipt.chronos_revision() <= journey.preview.request.task.chronos_revision {
+        return Err(TaskAttemptBindingRefusalV1::StaleChronosRevision);
+    }
+    Ok(TaskAttemptBindingV1 {
+        journey: journey.id,
+        expected_journey_revision: journey.revision,
+        task: receipt.task(),
+        attempt_number: receipt.attempt_number(),
+        chronos_revision: receipt.chronos_revision(),
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
