@@ -32,6 +32,7 @@ pub enum ActorObservationReplyV1 {
 pub struct ActorPublishedProvenanceV1 {
     pub published: PublishedV1,
     pub actor: String,
+    pub room_id: String,
 }
 
 impl std::fmt::Debug for ActorPublishedProvenanceV1 {
@@ -40,6 +41,7 @@ impl std::fmt::Debug for ActorPublishedProvenanceV1 {
             .debug_struct("ActorPublishedProvenanceV1")
             .field("published", &self.published)
             .field("actor_bytes", &self.actor.len())
+            .field("room_id_bytes", &self.room_id.len())
             .finish()
     }
 }
@@ -144,6 +146,7 @@ where
                 ActorProvenanceObservationReplyV1::Published(ActorPublishedProvenanceV1 {
                     published: published(intent, provenance.accepted),
                     actor: provenance.actor,
+                    room_id: intent.room_id.clone(),
                 }),
             ),
             Ok(ActorPublicationProvenanceObservationV1::Absent) => {

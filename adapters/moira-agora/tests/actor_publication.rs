@@ -95,7 +95,7 @@ fn intent() -> PublicationIntentV1 {
         effect: EffectIdV1([0x31; 16]),
         source: [0x32; 16],
         room_sequence: 5,
-        room_id: "room".into(),
+        room_id: "secret-room".into(),
         expected_agora_revision: 18,
         logical_time: 23,
         body: "answer".into(),
@@ -136,7 +136,9 @@ fn lost_publish_reply_is_observed_after_independent_reconnect() {
     };
     assert_eq!(provenance.published, observed);
     assert_eq!(provenance.actor, "agent");
+    assert_eq!(provenance.room_id, "secret-room");
     assert!(!format!("{provenance:?}").contains("agent"));
+    assert!(!format!("{provenance:?}").contains("secret-room"));
     assert!(matches!(
         publisher.publish(&intent()),
         Ok(ActorPublicationReplyV1::Published(replayed)) if replayed == observed
