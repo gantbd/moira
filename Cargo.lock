@@ -607,6 +607,7 @@ dependencies = [
  "agora-protocol",
  "agora-service",
  "moira-core",
+ "moira-host",
  "moira-protocol",
 ]
 

@@ -14,6 +14,7 @@ use moira_protocol::{EffectIdV1, MessageRefV1, PublicationReceiptV1};
 pub mod actor;
 pub mod durable;
 pub mod review;
+pub mod room;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PublicationLimitsV1 {

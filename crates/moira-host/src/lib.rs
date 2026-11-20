@@ -183,6 +183,10 @@ pub enum TaskAgentJourneyMutationV1 {
         journey: TaskAgentJourneyIdV1,
         receipt: ChronosAttemptReceiptV1,
     },
+    BindRoom {
+        journey: TaskAgentJourneyIdV1,
+        receipt: moira_core::task_agent_journey::AgoraRoomReceiptV1,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -190,6 +194,7 @@ pub enum TaskAgentJourneyApplyV1 {
     Preview(TaskAgentPreviewReceiptV1),
     Instantiate(TaskAgentJourneyReceiptV1),
     TaskAttempt(TaskAgentJourneyReceiptV1),
+    Room(TaskAgentJourneyReceiptV1),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1,9 +1,10 @@
 //! Owner-issued task-to-agent journey admission.
 //!
 //! This module owns immutable templates, expiring previews and human-confirmed
-//! journey admission. It deliberately stops before Chronos claim/lease, Agora
-//! room creation, participation admission, Daimon session creation or any peer
-//! effect. Those transitions require fresh evidence from their sovereign owners.
+//! journey admission plus exact retained Chronos-attempt and Agora-room owner
+//! evidence. It performs no peer effect itself. Participation admission, Daimon
+//! session creation and every later transition require fresh evidence from their
+//! sovereign owners.
 
 use crate::{ChronosAttemptReceiptV1, ChronosTaskRefV1, agent_participation::ProfileIdV1};
 use std::collections::BTreeMap;
@@ -141,6 +142,7 @@ pub struct InstantiateRequestV1 {
 pub enum PhaseV1 {
     Admitted,
     TaskAttemptReady,
+    RoomReady,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -153,6 +155,7 @@ pub struct JourneySnapshotV1 {
     pub confirmed_at: u64,
     pub preview: PreviewSnapshotV1,
     pub task_attempt: Option<TaskAttemptBindingV1>,
+    pub room: Option<RoomBindingV1>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -178,6 +181,56 @@ pub struct TaskAttemptBindingV1 {
     pub task: ChronosTaskRefV1,
     pub attempt_number: u32,
     pub chronos_revision: u64,
+}
+
+/// Exact non-authorizing Agora owner receipt retained for the journey's stable
+/// task-room relationship. The source/sequence pair is Moira's relationship
+/// reference; it is not an Agora capability or a reusable Aegis grant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgoraRoomReceiptV1 {
+    pub source: [u8; 16],
+    pub room_sequence: u64,
+    pub agora_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RoomBindingV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub source: [u8; 16],
+    pub room_sequence: u64,
+    pub agora_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RoomBindingRefusalV1 {
+    TaskAttemptNotReady,
+    InvalidReceipt,
+    RelationshipMismatch,
+}
+
+pub fn derive_room_binding(
+    journey: &JourneySnapshotV1,
+    receipt: AgoraRoomReceiptV1,
+) -> Result<RoomBindingV1, RoomBindingRefusalV1> {
+    if journey.phase != PhaseV1::TaskAttemptReady || journey.task_attempt.is_none() {
+        return Err(RoomBindingRefusalV1::TaskAttemptNotReady);
+    }
+    if receipt.agora_revision == 0 {
+        return Err(RoomBindingRefusalV1::InvalidReceipt);
+    }
+    if receipt.source != journey.workflow.owner.0
+        || receipt.room_sequence != journey.workflow.sequence
+    {
+        return Err(RoomBindingRefusalV1::RelationshipMismatch);
+    }
+    Ok(RoomBindingV1 {
+        journey: journey.id,
+        expected_journey_revision: journey.revision,
+        source: receipt.source,
+        room_sequence: receipt.room_sequence,
+        agora_revision: receipt.agora_revision,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -260,6 +313,9 @@ pub enum RefusalV1 {
     TaskAttemptMismatch,
     TaskAttemptConflict,
     StaleChronosRevision,
+    InvalidRoom,
+    RoomMismatch,
+    RoomConflict,
     IdentityExhausted,
     InvalidCheckpoint,
 }
@@ -469,6 +525,7 @@ impl Engine {
             confirmed_at: observed_at,
             preview,
             task_attempt: None,
+            room: None,
         };
         self.journeys.insert(id, journey);
         self.instantiate_operations.insert(request.operation, id);
@@ -523,6 +580,55 @@ impl Engine {
             revision,
             phase: PhaseV1::TaskAttemptReady,
             task_attempt: Some(binding),
+            ..current
+        };
+        self.journeys.insert(journey, next);
+        Ok(JourneyReceiptV1 {
+            journey: next,
+            replayed: false,
+        })
+    }
+
+    /// Retain the exact Agora owner receipt after the prepared room effect has
+    /// settled. This transition grants no room authority and persists no Aegis
+    /// grant; later dispatches must be authorized afresh.
+    pub fn bind_room(
+        &mut self,
+        journey: JourneyIdV1,
+        receipt: AgoraRoomReceiptV1,
+    ) -> Result<JourneyReceiptV1, RefusalV1> {
+        let current = *self
+            .journeys
+            .get(&journey)
+            .ok_or(RefusalV1::JourneyNotFound)?;
+        if current.phase == PhaseV1::RoomReady {
+            let binding = current.room.ok_or(RefusalV1::InvalidCheckpoint)?;
+            return if binding.source == receipt.source
+                && binding.room_sequence == receipt.room_sequence
+                && binding.agora_revision == receipt.agora_revision
+            {
+                Ok(JourneyReceiptV1 {
+                    journey: current,
+                    replayed: true,
+                })
+            } else {
+                Err(RefusalV1::RoomConflict)
+            };
+        }
+        let binding = derive_room_binding(&current, receipt).map_err(|refusal| match refusal {
+            RoomBindingRefusalV1::TaskAttemptNotReady | RoomBindingRefusalV1::InvalidReceipt => {
+                RefusalV1::InvalidRoom
+            }
+            RoomBindingRefusalV1::RelationshipMismatch => RefusalV1::RoomMismatch,
+        })?;
+        let revision = current
+            .revision
+            .checked_add(1)
+            .ok_or(RefusalV1::IdentityExhausted)?;
+        let next = JourneySnapshotV1 {
+            revision,
+            phase: PhaseV1::RoomReady,
+            room: Some(binding),
             ..current
         };
         self.journeys.insert(journey, next);
@@ -592,6 +698,21 @@ impl Engine {
                                 .journey
                         }
                         None => admitted,
+                    };
+                    let recovered = match journey.room {
+                        Some(room) => {
+                            engine
+                                .bind_room(
+                                    journey.id,
+                                    AgoraRoomReceiptV1 {
+                                        source: room.source,
+                                        room_sequence: room.room_sequence,
+                                        agora_revision: room.agora_revision,
+                                    },
+                                )?
+                                .journey
+                        }
+                        None => recovered,
                     };
                     recovered != journey
                 }

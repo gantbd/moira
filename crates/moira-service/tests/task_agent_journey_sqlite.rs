@@ -298,6 +298,54 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
             domain::RefusalV1::TaskAttemptConflict
         ))
     ));
+    let room = domain::AgoraRoomReceiptV1 {
+        source: domain_journey.owner.0,
+        room_sequence: domain_journey.sequence,
+        agora_revision: 8,
+    };
+    let room_ready = store
+        .apply(
+            Some(3),
+            TaskAgentJourneyMutationV1::BindRoom {
+                journey: domain_journey,
+                receipt: room,
+            },
+        )
+        .unwrap();
+    assert_eq!(room_ready.storage_revision, 4);
+    let TaskAgentJourneyApplyV1::Room(room_ready) = room_ready.outcome else {
+        panic!("room transition expected")
+    };
+    assert!(!room_ready.replayed);
+    assert_eq!(room_ready.journey.phase, domain::PhaseV1::RoomReady);
+    assert_eq!(
+        store
+            .apply(
+                Some(4),
+                TaskAgentJourneyMutationV1::BindRoom {
+                    journey: domain_journey,
+                    receipt: room,
+                },
+            )
+            .unwrap()
+            .storage_revision,
+        4
+    );
+    assert!(matches!(
+        store.apply(
+            Some(4),
+            TaskAgentJourneyMutationV1::BindRoom {
+                journey: domain_journey,
+                receipt: domain::AgoraRoomReceiptV1 {
+                    agora_revision: 9,
+                    ..room
+                },
+            },
+        ),
+        Err(TaskAgentJourneyApplyErrorV1::Domain(
+            domain::RefusalV1::RoomConflict
+        ))
+    ));
     drop(store);
 
     let ready_view = public::JourneyViewV1 {
@@ -312,6 +360,18 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         }),
         ..journey
     };
+    let room_ready_view = public::JourneyViewV1 {
+        revision: 2,
+        phase: public::PhaseV1::RoomReady,
+        room: Some(public::RoomBindingV1 {
+            journey: journey.id,
+            expected_journey_revision: 1,
+            source: journey.id.owner.0,
+            room_sequence: journey.id.sequence,
+            agora_revision: 8,
+        }),
+        ..ready_view
+    };
 
     let mut service = TaskAgentJourneyService::new(fixture.store(), Time(200));
     assert_eq!(
@@ -319,7 +379,7 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Status(public::StatusV1 {
             owner: public::OwnerIdV1([1; 16]),
             owner_revision: 1,
-            storage_revision: 3,
+            storage_revision: 4,
             template_count: 1,
             preview_count: 1,
             journey_count: 1,
@@ -332,7 +392,7 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
                 journey: journey.id,
             })
             .unwrap(),
-        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Journey(Some(ready_view))))
+        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Journey(Some(room_ready_view))))
     );
     assert_eq!(
         service.execute(preview_command).unwrap(),

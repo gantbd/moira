@@ -164,6 +164,9 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
                 (_, TaskAgentJourneyApplyV1::TaskAttempt(_)) => Ok(public::ReplyV1::Refused(
                     public::RefusalV1::InvalidCheckpoint,
                 )),
+                (_, TaskAgentJourneyApplyV1::Room(_)) => Ok(public::ReplyV1::Refused(
+                    public::RefusalV1::InvalidCheckpoint,
+                )),
                 _ => Ok(public::ReplyV1::Refused(
                     public::RefusalV1::InvalidCheckpoint,
                 )),
@@ -381,6 +384,7 @@ fn journey_view(value: domain::JourneySnapshotV1) -> public::JourneyViewV1 {
         phase: match value.phase {
             domain::PhaseV1::Admitted => public::PhaseV1::Admitted,
             domain::PhaseV1::TaskAttemptReady => public::PhaseV1::TaskAttemptReady,
+            domain::PhaseV1::RoomReady => public::PhaseV1::RoomReady,
         },
         admission: instantiate_request_view(value.admission),
         confirmed_at: value.confirmed_at,
@@ -394,6 +398,13 @@ fn journey_view(value: domain::JourneySnapshotV1) -> public::JourneyViewV1 {
                 attempt_number: binding.attempt_number,
                 chronos_revision: binding.chronos_revision,
             }),
+        room: value.room.map(|binding| public::RoomBindingV1 {
+            journey: journey_id_view(binding.journey),
+            expected_journey_revision: binding.expected_journey_revision,
+            source: binding.source,
+            room_sequence: binding.room_sequence,
+            agora_revision: binding.agora_revision,
+        }),
     }
 }
 
@@ -425,7 +436,10 @@ fn refusal(value: domain::RefusalV1) -> public::RefusalV1 {
         | domain::RefusalV1::InvalidTaskAttempt
         | domain::RefusalV1::TaskAttemptMismatch
         | domain::RefusalV1::TaskAttemptConflict
-        | domain::RefusalV1::StaleChronosRevision => public::RefusalV1::InvalidCheckpoint,
+        | domain::RefusalV1::StaleChronosRevision
+        | domain::RefusalV1::InvalidRoom
+        | domain::RefusalV1::RoomMismatch
+        | domain::RefusalV1::RoomConflict => public::RefusalV1::InvalidCheckpoint,
         domain::RefusalV1::IdentityExhausted => public::RefusalV1::IdentityExhausted,
         domain::RefusalV1::InvalidCheckpoint => public::RefusalV1::InvalidCheckpoint,
     }

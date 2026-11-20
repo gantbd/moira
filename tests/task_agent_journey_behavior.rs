@@ -18,6 +18,7 @@ fn exact_preview_and_human_confirmation_admit_one_owner_journey() {
     assert!(!admitted.replayed);
     assert_eq!(admitted.journey.phase, j::PhaseV1::Admitted);
     assert_eq!(admitted.journey.task_attempt, None);
+    assert_eq!(admitted.journey.room, None);
     assert_eq!(admitted.journey.id.owner, j::OwnerIdV1([1; 16]));
     assert_eq!(admitted.journey.workflow.owner, j::OwnerIdV1([1; 16]));
     assert_eq!(
@@ -194,6 +195,117 @@ fn persisted_task_attempt_refuses_forks_without_changing_the_journey() {
         Err(j::RefusalV1::TaskAttemptConflict)
     );
     assert_eq!(engine.journey(admitted.id), Some(&ready));
+}
+
+#[test]
+fn exact_agora_room_receipt_persists_one_replayable_ready_transition() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let task_ready = engine
+        .bind_task_attempt(
+            admitted.id,
+            ChronosAttemptReceiptV1::new(preview.request.task.task, 3, 12),
+        )
+        .unwrap()
+        .journey;
+    let receipt = j::AgoraRoomReceiptV1 {
+        source: task_ready.workflow.owner.0,
+        room_sequence: task_ready.workflow.sequence,
+        agora_revision: 8,
+    };
+
+    assert_eq!(
+        j::derive_room_binding(&task_ready, receipt),
+        Ok(j::RoomBindingV1 {
+            journey: task_ready.id,
+            expected_journey_revision: task_ready.revision,
+            source: task_ready.workflow.owner.0,
+            room_sequence: task_ready.workflow.sequence,
+            agora_revision: 8,
+        })
+    );
+    let ready = engine.bind_room(task_ready.id, receipt).unwrap();
+    assert!(!ready.replayed);
+    assert_eq!(ready.journey.phase, j::PhaseV1::RoomReady);
+    assert_eq!(ready.journey.revision, task_ready.revision + 1);
+    assert_eq!(
+        ready.journey.room,
+        j::derive_room_binding(&task_ready, receipt).ok()
+    );
+    assert!(engine.bind_room(task_ready.id, receipt).unwrap().replayed);
+    assert_eq!(
+        j::Engine::recover(engine.checkpoint())
+            .unwrap()
+            .journey(task_ready.id),
+        Some(&ready.journey)
+    );
+}
+
+#[test]
+fn room_binding_refuses_early_foreign_zero_and_forked_receipts() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let exact = j::AgoraRoomReceiptV1 {
+        source: admitted.workflow.owner.0,
+        room_sequence: admitted.workflow.sequence,
+        agora_revision: 8,
+    };
+    assert_eq!(
+        engine.bind_room(admitted.id, exact),
+        Err(j::RefusalV1::InvalidRoom)
+    );
+    let task_ready = engine
+        .bind_task_attempt(
+            admitted.id,
+            ChronosAttemptReceiptV1::new(preview.request.task.task, 3, 12),
+        )
+        .unwrap()
+        .journey;
+    for (receipt, refusal) in [
+        (
+            j::AgoraRoomReceiptV1 {
+                source: [99; 16],
+                ..exact
+            },
+            j::RefusalV1::RoomMismatch,
+        ),
+        (
+            j::AgoraRoomReceiptV1 {
+                room_sequence: exact.room_sequence + 1,
+                ..exact
+            },
+            j::RefusalV1::RoomMismatch,
+        ),
+        (
+            j::AgoraRoomReceiptV1 {
+                agora_revision: 0,
+                ..exact
+            },
+            j::RefusalV1::InvalidRoom,
+        ),
+    ] {
+        assert_eq!(engine.bind_room(task_ready.id, receipt), Err(refusal));
+    }
+    let ready = engine.bind_room(task_ready.id, exact).unwrap().journey;
+    assert_eq!(
+        engine.bind_room(
+            task_ready.id,
+            j::AgoraRoomReceiptV1 {
+                agora_revision: 9,
+                ..exact
+            }
+        ),
+        Err(j::RefusalV1::RoomConflict)
+    );
+    assert_eq!(engine.journey(task_ready.id), Some(&ready));
 }
 
 #[test]

@@ -11,10 +11,21 @@ fn canonical_checkpoint_round_trips_and_reopens_exact_journey() {
         .instantiate(instantiate_request(preview), 1_002)
         .unwrap()
         .journey;
-    let ready = engine
+    let task_ready = engine
         .bind_task_attempt(
             admitted.id,
             ChronosAttemptReceiptV1::new(preview.request.task.task, 2, 12),
+        )
+        .unwrap()
+        .journey;
+    let ready = engine
+        .bind_room(
+            admitted.id,
+            j::AgoraRoomReceiptV1 {
+                source: task_ready.workflow.owner.0,
+                room_sequence: task_ready.workflow.sequence,
+                agora_revision: 8,
+            },
         )
         .unwrap()
         .journey;
@@ -41,11 +52,42 @@ fn legacy_admitted_checkpoint_decodes_and_upgrades_canonically() {
     let mut legacy = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
     legacy[8] = 1;
     assert_eq!(legacy.pop(), Some(0));
+    assert_eq!(legacy.pop(), Some(0));
 
     let checkpoint = j::persistence::decode(&legacy, limits).unwrap();
     assert_eq!(checkpoint.journeys, vec![admitted]);
     let upgraded = j::persistence::encode(&checkpoint, limits).unwrap();
-    assert_eq!(upgraded[8], 2);
+    assert_eq!(upgraded[8], 3);
+    assert_eq!(
+        j::persistence::decode(&upgraded, limits).unwrap(),
+        checkpoint
+    );
+}
+
+#[test]
+fn version_two_task_attempt_checkpoint_decodes_and_upgrades_canonically() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let task_ready = engine
+        .bind_task_attempt(
+            admitted.id,
+            ChronosAttemptReceiptV1::new(preview.request.task.task, 2, 12),
+        )
+        .unwrap()
+        .journey;
+    let limits = j::persistence::CodecLimitsV1::default();
+    let mut version_two = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
+    version_two[8] = 2;
+    assert_eq!(version_two.pop(), Some(0));
+
+    let checkpoint = j::persistence::decode(&version_two, limits).unwrap();
+    assert_eq!(checkpoint.journeys, vec![task_ready]);
+    let upgraded = j::persistence::encode(&checkpoint, limits).unwrap();
+    assert_eq!(upgraded[8], 3);
     assert_eq!(
         j::persistence::decode(&upgraded, limits).unwrap(),
         checkpoint

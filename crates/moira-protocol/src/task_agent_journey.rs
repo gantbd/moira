@@ -140,6 +140,7 @@ pub struct InstantiateRequestV1 {
 pub enum PhaseV1 {
     Admitted,
     TaskAttemptReady,
+    RoomReady,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -152,6 +153,15 @@ pub struct TaskAttemptBindingV1 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RoomBindingV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub source: [u8; 16],
+    pub room_sequence: u64,
+    pub agora_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct JourneyViewV1 {
     pub id: JourneyIdV1,
     pub workflow: WorkflowRefV1,
@@ -161,6 +171,7 @@ pub struct JourneyViewV1 {
     pub confirmed_at: u64,
     pub preview: PreviewViewV1,
     pub task_attempt: Option<TaskAttemptBindingV1>,
+    pub room: Option<RoomBindingV1>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

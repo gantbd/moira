@@ -228,6 +228,9 @@ impl TaskAgentJourneySqliteStore {
             TaskAgentJourneyMutationV1::BindTaskAttempt { journey, receipt } => {
                 TaskAgentJourneyApplyV1::TaskAttempt(candidate.bind_task_attempt(journey, receipt)?)
             }
+            TaskAgentJourneyMutationV1::BindRoom { journey, receipt } => {
+                TaskAgentJourneyApplyV1::Room(candidate.bind_room(journey, receipt)?)
+            }
         };
         let changed = candidate.checkpoint() != self.engine.checkpoint();
         let actual = read_revision(&self.connection)?;

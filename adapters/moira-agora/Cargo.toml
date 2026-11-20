@@ -12,6 +12,7 @@ agora-actor-publication-port = { path = "../../../agora/ports/agora-actor-public
 agora-client = { path = "../../../agora/client/agora-client" }
 agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
 moira-core = { path = "../.." }
+moira-host = { path = "../../crates/moira-host" }
 moira-protocol = { path = "../../crates/moira-protocol" }
 
 [dev-dependencies]

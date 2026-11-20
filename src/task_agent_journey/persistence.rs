@@ -137,7 +137,7 @@ impl<'a> Reader<'a> {
 }
 
 pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8>, CodecErrorV1> {
-    encode_version(checkpoint, limits, 2)
+    encode_version(checkpoint, limits, 3)
 }
 
 fn encode_version(
@@ -182,7 +182,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         return Err(CodecErrorV1::Invalid);
     }
     let version = reader.byte()?;
-    if !matches!(version, 1 | 2) {
+    if !matches!(version, 1..=3) {
         return Err(CodecErrorV1::Invalid);
     }
     let owner = OwnerIdV1(reader.id()?);
@@ -344,12 +344,14 @@ fn journey(writer: &mut Writer, value: JourneySnapshotV1, version: u8) -> Result
     writer.byte(match value.phase {
         PhaseV1::Admitted => 1,
         PhaseV1::TaskAttemptReady => 2,
+        PhaseV1::RoomReady => 3,
     })?;
     instantiate_request(writer, value.admission)?;
     writer.number(value.confirmed_at)?;
     preview(writer, value.preview)?;
     if version == 1 {
-        if value.task_attempt.is_some() || value.phase != PhaseV1::Admitted {
+        if value.task_attempt.is_some() || value.room.is_some() || value.phase != PhaseV1::Admitted
+        {
             return Err(CodecErrorV1::Invalid);
         }
         return Ok(());
@@ -359,6 +361,19 @@ fn journey(writer: &mut Writer, value: JourneySnapshotV1, version: u8) -> Result
         Some(binding) => {
             writer.byte(1)?;
             task_attempt(writer, binding)
+        }
+    }?;
+    if version == 2 {
+        if value.room.is_some() || value.phase == PhaseV1::RoomReady {
+            return Err(CodecErrorV1::Invalid);
+        }
+        return Ok(());
+    }
+    match value.room {
+        None => writer.byte(0),
+        Some(binding) => {
+            writer.byte(1)?;
+            room(writer, binding)
         }
     }
 }
@@ -373,6 +388,7 @@ fn read_journey(reader: &mut Reader<'_>, version: u8) -> Result<JourneySnapshotV
     let phase = match reader.byte()? {
         1 => PhaseV1::Admitted,
         2 if version >= 2 => PhaseV1::TaskAttemptReady,
+        3 if version >= 3 => PhaseV1::RoomReady,
         _ => return Err(CodecErrorV1::Invalid),
     };
     let admission = read_instantiate_request(reader)?;
@@ -387,6 +403,15 @@ fn read_journey(reader: &mut Reader<'_>, version: u8) -> Result<JourneySnapshotV
             _ => return Err(CodecErrorV1::Invalid),
         }
     };
+    let room = if version < 3 {
+        None
+    } else {
+        match reader.byte()? {
+            0 => None,
+            1 => Some(read_room(reader)?),
+            _ => return Err(CodecErrorV1::Invalid),
+        }
+    };
     Ok(JourneySnapshotV1 {
         id,
         workflow,
@@ -396,6 +421,25 @@ fn read_journey(reader: &mut Reader<'_>, version: u8) -> Result<JourneySnapshotV
         confirmed_at,
         preview,
         task_attempt,
+        room,
+    })
+}
+
+fn room(writer: &mut Writer, value: RoomBindingV1) -> Result<(), CodecErrorV1> {
+    scoped_journey_id(writer, value.journey)?;
+    writer.number(value.expected_journey_revision)?;
+    writer.id(value.source)?;
+    writer.number(value.room_sequence)?;
+    writer.number(value.agora_revision)
+}
+
+fn read_room(reader: &mut Reader<'_>) -> Result<RoomBindingV1, CodecErrorV1> {
+    Ok(RoomBindingV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.number()?,
+        source: reader.id()?,
+        room_sequence: reader.number()?,
+        agora_revision: reader.number()?,
     })
 }
 

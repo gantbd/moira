@@ -318,11 +318,13 @@ fn journey_view(writer: &mut Writer, value: p::JourneyViewV1) -> Result<(), Code
     writer.byte(match value.phase {
         p::PhaseV1::Admitted => 1,
         p::PhaseV1::TaskAttemptReady => 2,
+        p::PhaseV1::RoomReady => 3,
     })?;
     instantiate_request(writer, value.admission)?;
     writer.u64(value.confirmed_at)?;
     preview_view(writer, value.preview)?;
-    writer.option(value.task_attempt, task_attempt)
+    writer.option(value.task_attempt, task_attempt)?;
+    writer.option(value.room, room)
 }
 
 fn read_journey_view(reader: &mut Reader<'_>) -> Result<p::JourneyViewV1, CodecErrorV1> {
@@ -336,12 +338,32 @@ fn read_journey_view(reader: &mut Reader<'_>) -> Result<p::JourneyViewV1, CodecE
         phase: match reader.byte()? {
             1 => p::PhaseV1::Admitted,
             2 => p::PhaseV1::TaskAttemptReady,
+            3 => p::PhaseV1::RoomReady,
             _ => return Err(CodecErrorV1::Unsupported),
         },
         admission: read_instantiate_request(reader)?,
         confirmed_at: reader.u64()?,
         preview: read_preview_view(reader)?,
         task_attempt: reader.option(read_task_attempt)?,
+        room: reader.option(read_room)?,
+    })
+}
+
+fn room(writer: &mut Writer, value: p::RoomBindingV1) -> Result<(), CodecErrorV1> {
+    journey_id(writer, value.journey)?;
+    writer.u64(value.expected_journey_revision)?;
+    writer.raw(&value.source)?;
+    writer.u64(value.room_sequence)?;
+    writer.u64(value.agora_revision)
+}
+
+fn read_room(reader: &mut Reader<'_>) -> Result<p::RoomBindingV1, CodecErrorV1> {
+    Ok(p::RoomBindingV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.u64()?,
+        source: reader.raw()?,
+        room_sequence: reader.u64()?,
+        agora_revision: reader.u64()?,
     })
 }
 
