@@ -1,5 +1,13 @@
 use moira_core::{
-    ChronosAttemptReceiptV1, ChronosTaskRefV1, agent_participation::ProfileIdV1,
+    ChronosAttemptReceiptV1, ChronosTaskRefV1, WorkflowId,
+    agent_participation::{
+        AgentSessionIdV1, AttemptV1, BindingV1 as AgentParticipationBindingV1, ParticipationIdV1,
+        ProfileIdV1,
+    },
+    deliberation::{
+        DeliberationIdV1, EnsembleAdmissionV1, EnsembleFitnessV1, EnsembleMemberIdV1,
+        GroundingRefV1, MethodRefV1, PersonaLensV1, SurfaceDepthV1,
+    },
     task_agent_journey as j,
 };
 
@@ -306,6 +314,158 @@ fn room_binding_refuses_early_foreign_zero_and_forked_receipts() {
         Err(j::RefusalV1::RoomConflict)
     );
     assert_eq!(engine.journey(task_ready.id), Some(&ready));
+}
+
+#[test]
+fn participation_blueprint_reconciles_exact_owner_facts_without_allocating_them() {
+    let (ready, workflow, deliberation, binding) = participation_facts();
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, deliberation, binding),
+        Ok(j::ParticipationBlueprintV1 {
+            journey: ready.id,
+            expected_journey_revision: ready.revision,
+            workflow,
+            deliberation,
+            binding,
+        })
+    );
+    assert_eq!(workflow.relationship_revision, 0);
+    assert_eq!(deliberation.owner_revision, 0);
+}
+
+#[test]
+fn participation_blueprint_refuses_invented_or_substituted_owner_facts() {
+    let (ready, workflow, deliberation, binding) = participation_facts();
+    let mut early = ready;
+    early.phase = j::PhaseV1::TaskAttemptReady;
+    early.room = None;
+    assert_eq!(
+        j::derive_participation_blueprint(&early, workflow, deliberation, binding),
+        Err(j::ParticipationBlueprintRefusalV1::RoomNotReady)
+    );
+
+    let mut changed_workflow = workflow;
+    changed_workflow.source = [99; 16];
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, changed_workflow, deliberation, binding),
+        Err(j::ParticipationBlueprintRefusalV1::WorkflowMismatch)
+    );
+
+    let mut changed_binding = binding;
+    changed_binding.participation = ParticipationIdV1([0; 16]);
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, deliberation, changed_binding),
+        Err(j::ParticipationBlueprintRefusalV1::InvalidOwnerEvidence)
+    );
+    let mut changed_deliberation = deliberation;
+    changed_deliberation.grounding.surface_digest = [0; 32];
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, changed_deliberation, binding),
+        Err(j::ParticipationBlueprintRefusalV1::InvalidOwnerEvidence)
+    );
+    changed_deliberation = deliberation;
+    changed_deliberation.ensemble_admission.fitness = EnsembleFitnessV1::Contested;
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, changed_deliberation, binding),
+        Err(j::ParticipationBlueprintRefusalV1::EnsembleNotAdmitted)
+    );
+    changed_binding = binding;
+    changed_binding.attempt.attempt += 1;
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, deliberation, changed_binding),
+        Err(j::ParticipationBlueprintRefusalV1::AttemptMismatch)
+    );
+    changed_binding = binding;
+    changed_binding.profile = ProfileIdV1([99; 16]);
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, deliberation, changed_binding),
+        Err(j::ParticipationBlueprintRefusalV1::ProfileMismatch)
+    );
+    changed_binding = binding;
+    changed_binding.method.state_digest = [99; 32];
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, deliberation, changed_binding),
+        Err(j::ParticipationBlueprintRefusalV1::DeliberationMismatch)
+    );
+    changed_binding = binding;
+    changed_binding.persona = PersonaLensV1::Historian;
+    assert_eq!(
+        j::derive_participation_blueprint(&ready, workflow, deliberation, changed_binding),
+        Err(j::ParticipationBlueprintRefusalV1::MemberMismatch)
+    );
+}
+
+fn participation_facts() -> (
+    j::JourneySnapshotV1,
+    j::ParticipationWorkflowReceiptV1,
+    j::DeliberationMemberReceiptV1,
+    AgentParticipationBindingV1,
+) {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let task_ready = engine
+        .bind_task_attempt(
+            admitted.id,
+            ChronosAttemptReceiptV1::new(preview.request.task.task, 3, 12),
+        )
+        .unwrap()
+        .journey;
+    let ready = engine
+        .bind_room(
+            task_ready.id,
+            j::AgoraRoomReceiptV1 {
+                source: task_ready.workflow.owner.0,
+                room_sequence: task_ready.workflow.sequence,
+                agora_revision: 8,
+            },
+        )
+        .unwrap()
+        .journey;
+    let workflow = j::ParticipationWorkflowReceiptV1 {
+        source: ready.workflow.owner.0,
+        workflow_sequence: ready.workflow.sequence,
+        participation_workflow: WorkflowId::new([20; 16]),
+        relationship_revision: 0,
+    };
+    let deliberation = j::DeliberationMemberReceiptV1 {
+        deliberation: DeliberationIdV1([21; 16]),
+        member: EnsembleMemberIdV1([22; 16]),
+        method: MethodRefV1 {
+            machine_digest: [23; 32],
+            state_digest: [24; 32],
+        },
+        grounding: GroundingRefV1 {
+            authority_digest: [25; 32],
+            surface_digest: [26; 32],
+            depth: SurfaceDepthV1::Activated,
+        },
+        persona: PersonaLensV1::Researcher,
+        ensemble_admission: EnsembleAdmissionV1::affirmed(
+            [29; 32], [30; 32], [31; 32], [32; 32], [33; 16],
+        ),
+        owner_revision: 0,
+    };
+    let binding = AgentParticipationBindingV1 {
+        participation: ParticipationIdV1([27; 16]),
+        workflow: workflow.participation_workflow,
+        deliberation: deliberation.deliberation,
+        member: deliberation.member,
+        session: AgentSessionIdV1([28; 16]),
+        profile: ready.preview.request.profile,
+        attempt: AttemptV1 {
+            task_key: ready.task_attempt.unwrap().task.external_task_key(),
+            incarnation: ready.task_attempt.unwrap().task.incarnation(),
+            attempt: ready.task_attempt.unwrap().attempt_number,
+        },
+        method: deliberation.method,
+        grounding: deliberation.grounding,
+        persona: deliberation.persona,
+    };
+    (ready, workflow, deliberation, binding)
 }
 
 #[test]

@@ -6,7 +6,14 @@
 //! session creation and every later transition require fresh evidence from their
 //! sovereign owners.
 
-use crate::{ChronosAttemptReceiptV1, ChronosTaskRefV1, agent_participation::ProfileIdV1};
+use crate::{
+    ChronosAttemptReceiptV1, ChronosTaskRefV1, WorkflowId,
+    agent_participation::{BindingV1 as AgentParticipationBindingV1, ProfileIdV1},
+    deliberation::{
+        DeliberationIdV1, EnsembleAdmissionV1, EnsembleFitnessV1, EnsembleMemberIdV1,
+        GroundingRefV1, MethodRefV1, PersonaLensV1,
+    },
+};
 use std::collections::BTreeMap;
 
 pub mod persistence;
@@ -200,6 +207,130 @@ pub struct RoomBindingV1 {
     pub source: [u8; 16],
     pub room_sequence: u64,
     pub agora_revision: u64,
+}
+
+/// Exact relationship evidence joining the task-agent owner's scoped workflow
+/// reference to the workflow identity used by the participation owner.
+///
+/// This value grants no authority and does not allocate either identity. A
+/// trusted relationship adapter must obtain and retain it from the two owners;
+/// the pure journey law only prevents substitution after that observation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationWorkflowReceiptV1 {
+    pub source: [u8; 16],
+    pub workflow_sequence: u64,
+    pub participation_workflow: WorkflowId,
+    pub relationship_revision: u64,
+}
+
+/// Minimized observation of the exact deliberation member selected for one
+/// participation. The revision is an owner cursor, not freshness by itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeliberationMemberReceiptV1 {
+    pub deliberation: DeliberationIdV1,
+    pub member: EnsembleMemberIdV1,
+    pub method: MethodRefV1,
+    pub grounding: GroundingRefV1,
+    pub persona: PersonaLensV1,
+    pub ensemble_admission: EnsembleAdmissionV1,
+    pub owner_revision: u64,
+}
+
+/// Deterministic, non-authorizing result of reconciling actual owner evidence
+/// needed for participation admission. It is not an admitted participation,
+/// session, Aegis decision, provider invocation, or persisted journey phase.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationBlueprintV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub workflow: ParticipationWorkflowReceiptV1,
+    pub deliberation: DeliberationMemberReceiptV1,
+    pub binding: AgentParticipationBindingV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParticipationBlueprintRefusalV1 {
+    RoomNotReady,
+    InvalidOwnerEvidence,
+    WorkflowMismatch,
+    AttemptMismatch,
+    ProfileMismatch,
+    EnsembleNotAdmitted,
+    DeliberationMismatch,
+    MemberMismatch,
+}
+
+/// Reconcile a proposed raw participation binding against exact retained
+/// journey and owner observations before any store may admit it.
+///
+/// The caller cannot fill missing workflow, deliberation, member, method,
+/// grounding, persona, attempt, profile, participation, or session identities
+/// from UI state. A later adapter must obtain those facts from their owners and
+/// persist the resulting blueprint before dispatching the admission effect.
+pub fn derive_participation_blueprint(
+    journey: &JourneySnapshotV1,
+    workflow: ParticipationWorkflowReceiptV1,
+    deliberation: DeliberationMemberReceiptV1,
+    binding: AgentParticipationBindingV1,
+) -> Result<ParticipationBlueprintV1, ParticipationBlueprintRefusalV1> {
+    let Some(attempt) = journey.task_attempt else {
+        return Err(ParticipationBlueprintRefusalV1::RoomNotReady);
+    };
+    if journey.phase != PhaseV1::RoomReady || journey.room.is_none() {
+        return Err(ParticipationBlueprintRefusalV1::RoomNotReady);
+    }
+    if workflow.source == [0; 16]
+        || workflow.participation_workflow.into_bytes() == [0; 16]
+        || binding.participation.0 == [0; 16]
+        || binding.session.0 == [0; 16]
+        || deliberation.deliberation.0 == [0; 16]
+        || deliberation.member.0 == [0; 16]
+        || deliberation.method.machine_digest == [0; 32]
+        || deliberation.method.state_digest == [0; 32]
+        || deliberation.grounding.authority_digest == [0; 32]
+        || deliberation.grounding.surface_digest == [0; 32]
+        || deliberation.ensemble_admission.affected_population_digest == [0; 32]
+        || deliberation.ensemble_admission.stakeholder_map_digest == [0; 32]
+        || deliberation.ensemble_admission.coverage_manifest_digest == [0; 32]
+        || deliberation.ensemble_admission.equity_assessment_digest == [0; 32]
+        || deliberation.ensemble_admission.assessor_principal == [0; 16]
+    {
+        return Err(ParticipationBlueprintRefusalV1::InvalidOwnerEvidence);
+    }
+    if deliberation.ensemble_admission.fitness != EnsembleFitnessV1::Yes {
+        return Err(ParticipationBlueprintRefusalV1::EnsembleNotAdmitted);
+    }
+    if workflow.source != journey.workflow.owner.0
+        || workflow.workflow_sequence != journey.workflow.sequence
+        || binding.workflow != workflow.participation_workflow
+    {
+        return Err(ParticipationBlueprintRefusalV1::WorkflowMismatch);
+    }
+    if binding.attempt.task_key != attempt.task.external_task_key()
+        || binding.attempt.incarnation != attempt.task.incarnation()
+        || binding.attempt.attempt != attempt.attempt_number
+    {
+        return Err(ParticipationBlueprintRefusalV1::AttemptMismatch);
+    }
+    if binding.profile != journey.preview.request.profile {
+        return Err(ParticipationBlueprintRefusalV1::ProfileMismatch);
+    }
+    if binding.deliberation != deliberation.deliberation || binding.method != deliberation.method {
+        return Err(ParticipationBlueprintRefusalV1::DeliberationMismatch);
+    }
+    if binding.member != deliberation.member
+        || binding.grounding != deliberation.grounding
+        || binding.persona != deliberation.persona
+    {
+        return Err(ParticipationBlueprintRefusalV1::MemberMismatch);
+    }
+    Ok(ParticipationBlueprintV1 {
+        journey: journey.id,
+        expected_journey_revision: journey.revision,
+        workflow,
+        deliberation,
+        binding,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
