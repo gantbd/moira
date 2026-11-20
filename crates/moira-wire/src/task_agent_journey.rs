@@ -87,6 +87,10 @@ fn command(writer: &mut Writer, value: &p::CommandV1) -> Result<(), CodecErrorV1
             writer.byte(6)?;
             journey_id(writer, *journey)
         }
+        p::CommandV1::TaskAttemptNamespace { journey } => {
+            writer.byte(7)?;
+            journey_id(writer, *journey)
+        }
     }
 }
 
@@ -109,6 +113,9 @@ fn read_command(reader: &mut Reader<'_>) -> Result<p::CommandV1, CodecErrorV1> {
         }),
         5 => Ok(p::CommandV1::Status),
         6 => Ok(p::CommandV1::Participation {
+            journey: read_journey_id(reader)?,
+        }),
+        7 => Ok(p::CommandV1::TaskAttemptNamespace {
             journey: read_journey_id(reader)?,
         }),
         _ => Err(CodecErrorV1::Unsupported),
@@ -167,6 +174,10 @@ fn outcome(writer: &mut Writer, value: &p::OutcomeV1) -> Result<(), CodecErrorV1
             writer.byte(6)?;
             writer.option(*value, participation_admission)
         }
+        p::OutcomeV1::TaskAttemptNamespace(value) => {
+            writer.byte(7)?;
+            writer.option(value.as_ref(), task_attempt_namespace)
+        }
     }
 }
 
@@ -211,8 +222,55 @@ fn read_outcome(reader: &mut Reader<'_>) -> Result<p::OutcomeV1, CodecErrorV1> {
         6 => Ok(p::OutcomeV1::Participation(
             reader.option(read_participation_admission)?,
         )),
+        7 => Ok(p::OutcomeV1::TaskAttemptNamespace(
+            reader.option(read_task_attempt_namespace)?,
+        )),
         _ => Err(CodecErrorV1::Unsupported),
     }
+}
+
+fn task_attempt_namespace(
+    writer: &mut Writer,
+    value: &p::TaskAttemptNamespaceViewV1,
+) -> Result<(), CodecErrorV1> {
+    if value.chronos_task_id.is_empty()
+        || value.chronos_task_id.len() > p::MAX_CHRONOS_TASK_ID_BYTES_V1
+    {
+        return Err(CodecErrorV1::Limit);
+    }
+    journey_id(writer, value.journey)?;
+    writer.u64(value.expected_journey_revision)?;
+    writer.raw(&value.task.external_task_key)?;
+    writer.u64(value.task.incarnation)?;
+    writer.u64(u64::from(value.attempt_number))?;
+    writer.u64(value.chronos_revision)?;
+    writer.bytes(value.chronos_task_id.as_bytes())
+}
+
+fn read_task_attempt_namespace(
+    reader: &mut Reader<'_>,
+) -> Result<p::TaskAttemptNamespaceViewV1, CodecErrorV1> {
+    let journey = read_journey_id(reader)?;
+    let expected_journey_revision = reader.u64()?;
+    let task = TaskRefV1 {
+        external_task_key: reader.raw()?,
+        incarnation: reader.u64()?,
+    };
+    let attempt_number = reader.u64()?.try_into().map_err(|_| CodecErrorV1::Limit)?;
+    let chronos_revision = reader.u64()?;
+    let chronos_task_id =
+        String::from_utf8(reader.bytes()?).map_err(|_| CodecErrorV1::Malformed)?;
+    if chronos_task_id.is_empty() || chronos_task_id.len() > p::MAX_CHRONOS_TASK_ID_BYTES_V1 {
+        return Err(CodecErrorV1::Limit);
+    }
+    Ok(p::TaskAttemptNamespaceViewV1 {
+        journey,
+        expected_journey_revision,
+        task,
+        attempt_number,
+        chronos_revision,
+        chronos_task_id,
+    })
 }
 
 fn template(writer: &mut Writer, value: p::TemplateV1) -> Result<(), CodecErrorV1> {

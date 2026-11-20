@@ -269,9 +269,10 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
     let ready = store
         .apply(
             Some(2),
-            TaskAgentJourneyMutationV1::BindTaskAttempt {
+            TaskAgentJourneyMutationV1::BindTaskAttemptNamespace {
                 journey: domain_journey,
                 receipt: attempt,
+                chronos_task_id: "j1-owned-task".into(),
             },
         )
         .unwrap();
@@ -285,9 +286,10 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         store
             .apply(
                 Some(3),
-                TaskAgentJourneyMutationV1::BindTaskAttempt {
+                TaskAgentJourneyMutationV1::BindTaskAttemptNamespace {
                     journey: domain_journey,
                     receipt: attempt,
+                    chronos_task_id: "j1-owned-task".into(),
                 },
             )
             .unwrap()
@@ -306,6 +308,31 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
             domain::RefusalV1::TaskAttemptConflict
         ))
     ));
+    drop(store);
+    let store = fixture.store();
+    let mut service = TaskAgentJourneyService::new(store, Time(200));
+    let public::ReplyV1::Accepted(namespace) = service
+        .execute_authorized(
+            AccessV1 {
+                read: true,
+                mutate: false,
+            },
+            public::CommandV1::TaskAttemptNamespace {
+                journey: journey.id,
+            },
+        )
+        .unwrap()
+    else {
+        panic!("task namespace expected")
+    };
+    let public::OutcomeV1::TaskAttemptNamespace(Some(namespace)) = *namespace else {
+        panic!("task namespace outcome expected")
+    };
+    assert_eq!(namespace.chronos_task_id, "j1-owned-task");
+    assert_eq!(namespace.task, journey.preview.request.task.task);
+    assert_eq!(namespace.attempt_number, 2);
+    assert!(!format!("{namespace:?}").contains("j1-owned-task"));
+    let (mut store, _) = service.into_parts();
     let room = domain::AgoraRoomReceiptV1 {
         source: domain_journey.owner.0,
         room_sequence: domain_journey.sequence,

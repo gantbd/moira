@@ -252,6 +252,10 @@ changed identity conflicts. This owner fact is not ambient workspace scope, a
 task-conversation relationship, a lease, current task phase, settlement
 authority or human acceptance. Checkpoint versions 1 through 5 remain readable
 and upgrade canonically without inventing missing namespace evidence.
+The existing task-agent journey read-only protocol now exposes that exact
+binding by journey identity through service, canonical wire and client layers;
+diagnostics redact the task key and task ID. Authoritative absence remains
+scoped to the queried journey owner.
 
 `moira-client` now also owns a bounded optional Unix port for the governed
 participation service, so runtime workers do not depend on terminal presentation

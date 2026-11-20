@@ -61,6 +61,10 @@ session/turn-to-execution/task-attempt terminal binding through Moira protocol,
 wire, client and adapter layers. Canonical mutation tests and the adapter
 projection test cover every field; unrelated `Inspect` and `Events` paths
 explicitly refuse a result-shaped reply as invalid provider evidence.
+The task-agent journey read-only family separately exposes the V6 exact
+Chronos task-namespace binding by journey identity. Canonical wire tests and a
+real SQLite reopen/service test prove exact key, task ID, incarnation, attempt
+and revision projection without granting scope, lease or mutation authority.
 The governed participation component now renders that complete projection too,
 while retaining refresh and close as its only active controls.
 Recovery mutation is isolated in a separate M20 control: the worker first

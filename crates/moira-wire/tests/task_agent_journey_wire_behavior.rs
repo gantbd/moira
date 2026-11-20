@@ -33,6 +33,12 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
                 sequence: 0,
             },
         },
+        p::CommandV1::TaskAttemptNamespace {
+            journey: p::JourneyIdV1 {
+                owner: preview.id.owner,
+                sequence: 0,
+            },
+        },
         p::CommandV1::Status,
     ];
     for value in commands {
@@ -104,6 +110,14 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
         authority_epoch: 4,
         authority_expires_at: 2_000,
     };
+    let namespace = p::TaskAttemptNamespaceViewV1 {
+        journey: journey.id,
+        expected_journey_revision: 0,
+        task: preview.request.task.task,
+        attempt_number: 2,
+        chronos_revision: 12,
+        chronos_task_id: "exact-task".into(),
+    };
     let replies = vec![
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Catalogue {
             owner: preview.id.owner,
@@ -134,6 +148,10 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(None))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Participation(Some(participation)))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Participation(None))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::TaskAttemptNamespace(Some(
+            namespace,
+        )))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::TaskAttemptNamespace(None))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Status(p::StatusV1 {
             owner: preview.id.owner,
             owner_revision: 1,

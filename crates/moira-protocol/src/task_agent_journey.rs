@@ -153,6 +153,32 @@ pub struct TaskAttemptBindingV1 {
     pub chronos_revision: u64,
 }
 
+pub const MAX_CHRONOS_TASK_ID_BYTES_V1: usize = 256;
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct TaskAttemptNamespaceViewV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub task: TaskRefV1,
+    pub attempt_number: u32,
+    pub chronos_revision: u64,
+    pub chronos_task_id: String,
+}
+
+impl std::fmt::Debug for TaskAttemptNamespaceViewV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TaskAttemptNamespaceViewV1")
+            .field("journey", &self.journey)
+            .field("expected_journey_revision", &self.expected_journey_revision)
+            .field("task", &"<opaque>")
+            .field("attempt_number", &self.attempt_number)
+            .field("chronos_revision", &self.chronos_revision)
+            .field("chronos_task_id_bytes", &self.chronos_task_id.len())
+            .finish()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RoomBindingV1 {
     pub journey: JourneyIdV1,
@@ -220,6 +246,9 @@ pub enum CommandV1 {
     Participation {
         journey: JourneyIdV1,
     },
+    TaskAttemptNamespace {
+        journey: JourneyIdV1,
+    },
     Status,
 }
 
@@ -253,6 +282,7 @@ pub enum OutcomeV1 {
     Preview(Option<PreviewViewV1>),
     Journey(Option<JourneyViewV1>),
     Participation(Option<ParticipationAdmissionViewV1>),
+    TaskAttemptNamespace(Option<TaskAttemptNamespaceViewV1>),
     Status(StatusV1),
 }
 

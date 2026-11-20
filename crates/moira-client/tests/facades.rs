@@ -1,9 +1,10 @@
 use moira_client::{
     AgentReadOnlyClient, AgentServicePort, MutationClient, ReadOnlyClient,
     SagaConfirmedReconciliationClient, SagaMutationClient, SagaOperatorClient, SagaReadOnlyClient,
-    SagaServicePort, ServicePort,
+    SagaServicePort, ServicePort, TaskAgentJourneyReadOnlyClient, TaskAgentJourneyServicePort,
 };
 use moira_protocol::agent;
+use moira_protocol::task_agent_journey as journey;
 use moira_protocol::{
     CommandV1, MessageRefV1, MutationV1, OperatorActionIdV1, OperatorDispositionV1,
     OperatorOperationV1, OutcomeV1, ParticipantRefV1, ReplyV1, SagaCommandV1, SagaIdV1,
@@ -30,6 +31,21 @@ struct SagaPort(Vec<SagaCommandV1>);
 
 #[derive(Default)]
 struct AgentPort(Vec<agent::CommandV1>);
+
+#[derive(Default)]
+struct JourneyPort(Vec<journey::CommandV1>);
+
+impl TaskAgentJourneyServicePort for JourneyPort {
+    type Error = ();
+
+    fn execute_task_agent_journey(
+        &mut self,
+        command: journey::CommandV1,
+    ) -> Result<journey::ReplyV1, Self::Error> {
+        self.0.push(command);
+        Ok(journey::ReplyV1::Refused(journey::RefusalV1::Storage))
+    }
+}
 
 impl AgentServicePort for AgentPort {
     type Error = ();
@@ -91,6 +107,20 @@ fn agent_result_observation_is_read_only_and_exactly_scoped() {
     assert_eq!(
         reader.into_port().0,
         vec![agent::CommandV1::Result { session, turn }]
+    );
+}
+
+#[test]
+fn task_namespace_observation_is_read_only_and_journey_scoped() {
+    let journey = journey::JourneyIdV1 {
+        owner: journey::OwnerIdV1([3; 16]),
+        sequence: 4,
+    };
+    let mut reader = TaskAgentJourneyReadOnlyClient::new(JourneyPort::default());
+    reader.task_attempt_namespace(journey).unwrap();
+    assert_eq!(
+        reader.into_port().0,
+        vec![journey::CommandV1::TaskAttemptNamespace { journey }]
     );
 }
 

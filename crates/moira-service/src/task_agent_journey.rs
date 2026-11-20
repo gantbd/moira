@@ -57,6 +57,7 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
             | public::CommandV1::PreviewView { .. }
             | public::CommandV1::Journey { .. }
             | public::CommandV1::Participation { .. }
+            | public::CommandV1::TaskAttemptNamespace { .. }
             | public::CommandV1::Status => access.read,
         };
         if !allowed {
@@ -125,6 +126,13 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
                         .journey(journey_id(journey))
                         .and_then(|snapshot| snapshot.participation)
                         .map(participation_view),
+                )),
+            )),
+            public::CommandV1::TaskAttemptNamespace { journey } => Ok(public::ReplyV1::Accepted(
+                Box::new(public::OutcomeV1::TaskAttemptNamespace(
+                    self.store
+                        .task_attempt_namespace(journey_id(journey))
+                        .map(task_attempt_namespace_view),
                 )),
             )),
             public::CommandV1::Status => {
@@ -456,6 +464,19 @@ fn participation_view(
         authority_principal: binding.authority.principal,
         authority_epoch: binding.authority.epoch,
         authority_expires_at: binding.authority.expires_at,
+    }
+}
+
+fn task_attempt_namespace_view(
+    binding: domain::TaskAttemptNamespaceBindingV1,
+) -> public::TaskAttemptNamespaceViewV1 {
+    public::TaskAttemptNamespaceViewV1 {
+        journey: journey_id_view(binding.journey),
+        expected_journey_revision: binding.expected_journey_revision,
+        task: task_view(binding.task),
+        attempt_number: binding.attempt_number,
+        chronos_revision: binding.chronos_revision,
+        chronos_task_id: binding.chronos_task_id,
     }
 }
 

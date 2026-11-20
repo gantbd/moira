@@ -51,6 +51,13 @@ impl<P: TaskAgentJourneyServicePort> TaskAgentJourneyReadOnlyClient<P> {
         self.0
             .execute_task_agent_journey(journey::CommandV1::Journey { journey })
     }
+    pub fn task_attempt_namespace(
+        &mut self,
+        journey: journey::JourneyIdV1,
+    ) -> Result<journey::ReplyV1, P::Error> {
+        self.0
+            .execute_task_agent_journey(journey::CommandV1::TaskAttemptNamespace { journey })
+    }
     pub fn status(&mut self) -> Result<journey::ReplyV1, P::Error> {
         self.0
             .execute_task_agent_journey(journey::CommandV1::Status)
