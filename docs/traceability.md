@@ -56,6 +56,11 @@ including load, resume, mode and model support, while exposing no corresponding
 provider command or direct Daimon dependency.
 An independent real-daemon headless gate proves the same eight facts reach the
 versioned `agent.session.inspect.v1` JSON envelope without omission.
+The disjoint read-only result command now preserves Daimon's exact content-free
+session/turn-to-execution/task-attempt terminal binding through Moira protocol,
+wire, client and adapter layers. Canonical mutation tests and the adapter
+projection test cover every field; unrelated `Inspect` and `Events` paths
+explicitly refuse a result-shaped reply as invalid provider evidence.
 The governed participation component now renders that complete projection too,
 while retaining refresh and close as its only active controls.
 Recovery mutation is isolated in a separate M20 control: the worker first

@@ -29,7 +29,9 @@ impl<G: AgentGateway> AgentService<G> {
         command: agent::CommandV1,
     ) -> Result<agent::ReplyV1, G::Error> {
         let allowed = match command {
-            agent::CommandV1::Events { .. } | agent::CommandV1::Inspect { .. } => access.read,
+            agent::CommandV1::Events { .. }
+            | agent::CommandV1::Inspect { .. }
+            | agent::CommandV1::Result { .. } => access.read,
             agent::CommandV1::Open { .. }
             | agent::CommandV1::Prompt { .. }
             | agent::CommandV1::DecidePermission { .. }

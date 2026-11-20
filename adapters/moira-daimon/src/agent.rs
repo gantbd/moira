@@ -77,6 +77,13 @@ fn command_upstream(value: public::CommandV1) -> upstream::AgentCommandV1 {
         public::CommandV1::Inspect { session: id } => upstream::AgentCommandV1::Inspect {
             session: session(id),
         },
+        public::CommandV1::Result {
+            session: id,
+            turn: turn_id,
+        } => upstream::AgentCommandV1::Result {
+            session: session(id),
+            turn: turn(turn_id),
+        },
         public::CommandV1::DecidePermission {
             session: id,
             expected_revision,
@@ -253,6 +260,35 @@ fn outcome_public(value: upstream::AgentOutcomeV1) -> public::OutcomeV1 {
             entries: value.entries.into_iter().map(event_record_public).collect(),
             next_after: value.next_after,
         }),
+        upstream::AgentOutcomeV1::Result(value) => {
+            public::OutcomeV1::Result(public::ResultBindingV1 {
+                session: public::SessionIdV1(value.session.into_bytes()),
+                turn: public::TurnIdV1(value.turn.into_bytes()),
+                execution: public::ExecutionIdV1(value.execution.into_bytes()),
+                task_attempt: public::AttemptV1 {
+                    task_key: value.task_attempt.task_key,
+                    incarnation: value.task_attempt.task_incarnation,
+                    attempt: value.task_attempt.attempt_number,
+                },
+                principal: public::PrincipalIdV1(value.principal.into_bytes()),
+                profile: public::ProfileIdV1(value.profile.into_bytes()),
+                operation: public::IdempotencyKeyV1(value.operation.into_bytes()),
+                authority_decision: value.authority_decision,
+                authority_expires_at: value.authority_expires_at,
+                prompt_digest: public::DigestV1(value.prompt_digest.into_bytes()),
+                context_manifest_digest: public::DigestV1(
+                    value.context_manifest_digest.into_bytes(),
+                ),
+                event_start_cursor: value.event_start_cursor,
+                terminal_cursor: value.terminal_cursor,
+                terminal_revision: value.terminal_revision,
+                disposition: disposition_public(value.disposition),
+                stop_reason: stop_reason_public(value.stop_reason),
+                output_digest: value
+                    .output_digest
+                    .map(|digest| public::DigestV1(digest.into_bytes())),
+            })
+        }
         upstream::AgentOutcomeV1::OutcomeUnknown {
             session,
             idempotency_key,

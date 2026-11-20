@@ -685,7 +685,8 @@ where
                 AgentFenceCauseV1::ProviderRefused(refusal),
             ));
         }
-        agent::ReplyV1::Accepted(agent::OutcomeV1::Events(_)) => {
+        agent::ReplyV1::Accepted(agent::OutcomeV1::Events(_))
+        | agent::ReplyV1::Accepted(agent::OutcomeV1::Result(_)) => {
             return Ok(fenced(
                 &inflight,
                 AgentFenceCauseV1::InvalidProviderEvidence,
@@ -718,7 +719,8 @@ where
                 AgentFenceCauseV1::ProviderRefused(refusal),
             ));
         }
-        Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Session(_))) => {
+        Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Session(_)))
+        | Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Result(_))) => {
             return Ok(fenced(
                 &inflight,
                 AgentFenceCauseV1::InvalidProviderEvidence,
@@ -808,7 +810,8 @@ where
                 AgentFenceCauseV1::ProviderRefused(refusal),
             ));
         }
-        Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Events(_))) => {
+        Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Events(_)))
+        | Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Result(_))) => {
             return Ok(fenced(
                 &inflight,
                 AgentFenceCauseV1::InvalidProviderEvidence,
@@ -844,7 +847,8 @@ where
                 AgentFenceCauseV1::ProviderRefused(refusal),
             ));
         }
-        Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Session(_))) => {
+        Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Session(_)))
+        | Ok(agent::ReplyV1::Accepted(agent::OutcomeV1::Result(_))) => {
             return Ok(fenced(
                 &inflight,
                 AgentFenceCauseV1::InvalidProviderEvidence,

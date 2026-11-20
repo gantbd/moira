@@ -269,6 +269,55 @@ pub struct EventPageV1 {
     pub next_after: Option<u64>,
 }
 
+/// Content-free Daimon owner receipt binding one retained terminal turn to its
+/// exact execution and task attempt. This grants no publication, task mutation,
+/// acceptance, retry, or rollout authority.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ResultBindingV1 {
+    pub session: SessionIdV1,
+    pub turn: TurnIdV1,
+    pub execution: ExecutionIdV1,
+    pub task_attempt: AttemptV1,
+    pub principal: PrincipalIdV1,
+    pub profile: ProfileIdV1,
+    pub operation: IdempotencyKeyV1,
+    pub authority_decision: [u8; 16],
+    pub authority_expires_at: u64,
+    pub prompt_digest: DigestV1,
+    pub context_manifest_digest: DigestV1,
+    pub event_start_cursor: u64,
+    pub terminal_cursor: u64,
+    pub terminal_revision: u64,
+    pub disposition: DispositionV1,
+    pub stop_reason: StopReasonV1,
+    pub output_digest: Option<DigestV1>,
+}
+
+impl std::fmt::Debug for ResultBindingV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResultBindingV1")
+            .field("session", &self.session)
+            .field("turn", &self.turn)
+            .field("execution", &self.execution)
+            .field("task_attempt", &"<opaque>")
+            .field("principal", &self.principal)
+            .field("profile", &self.profile)
+            .field("operation", &self.operation)
+            .field("authority_decision", &"<opaque>")
+            .field("authority_expires_at", &self.authority_expires_at)
+            .field("prompt_digest", &self.prompt_digest)
+            .field("context_manifest_digest", &self.context_manifest_digest)
+            .field("event_start_cursor", &self.event_start_cursor)
+            .field("terminal_cursor", &self.terminal_cursor)
+            .field("terminal_revision", &self.terminal_revision)
+            .field("disposition", &self.disposition)
+            .field("stop_reason", &self.stop_reason)
+            .field("output_digest", &self.output_digest)
+            .finish()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandV1 {
     Open {
@@ -286,6 +335,10 @@ pub enum CommandV1 {
     },
     Inspect {
         session: SessionIdV1,
+    },
+    Result {
+        session: SessionIdV1,
+        turn: TurnIdV1,
     },
     DecidePermission {
         session: SessionIdV1,
@@ -326,6 +379,7 @@ pub enum CommandV1 {
 pub enum OutcomeV1 {
     Session(SessionViewV1),
     Events(EventPageV1),
+    Result(ResultBindingV1),
     OutcomeUnknown {
         session: SessionIdV1,
         idempotency_key: IdempotencyKeyV1,

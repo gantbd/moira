@@ -1,7 +1,9 @@
 use moira_client::{
-    MutationClient, ReadOnlyClient, SagaConfirmedReconciliationClient, SagaMutationClient,
-    SagaOperatorClient, SagaReadOnlyClient, SagaServicePort, ServicePort,
+    AgentReadOnlyClient, AgentServicePort, MutationClient, ReadOnlyClient,
+    SagaConfirmedReconciliationClient, SagaMutationClient, SagaOperatorClient, SagaReadOnlyClient,
+    SagaServicePort, ServicePort,
 };
+use moira_protocol::agent;
 use moira_protocol::{
     CommandV1, MessageRefV1, MutationV1, OperatorActionIdV1, OperatorDispositionV1,
     OperatorOperationV1, OutcomeV1, ParticipantRefV1, ReplyV1, SagaCommandV1, SagaIdV1,
@@ -25,6 +27,18 @@ impl ServicePort for Port {
 
 #[derive(Default)]
 struct SagaPort(Vec<SagaCommandV1>);
+
+#[derive(Default)]
+struct AgentPort(Vec<agent::CommandV1>);
+
+impl AgentServicePort for AgentPort {
+    type Error = ();
+
+    fn execute(&mut self, command: agent::CommandV1) -> Result<agent::ReplyV1, Self::Error> {
+        self.0.push(command);
+        Ok(agent::ReplyV1::Refused(agent::RefusalV1::Unsupported))
+    }
+}
 
 impl SagaServicePort for SagaPort {
     type Error = ();
@@ -65,6 +79,18 @@ fn mutation_and_read_only_facades_are_disjoint() {
     assert_eq!(
         reader.into_port().0,
         vec![CommandV1::Status, CommandV1::Workflow { workflow }]
+    );
+}
+
+#[test]
+fn agent_result_observation_is_read_only_and_exactly_scoped() {
+    let session = agent::SessionIdV1([1; 16]);
+    let turn = agent::TurnIdV1([2; 16]);
+    let mut reader = AgentReadOnlyClient::new(AgentPort::default());
+    reader.result(session, turn).unwrap();
+    assert_eq!(
+        reader.into_port().0,
+        vec![agent::CommandV1::Result { session, turn }]
     );
 }
 

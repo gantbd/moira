@@ -219,6 +219,12 @@ canonical wire frames, and bounded local daemon profiles. A separate durable
 `moira-local-harness::unix::connect_daimon_agent` composition binds that gateway
 projection to Daimon's authenticated private agent socket while provider launch
 policy and credentials remain in Daimon; a real-socket gate qualifies the path.
+The read-only client now also observes Daimon's content-free terminal result
+binding for one exact session/turn. The additive command and outcome preserve
+execution, task attempt, principal/profile, operation and authority decision,
+prompt/context digests, terminal event interval, disposition and output digest
+through Moira's independent DTO and canonical wire. This is provenance only;
+it grants no publication, task mutation, acceptance, retry or rollout authority.
 
 Task-to-agent journey admission now has a separate owner core. An immutable,
 bounded template catalogue issues expiring previews over an exact Chronos task

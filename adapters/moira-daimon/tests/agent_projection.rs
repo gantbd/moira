@@ -182,6 +182,65 @@ fn permission_event_and_refusal_remain_typed() {
 }
 
 #[test]
+fn result_observation_preserves_exact_owner_binding() {
+    let reply = upstream::AgentReplyV1::Accepted(upstream::AgentOutcomeV1::Result(
+        upstream::AgentResultBindingV1 {
+            session: daimon::AgentSessionIdV1::new([1; 16]),
+            turn: daimon::AgentTurnIdV1::new([2; 16]),
+            execution: daimon::ExecutionIdV1::new([3; 16]),
+            task_attempt: daimon::TaskAttemptRefV1 {
+                task_key: [4; 16],
+                task_incarnation: 5,
+                attempt_number: 6,
+            },
+            principal: daimon::PrincipalIdV1::new([7; 16]),
+            profile: daimon::HarnessProfileIdV1::new([8; 16]),
+            operation: daimon::IdempotencyKeyV1::new([9; 16]),
+            authority_decision: [10; 16],
+            authority_expires_at: 11,
+            prompt_digest: daimon::ContentDigestV1::new([12; 32]),
+            context_manifest_digest: daimon::ContentDigestV1::new([13; 32]),
+            event_start_cursor: 14,
+            terminal_cursor: 15,
+            terminal_revision: 16,
+            disposition: daimon::ExecutionDispositionV1::Completed,
+            stop_reason: upstream::AgentTurnStopReasonV1::EndTurn,
+            output_digest: Some(daimon::ContentDigestV1::new([17; 32])),
+        },
+    ));
+    let mut adapter = moira_daimon::agent::AgentAdapter::new(
+        daimon::SessionHandleV1(44),
+        Port { reply, seen: None },
+    );
+    let result = adapter
+        .execute_agent(public::CommandV1::Result {
+            session: public::SessionIdV1([1; 16]),
+            turn: public::TurnIdV1([2; 16]),
+        })
+        .unwrap();
+    let public::ReplyV1::Accepted(public::OutcomeV1::Result(binding)) = result else {
+        panic!("result binding expected")
+    };
+    assert_eq!(binding.execution, public::ExecutionIdV1([3; 16]));
+    assert_eq!(binding.task_attempt.task_key, [4; 16]);
+    assert_eq!(binding.task_attempt.incarnation, 5);
+    assert_eq!(binding.task_attempt.attempt, 6);
+    assert_eq!(binding.context_manifest_digest, public::DigestV1([13; 32]));
+    assert_eq!(binding.terminal_cursor, 15);
+    assert_eq!(binding.output_digest, Some(public::DigestV1([17; 32])));
+    assert!(!format!("{binding:?}").contains("10, 10"));
+
+    let Some((service_session, upstream::AgentCommandV1::Result { session, turn })) =
+        adapter.into_port().seen
+    else {
+        panic!("result observation expected")
+    };
+    assert_eq!(service_session, daimon::SessionHandleV1(44));
+    assert_eq!(session, daimon::AgentSessionIdV1::new([1; 16]));
+    assert_eq!(turn, daimon::AgentTurnIdV1::new([2; 16]));
+}
+
+#[test]
 fn reattach_binding_and_required_phase_are_exact() {
     let reply = upstream::AgentReplyV1::Accepted(upstream::AgentOutcomeV1::Session(
         upstream::AgentSessionViewV1 {

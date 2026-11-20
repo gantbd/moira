@@ -74,6 +74,7 @@ fn every_agent_command_roundtrips_canonically() {
             limit: 5,
         },
         CommandV1::Inspect { session },
+        CommandV1::Result { session, turn },
         CommandV1::DecidePermission {
             session,
             expected_revision: 6,
@@ -229,6 +230,29 @@ fn every_event_outcome_and_refusal_roundtrips_canonically() {
             })
             .collect(),
         next_after: Some(8),
+    })));
+    round_reply(ReplyV1::Accepted(OutcomeV1::Result(ResultBindingV1 {
+        session,
+        turn,
+        execution: ExecutionIdV1([12; 16]),
+        task_attempt: AttemptV1 {
+            task_key: [13; 16],
+            incarnation: 2,
+            attempt: 3,
+        },
+        principal: PrincipalIdV1([14; 16]),
+        profile: ProfileIdV1([15; 16]),
+        operation: IdempotencyKeyV1([16; 16]),
+        authority_decision: [17; 16],
+        authority_expires_at: 99,
+        prompt_digest: DigestV1([18; 32]),
+        context_manifest_digest: DigestV1([19; 32]),
+        event_start_cursor: 4,
+        terminal_cursor: 8,
+        terminal_revision: 9,
+        disposition: DispositionV1::Completed,
+        stop_reason: StopReasonV1::EndTurn,
+        output_digest: Some(DigestV1([20; 32])),
     })));
     round_reply(ReplyV1::Accepted(OutcomeV1::OutcomeUnknown {
         session,

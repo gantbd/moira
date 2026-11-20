@@ -470,6 +470,14 @@ impl<P: AgentServicePort> AgentReadOnlyClient<P> {
         })
     }
 
+    pub fn result(
+        &mut self,
+        session: agent::SessionIdV1,
+        turn: agent::TurnIdV1,
+    ) -> Result<agent::ReplyV1, P::Error> {
+        self.0.execute(agent::CommandV1::Result { session, turn })
+    }
+
     pub fn into_port(self) -> P {
         self.0
     }

@@ -69,6 +69,11 @@ fn command(w: &mut Writer, value: &CommandV1) -> Result<(), CodecErrorV1> {
             w.byte(3)?;
             w.raw(&session.0)
         }
+        CommandV1::Result { session, turn } => {
+            w.byte(8)?;
+            w.raw(&session.0)?;
+            w.raw(&turn.0)
+        }
         CommandV1::DecidePermission {
             session,
             expected_revision,
@@ -200,6 +205,10 @@ fn read_command(r: &mut Reader<'_>) -> Result<CommandV1, CodecErrorV1> {
                 now,
             }
         }
+        8 => CommandV1::Result {
+            session: SessionIdV1(r.raw()?),
+            turn: TurnIdV1(r.raw()?),
+        },
         9 => CommandV1::Reattach {
             session: SessionIdV1(r.raw()?),
             expected_revision: r.u64()?,
@@ -381,6 +390,10 @@ fn outcome(w: &mut Writer, value: &OutcomeV1) -> Result<(), CodecErrorV1> {
             w.byte(1)?;
             event_page(w, value)
         }
+        OutcomeV1::Result(value) => {
+            w.byte(3)?;
+            result_binding(w, value)
+        }
         OutcomeV1::OutcomeUnknown {
             session,
             idempotency_key,
@@ -400,8 +413,57 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<OutcomeV1, CodecErrorV1> {
             session: SessionIdV1(r.raw()?),
             idempotency_key: IdempotencyKeyV1(r.raw()?),
         }),
+        3 => Ok(OutcomeV1::Result(read_result_binding(r)?)),
         _ => Err(CodecErrorV1::Unsupported),
     }
+}
+
+fn result_binding(w: &mut Writer, value: &ResultBindingV1) -> Result<(), CodecErrorV1> {
+    w.raw(&value.session.0)?;
+    w.raw(&value.turn.0)?;
+    w.raw(&value.execution.0)?;
+    w.raw(&value.task_attempt.task_key)?;
+    w.u64(value.task_attempt.incarnation)?;
+    w.u64(u64::from(value.task_attempt.attempt))?;
+    w.raw(&value.principal.0)?;
+    w.raw(&value.profile.0)?;
+    w.raw(&value.operation.0)?;
+    w.raw(&value.authority_decision)?;
+    w.u64(value.authority_expires_at)?;
+    w.raw(&value.prompt_digest.0)?;
+    w.raw(&value.context_manifest_digest.0)?;
+    w.u64(value.event_start_cursor)?;
+    w.u64(value.terminal_cursor)?;
+    w.u64(value.terminal_revision)?;
+    w.byte(disposition_tag(value.disposition))?;
+    w.byte(stop_tag(value.stop_reason))?;
+    w.option(value.output_digest, |w, value| w.raw(&value.0))
+}
+
+fn read_result_binding(r: &mut Reader<'_>) -> Result<ResultBindingV1, CodecErrorV1> {
+    Ok(ResultBindingV1 {
+        session: SessionIdV1(r.raw()?),
+        turn: TurnIdV1(r.raw()?),
+        execution: ExecutionIdV1(r.raw()?),
+        task_attempt: AttemptV1 {
+            task_key: r.raw()?,
+            incarnation: r.u64()?,
+            attempt: r.u64()?.try_into().map_err(|_| CodecErrorV1::Limit)?,
+        },
+        principal: PrincipalIdV1(r.raw()?),
+        profile: ProfileIdV1(r.raw()?),
+        operation: IdempotencyKeyV1(r.raw()?),
+        authority_decision: r.raw()?,
+        authority_expires_at: r.u64()?,
+        prompt_digest: DigestV1(r.raw()?),
+        context_manifest_digest: DigestV1(r.raw()?),
+        event_start_cursor: r.u64()?,
+        terminal_cursor: r.u64()?,
+        terminal_revision: r.u64()?,
+        disposition: read_disposition(r.byte()?)?,
+        stop_reason: read_stop(r.byte()?)?,
+        output_digest: r.option(|r| r.raw().map(DigestV1))?,
+    })
 }
 
 fn session_view(w: &mut Writer, value: &SessionViewV1) -> Result<(), CodecErrorV1> {
