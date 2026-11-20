@@ -195,6 +195,22 @@ pub struct TaskAttemptBindingV1 {
     pub chronos_revision: u64,
 }
 
+pub const MAX_CHRONOS_TASK_ID_BYTES_V1: usize = 256;
+
+/// Exact Chronos namespace retained beside one task-attempt binding.
+///
+/// This is owner evidence only. It is not a lease, workspace scope, task-room
+/// relationship, status observation, or mutation authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaskAttemptNamespaceBindingV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub task: ChronosTaskRefV1,
+    pub attempt_number: u32,
+    pub chronos_revision: u64,
+    pub chronos_task_id: String,
+}
+
 /// Exact non-authorizing Agora owner receipt retained for the journey's stable
 /// task-room relationship. The source/sequence pair is Moira's relationship
 /// reference; it is not an Agora capability or a reusable Aegis grant.
@@ -537,6 +553,8 @@ pub enum RefusalV1 {
     InvalidTaskAttempt,
     TaskAttemptMismatch,
     TaskAttemptConflict,
+    InvalidTaskNamespace,
+    TaskNamespaceConflict,
     StaleChronosRevision,
     InvalidRoom,
     RoomMismatch,
@@ -559,6 +577,7 @@ pub struct CheckpointV1 {
     pub journeys: Vec<JourneySnapshotV1>,
     pub participation_blueprints: Vec<ParticipationBlueprintV1>,
     pub participation_attributions: Vec<ParticipationDispatchAttributionV1>,
+    pub task_attempt_namespaces: Vec<TaskAttemptNamespaceBindingV1>,
 }
 
 pub struct Engine {
@@ -573,6 +592,7 @@ pub struct Engine {
     journeys: BTreeMap<JourneyIdV1, JourneySnapshotV1>,
     participation_blueprints: BTreeMap<JourneyIdV1, ParticipationBlueprintV1>,
     participation_attributions: BTreeMap<JourneyIdV1, ParticipationDispatchAttributionV1>,
+    task_attempt_namespaces: BTreeMap<JourneyIdV1, TaskAttemptNamespaceBindingV1>,
     instantiate_operations: BTreeMap<InstantiateOperationIdV1, JourneyIdV1>,
     preview_journeys: BTreeMap<PreviewIdV1, JourneyIdV1>,
 }
@@ -611,6 +631,7 @@ impl Engine {
             journeys: BTreeMap::new(),
             participation_blueprints: BTreeMap::new(),
             participation_attributions: BTreeMap::new(),
+            task_attempt_namespaces: BTreeMap::new(),
             instantiate_operations: BTreeMap::new(),
             preview_journeys: BTreeMap::new(),
         })
@@ -644,6 +665,13 @@ impl Engine {
         journey: JourneyIdV1,
     ) -> Option<&ParticipationDispatchAttributionV1> {
         self.participation_attributions.get(&journey)
+    }
+
+    pub fn task_attempt_namespace(
+        &self,
+        journey: JourneyIdV1,
+    ) -> Option<&TaskAttemptNamespaceBindingV1> {
+        self.task_attempt_namespaces.get(&journey)
     }
 
     pub fn preview(
@@ -835,6 +863,47 @@ impl Engine {
             journey: next,
             replayed: false,
         })
+    }
+
+    /// Atomically retain the trusted Chronos task identity beside the exact
+    /// attempt binding. Existing V1 attempt-only journeys can be enriched only
+    /// by replaying the identical owner receipt and exact task identity.
+    pub fn bind_task_attempt_namespace(
+        &mut self,
+        journey: JourneyIdV1,
+        receipt: ChronosAttemptReceiptV1,
+        chronos_task_id: String,
+    ) -> Result<JourneyReceiptV1, RefusalV1> {
+        if chronos_task_id.is_empty() || chronos_task_id.len() > MAX_CHRONOS_TASK_ID_BYTES_V1 {
+            return Err(RefusalV1::InvalidTaskNamespace);
+        }
+        if let Some(existing) = self.task_attempt_namespaces.get(&journey) {
+            if existing.task != receipt.task()
+                || existing.attempt_number != receipt.attempt_number()
+                || existing.chronos_revision != receipt.chronos_revision()
+                || existing.chronos_task_id != chronos_task_id
+            {
+                return Err(RefusalV1::TaskNamespaceConflict);
+            }
+            return self.bind_task_attempt(journey, receipt);
+        }
+        let bound = self.bind_task_attempt(journey, receipt)?;
+        let binding = bound
+            .journey
+            .task_attempt
+            .ok_or(RefusalV1::InvalidCheckpoint)?;
+        self.task_attempt_namespaces.insert(
+            journey,
+            TaskAttemptNamespaceBindingV1 {
+                journey,
+                expected_journey_revision: binding.expected_journey_revision,
+                task: binding.task,
+                attempt_number: binding.attempt_number,
+                chronos_revision: binding.chronos_revision,
+                chronos_task_id,
+            },
+        );
+        Ok(bound)
     }
 
     /// Retain the exact Agora owner receipt after the prepared room effect has
@@ -1043,10 +1112,21 @@ impl Engine {
             journeys: self.journeys.values().copied().collect(),
             participation_blueprints: self.participation_blueprints.values().copied().collect(),
             participation_attributions: self.participation_attributions.values().copied().collect(),
+            task_attempt_namespaces: self.task_attempt_namespaces.values().cloned().collect(),
         }
     }
 
     pub fn recover(checkpoint: CheckpointV1) -> Result<Self, RefusalV1> {
+        let task_attempt_namespaces = checkpoint
+            .task_attempt_namespaces
+            .iter()
+            .map(|binding| (binding.journey, binding.clone()))
+            .collect::<BTreeMap<_, _>>();
+        if task_attempt_namespaces.len() != checkpoint.task_attempt_namespaces.len()
+            || task_attempt_namespaces.len() > checkpoint.limits.max_journeys
+        {
+            return Err(RefusalV1::InvalidCheckpoint);
+        }
         let mut engine = Self::try_new(checkpoint.owner, checkpoint.limits, checkpoint.templates)?;
         if checkpoint.owner_revision != 1
             || checkpoint.next_preview
@@ -1080,18 +1160,33 @@ impl Engine {
                         .instantiate(journey.admission, journey.confirmed_at)?
                         .journey;
                     let recovered = match journey.task_attempt {
-                        Some(binding) => {
-                            engine
-                                .bind_task_attempt(
-                                    journey.id,
-                                    ChronosAttemptReceiptV1::new(
-                                        binding.task,
-                                        binding.attempt_number,
-                                        binding.chronos_revision,
-                                    ),
-                                )?
-                                .journey
-                        }
+                        Some(binding) => match task_attempt_namespaces.get(&journey.id) {
+                            Some(namespace) => {
+                                engine
+                                    .bind_task_attempt_namespace(
+                                        journey.id,
+                                        ChronosAttemptReceiptV1::new(
+                                            binding.task,
+                                            binding.attempt_number,
+                                            binding.chronos_revision,
+                                        ),
+                                        namespace.chronos_task_id.clone(),
+                                    )?
+                                    .journey
+                            }
+                            None => {
+                                engine
+                                    .bind_task_attempt(
+                                        journey.id,
+                                        ChronosAttemptReceiptV1::new(
+                                            binding.task,
+                                            binding.attempt_number,
+                                            binding.chronos_revision,
+                                        ),
+                                    )?
+                                    .journey
+                            }
+                        },
                         None => admitted,
                     };
                     let recovered = match journey.room {
@@ -1174,6 +1269,9 @@ impl Engine {
                     return Err(RefusalV1::InvalidCheckpoint);
                 }
             }
+        }
+        if engine.task_attempt_namespaces != task_attempt_namespaces {
+            return Err(RefusalV1::InvalidCheckpoint);
         }
         if engine.next_preview != checkpoint.next_preview
             || engine.next_journey != checkpoint.next_journey

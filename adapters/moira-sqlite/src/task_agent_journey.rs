@@ -229,6 +229,15 @@ impl TaskAgentJourneySqliteStore {
             TaskAgentJourneyMutationV1::BindTaskAttempt { journey, receipt } => {
                 TaskAgentJourneyApplyV1::TaskAttempt(candidate.bind_task_attempt(journey, receipt)?)
             }
+            TaskAgentJourneyMutationV1::BindTaskAttemptNamespace {
+                journey,
+                receipt,
+                chronos_task_id,
+            } => TaskAgentJourneyApplyV1::TaskAttempt(candidate.bind_task_attempt_namespace(
+                journey,
+                receipt,
+                chronos_task_id,
+            )?),
             TaskAgentJourneyMutationV1::BindRoom { journey, receipt } => {
                 TaskAgentJourneyApplyV1::Room(candidate.bind_room(journey, receipt)?)
             }
@@ -353,6 +362,13 @@ impl TaskAgentJourneyStore for TaskAgentJourneySqliteStore {
 
     fn journey(&self, id: JourneyIdV1) -> Option<JourneySnapshotV1> {
         self.engine.journey(id).copied()
+    }
+
+    fn task_attempt_namespace(
+        &self,
+        journey: JourneyIdV1,
+    ) -> Option<moira_core::task_agent_journey::TaskAttemptNamespaceBindingV1> {
+        self.engine.task_attempt_namespace(journey).cloned()
     }
 
     fn participation_blueprint(&self, journey: JourneyIdV1) -> Option<ParticipationBlueprintV1> {

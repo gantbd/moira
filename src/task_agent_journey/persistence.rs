@@ -68,6 +68,11 @@ impl Writer {
     fn digest(&mut self, value: [u8; 32]) -> Result<(), CodecErrorV1> {
         self.raw(&value)
     }
+
+    fn text(&mut self, value: &str) -> Result<(), CodecErrorV1> {
+        self.number(to_u64(value.len())?)?;
+        self.raw(value.as_bytes())
+    }
 }
 
 struct Reader<'a> {
@@ -109,6 +114,22 @@ impl<'a> Reader<'a> {
         self.raw()
     }
 
+    fn text(&mut self, maximum: usize) -> Result<String, CodecErrorV1> {
+        let count = self.count(maximum)?;
+        let end = self
+            .position
+            .checked_add(count)
+            .ok_or(CodecErrorV1::Invalid)?;
+        let value = self
+            .bytes
+            .get(self.position..end)
+            .ok_or(CodecErrorV1::Truncated)?;
+        self.position = end;
+        std::str::from_utf8(value)
+            .map(str::to_owned)
+            .map_err(|_| CodecErrorV1::Invalid)
+    }
+
     fn count(&mut self, maximum: usize) -> Result<usize, CodecErrorV1> {
         let value = usize::try_from(self.number()?).map_err(|_| CodecErrorV1::Limit)?;
         if value > maximum || value > self.bytes.len().saturating_sub(self.position) {
@@ -137,7 +158,7 @@ impl<'a> Reader<'a> {
 }
 
 pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8>, CodecErrorV1> {
-    encode_version(checkpoint, limits, 5)
+    encode_version(checkpoint, limits, 6)
 }
 
 fn encode_version(
@@ -193,6 +214,14 @@ fn encode_version(
     {
         return Err(CodecErrorV1::Invalid);
     }
+    if version >= 6 {
+        writer.number(to_u64(canonical.task_attempt_namespaces.len())?)?;
+        for value in canonical.task_attempt_namespaces {
+            task_attempt_namespace(&mut writer, &value)?;
+        }
+    } else if !canonical.task_attempt_namespaces.is_empty() {
+        return Err(CodecErrorV1::Invalid);
+    }
     Ok(writer.bytes)
 }
 
@@ -203,7 +232,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         return Err(CodecErrorV1::Invalid);
     }
     let version = reader.byte()?;
-    if !matches!(version, 1..=5) {
+    if !matches!(version, 1..=6) {
         return Err(CodecErrorV1::Invalid);
     }
     let owner = OwnerIdV1(reader.id()?);
@@ -261,6 +290,19 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         }
         values
     };
+    let task_attempt_namespaces = if version < 6 {
+        Vec::new()
+    } else {
+        let count = reader.count(domain.max_journeys)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| CodecErrorV1::Capacity)?;
+        for _ in 0..count {
+            values.push(read_task_attempt_namespace(&mut reader)?);
+        }
+        values
+    };
     reader.finish()?;
     let checkpoint = CheckpointV1 {
         owner,
@@ -273,6 +315,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         journeys,
         participation_blueprints,
         participation_attributions,
+        task_attempt_namespaces,
     };
     Engine::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
     if encode_version(&checkpoint, limits, version)? != bytes {
@@ -771,6 +814,35 @@ fn read_task_attempt(reader: &mut Reader<'_>) -> Result<TaskAttemptBindingV1, Co
             .try_into()
             .map_err(|_| CodecErrorV1::Invalid)?,
         chronos_revision: reader.number()?,
+    })
+}
+
+fn task_attempt_namespace(
+    writer: &mut Writer,
+    value: &TaskAttemptNamespaceBindingV1,
+) -> Result<(), CodecErrorV1> {
+    scoped_journey_id(writer, value.journey)?;
+    writer.number(value.expected_journey_revision)?;
+    writer.id(value.task.external_task_key())?;
+    writer.number(value.task.incarnation())?;
+    writer.number(u64::from(value.attempt_number))?;
+    writer.number(value.chronos_revision)?;
+    writer.text(&value.chronos_task_id)
+}
+
+fn read_task_attempt_namespace(
+    reader: &mut Reader<'_>,
+) -> Result<TaskAttemptNamespaceBindingV1, CodecErrorV1> {
+    Ok(TaskAttemptNamespaceBindingV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.number()?,
+        task: ChronosTaskRefV1::new(reader.id()?, reader.number()?),
+        attempt_number: reader
+            .number()?
+            .try_into()
+            .map_err(|_| CodecErrorV1::Invalid)?,
+        chronos_revision: reader.number()?,
+        chronos_task_id: reader.text(MAX_CHRONOS_TASK_ID_BYTES_V1)?,
     })
 }
 

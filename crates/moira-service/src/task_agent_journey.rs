@@ -487,6 +487,8 @@ fn refusal(value: domain::RefusalV1) -> public::RefusalV1 {
         | domain::RefusalV1::InvalidTaskAttempt
         | domain::RefusalV1::TaskAttemptMismatch
         | domain::RefusalV1::TaskAttemptConflict
+        | domain::RefusalV1::InvalidTaskNamespace
+        | domain::RefusalV1::TaskNamespaceConflict
         | domain::RefusalV1::StaleChronosRevision
         | domain::RefusalV1::InvalidRoom
         | domain::RefusalV1::RoomMismatch

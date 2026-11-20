@@ -183,6 +183,62 @@ fn trusted_exact_chronos_claim_persists_one_replayable_ready_transition() {
 }
 
 #[test]
+fn trusted_chronos_namespace_is_atomic_replayable_and_conflict_safe() {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let receipt = ChronosAttemptReceiptV1::new(preview.request.task.task, 3, 12);
+
+    assert_eq!(
+        engine.bind_task_attempt_namespace(admitted.id, receipt, String::new()),
+        Err(j::RefusalV1::InvalidTaskNamespace)
+    );
+    assert_eq!(
+        engine.bind_task_attempt_namespace(
+            admitted.id,
+            receipt,
+            "x".repeat(j::MAX_CHRONOS_TASK_ID_BYTES_V1 + 1),
+        ),
+        Err(j::RefusalV1::InvalidTaskNamespace)
+    );
+    assert_eq!(engine.journey(admitted.id), Some(&admitted));
+    assert_eq!(engine.task_attempt_namespace(admitted.id), None);
+
+    let ready = engine
+        .bind_task_attempt_namespace(admitted.id, receipt, "exact-task".into())
+        .unwrap();
+    assert!(!ready.replayed);
+    let namespace = j::TaskAttemptNamespaceBindingV1 {
+        journey: admitted.id,
+        expected_journey_revision: admitted.revision,
+        task: preview.request.task.task,
+        attempt_number: 3,
+        chronos_revision: 12,
+        chronos_task_id: "exact-task".into(),
+    };
+    assert_eq!(engine.task_attempt_namespace(admitted.id), Some(&namespace));
+    assert!(
+        engine
+            .bind_task_attempt_namespace(admitted.id, receipt, "exact-task".into())
+            .unwrap()
+            .replayed
+    );
+    assert_eq!(
+        engine.bind_task_attempt_namespace(admitted.id, receipt, "changed-task".into()),
+        Err(j::RefusalV1::TaskNamespaceConflict)
+    );
+
+    let recovered = j::Engine::recover(engine.checkpoint()).unwrap();
+    assert_eq!(
+        recovered.task_attempt_namespace(admitted.id),
+        Some(&namespace)
+    );
+}
+
+#[test]
 fn persisted_task_attempt_refuses_forks_without_changing_the_journey() {
     let mut engine = engine();
     let preview = engine.preview(preview_request(), 1_000).unwrap().preview;

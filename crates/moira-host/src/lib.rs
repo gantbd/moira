@@ -198,6 +198,11 @@ pub enum TaskAgentJourneyMutationV1 {
         journey: TaskAgentJourneyIdV1,
         receipt: ChronosAttemptReceiptV1,
     },
+    BindTaskAttemptNamespace {
+        journey: TaskAgentJourneyIdV1,
+        receipt: ChronosAttemptReceiptV1,
+        chronos_task_id: String,
+    },
     BindRoom {
         journey: TaskAgentJourneyIdV1,
         receipt: moira_core::task_agent_journey::AgoraRoomReceiptV1,
@@ -250,6 +255,13 @@ pub trait TaskAgentJourneyStore {
     fn census(&self) -> TaskAgentJourneyCensusV1;
     fn preview(&self, id: TaskAgentPreviewIdV1) -> Option<TaskAgentPreviewSnapshotV1>;
     fn journey(&self, id: TaskAgentJourneyIdV1) -> Option<TaskAgentJourneySnapshotV1>;
+    fn task_attempt_namespace(
+        &self,
+        journey: TaskAgentJourneyIdV1,
+    ) -> Option<moira_core::task_agent_journey::TaskAttemptNamespaceBindingV1> {
+        let _ = journey;
+        None
+    }
     fn participation_blueprint(
         &self,
         journey: TaskAgentJourneyIdV1,

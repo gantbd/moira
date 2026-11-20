@@ -236,6 +236,17 @@ expiry and confirmation times. Service, transactional store, client/daemon,
 fresh Chronos claim/lease, room and participation effects, Daimon dispatch and
 settlement remain open and cannot be inferred from admission.
 
+Subsequent owner progression retains a trusted Chronos claim before room and
+participation admission. Checkpoint V6 adds a separate exact task-namespace
+binding beside the unchanged V1 attempt binding: journey, external task key,
+incarnation, attempt, Chronos revision and the Chronos-owned task ID are
+committed atomically by the journey store. The trusted worker supplies the task
+ID obtained while claiming and fences if exact durable replay is unavailable;
+changed identity conflicts. This owner fact is not ambient workspace scope, a
+task-conversation relationship, a lease, current task phase, settlement
+authority or human acceptance. Checkpoint versions 1 through 5 remain readable
+and upgrade canonically without inventing missing namespace evidence.
+
 `moira-client` now also owns a bounded optional Unix port for the governed
 participation service, so runtime workers do not depend on terminal presentation
 code. The standard `drive_current` step loads the exact store revision and then

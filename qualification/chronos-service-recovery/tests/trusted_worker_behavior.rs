@@ -278,10 +278,24 @@ fn exact_result_settles_the_coordination_admitted_task() {
     assert_eq!(ready.storage_revision, 3);
     assert_eq!(ready.journey.phase, journey::PhaseV1::TaskAttemptReady);
     assert_eq!(ready.journey.task_attempt.unwrap().attempt_number, 1);
+    assert_eq!(
+        store
+            .task_attempt_namespace(admitted.id)
+            .unwrap()
+            .chronos_task_id,
+        "j1-owned-task"
+    );
     drop(store);
     let reopened = journey_store(&directory);
     assert_eq!(TaskAgentJourneyStore::storage_revision(&reopened), 3);
     assert_eq!(reopened.journey(admitted.id), Some(ready.journey));
+    assert_eq!(
+        reopened
+            .task_attempt_namespace(admitted.id)
+            .unwrap()
+            .chronos_task_id,
+        "j1-owned-task"
+    );
     drop(reopened);
     assert_eq!(claimed.receipt.task.external_task_key, [8; 16]);
     assert_eq!(claimed.receipt.task.incarnation, 0);

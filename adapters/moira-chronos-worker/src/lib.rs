@@ -363,9 +363,21 @@ impl<C: WorkerClientV1> TrustedWorkerV1<C> {
         expected_storage_revision: Option<u64>,
         journey: JourneyIdV1,
     ) -> Result<ReadyTaskAttemptV1, JourneyBindingErrorV1<S::Error>> {
-        let claim = self
-            .active()
-            .ok_or(JourneyBindingErrorV1::NoActiveAttempt)?;
+        let (claim, chronos_task_id) = match &self.state {
+            State::Active(active) => (
+                ClaimedAttemptV1 {
+                    receipt: AttemptReceiptV1 {
+                        task: active.task,
+                        attempt_number: active.attempt_number,
+                        chronos_revision: active.chronos_revision,
+                    },
+                },
+                active.task_id.as_str().to_owned(),
+            ),
+            State::Idle | State::Fenced => {
+                return Err(JourneyBindingErrorV1::NoActiveAttempt);
+            }
+        };
         let receipt = ChronosAttemptReceiptV1::new(
             ChronosTaskRefV1::new(
                 claim.receipt.task.external_task_key,
@@ -377,7 +389,11 @@ impl<C: WorkerClientV1> TrustedWorkerV1<C> {
         let applied = store
             .apply(
                 expected_storage_revision,
-                TaskAgentJourneyMutationV1::BindTaskAttempt { journey, receipt },
+                TaskAgentJourneyMutationV1::BindTaskAttemptNamespace {
+                    journey,
+                    receipt,
+                    chronos_task_id: chronos_task_id.clone(),
+                },
             )
             .map_err(|error| JourneyBindingErrorV1::Store { claim, error })?;
         let TaskAgentJourneyApplyV1::TaskAttempt(bound) = applied.outcome else {
@@ -389,7 +405,15 @@ impl<C: WorkerClientV1> TrustedWorkerV1<C> {
                 binding.task == receipt.task()
                     && binding.attempt_number == receipt.attempt_number()
                     && binding.chronos_revision == receipt.chronos_revision()
-            });
+            })
+            && store
+                .task_attempt_namespace(journey)
+                .is_some_and(|binding| {
+                    binding.task == receipt.task()
+                        && binding.attempt_number == receipt.attempt_number()
+                        && binding.chronos_revision == receipt.chronos_revision()
+                        && binding.chronos_task_id == chronos_task_id
+                });
         if !exact {
             self.state = State::Fenced;
             return Err(JourneyBindingErrorV1::UnexpectedOutcome { claim });
