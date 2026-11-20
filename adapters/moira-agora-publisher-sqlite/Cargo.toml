@@ -5,12 +5,13 @@ edition = "2024"
 rust-version = "1.95"
 publish = false
 license = "MIT OR Apache-2.0"
-description = "SQLite owner for Moira's Agora publisher replay checkpoint"
+description = "SQLite owners for Moira's Agora replay checkpoints"
 
 [dependencies]
 agora-client = { path = "../../../agora/client/agora-client" }
 agora-protocol = { path = "../../../agora/protocol/agora-protocol" }
 moira-agora = { path = "../moira-agora" }
+moira-core = { path = "../.." }
 moira-protocol = { path = "../../crates/moira-protocol" }
 moira-sqlite = { path = "../moira-sqlite" }
 rusqlite = { version = "=0.41.1", features = ["bundled", "limits"] }
@@ -23,6 +24,3 @@ unsafe_code = "forbid"
 
 [lints.clippy]
 all = "warn"
-
-[dev-dependencies]
-moira-core = { path = "../.." }

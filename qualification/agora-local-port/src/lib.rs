@@ -4,8 +4,8 @@
 mod tests {
     use aegis_client::ServicePort as AegisServicePort;
     use aegis_protocol::{
-        CommandV1 as AegisCommandV1, DecisionHandleV1, DecisionSummaryV1, EngineNamespaceV1,
-        OutcomeV1 as AegisOutcomeV1, ReplyV1 as AegisReplyV1, SessionHandleV1,
+        ActionV1, CommandV1 as AegisCommandV1, DecisionHandleV1, DecisionSummaryV1,
+        EngineNamespaceV1, OutcomeV1 as AegisOutcomeV1, ReplyV1 as AegisReplyV1, SessionHandleV1,
     };
     use agora_actor_publication_port::{
         ActorPublicationAcceptedV1, ActorPublicationObservationRefusalV1,
@@ -34,8 +34,11 @@ mod tests {
     use moira_agora::{
         PublicationIntentV1, PublicationLimitsV1,
         actor::{ActorObservationReplyV1, ActorPublisherErrorV1, ActorResponsePublisher},
+        room::{DurableRoomProvisioner, RoomIntentV1, RoomLimitsV1, RoomReplyV1},
     };
     use moira_agora_local::{AgoraUnixLimitsV1, connect_agora_v2};
+    use moira_agora_publisher_sqlite::room::{RoomSqliteStore, RoomStoreLimitsV1};
+    use moira_core::task_agent_journey::{JourneyIdV1, OwnerIdV1};
     use moira_protocol::EffectIdV1;
     use std::{
         convert::Infallible,
@@ -44,7 +47,10 @@ mod tests {
         os::unix::{fs::PermissionsExt, net::UnixStream},
         path::{Path, PathBuf},
         process::{Child, Command, Stdio},
-        sync::atomic::{AtomicU64, Ordering},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicU64, Ordering},
+        },
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
@@ -87,6 +93,33 @@ mod tests {
                 SessionHandleV1(3),
                 aegis_protocol::GrantHandleV1(4),
             ))
+        }
+    }
+
+    #[derive(Clone)]
+    struct RecordingAuthorityPort(Arc<Mutex<Vec<ActionV1>>>);
+
+    impl AegisServicePort for RecordingAuthorityPort {
+        type Error = Infallible;
+
+        fn execute(
+            &mut self,
+            _: SessionHandleV1,
+            command: AegisCommandV1,
+        ) -> Result<AegisReplyV1, Self::Error> {
+            let AegisCommandV1::Authorize { action, .. } = command else {
+                unreachable!("Agora host only requests current authorization")
+            };
+            self.0.lock().unwrap().push(action);
+            Ok(AegisReplyV1::Accepted(AegisOutcomeV1::Authorized(
+                DecisionSummaryV1 {
+                    handle: DecisionHandleV1(7),
+                    epoch: 0,
+                    expires_at: 10_000,
+                    engine: EngineNamespaceV1::Agora,
+                    action,
+                },
+            )))
         }
     }
 
@@ -584,5 +617,104 @@ mod tests {
         served.unwrap();
         assert_eq!(stopped.cleanup, DaemonCleanupV1::Clean);
         fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn durable_room_crosses_real_agora_daemon_and_command_scoped_aegis_verifier() {
+        let directory = path();
+        fs::create_dir(&directory).unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = directory.join("agora.sock");
+        let decisions = Arc::new(Mutex::new(Vec::new()));
+        let mut engine = Engine::new();
+        engine
+            .apply(EngineCommandV2::RegisterParticipant(Participant::new(
+                "bot",
+                "Bot",
+                ParticipantKind::Agent,
+            )))
+            .unwrap();
+        let host = HostV2::new(
+            ServiceV2::new(engine, ServiceLimitsV2::default()),
+            AegisVerifierV1::new(RecordingAuthorityPort(Arc::clone(&decisions)), [5; 16]),
+            HostLimits {
+                max_sessions: 2,
+                max_retired_sessions: 4,
+                wire: wire_limits(),
+            },
+        );
+        let mut daemon = DaemonV1::bind_new(
+            &socket,
+            host,
+            Authentication,
+            Clock(1),
+            ServerIncarnationV1::new([6; 16]),
+            DaemonLimitsV1 {
+                max_frame_bytes: 8_192,
+                max_frames_after_connect: 4,
+                io_timeout: Duration::from_secs(2),
+            },
+        )
+        .unwrap();
+        let server = thread::spawn(move || {
+            let served = daemon.serve_next();
+            (served, daemon.stop())
+        });
+
+        let (client, port) = connect_agora_v2(
+            &socket,
+            "bot",
+            AgoraUnixLimitsV1 {
+                wire: wire_limits(),
+                timeout: Duration::from_secs(2),
+            },
+        )
+        .unwrap();
+        let owner = [0x31; 16];
+        let store = RoomSqliteStore::open(
+            directory.join("room-checkpoint.db"),
+            owner,
+            client,
+            RoomStoreLimitsV1::default(),
+        )
+        .unwrap();
+        let mut provisioner =
+            DurableRoomProvisioner::new(store, port, RoomLimitsV1::default()).unwrap();
+        let intent = RoomIntentV1 {
+            journey: JourneyIdV1 {
+                owner: OwnerIdV1(owner),
+                sequence: 0,
+            },
+            expected_journey_revision: 1,
+            source: owner,
+            room_sequence: 0,
+            request: agora_client::room_command::CreateRoomRequestV1 {
+                room_id: "task-agent".into(),
+                name: "Task agent".into(),
+                admission: agora_protocol::v2::AdmissionPolicyV2::InviteOnly,
+                expected_revision: 1,
+            },
+        };
+        let completed = provisioner.provision(intent.clone()).unwrap();
+        assert!(matches!(
+            completed.reply,
+            RoomReplyV1::Created(ref receipt)
+                if receipt.room_id == "task-agent" && receipt.revision == 2
+        ));
+        assert!(!completed.replayed);
+        assert!(provisioner.provision(intent).unwrap().replayed);
+        let (store, port) = provisioner.into_parts();
+        drop(store);
+        port.unwrap().disconnect().unwrap();
+
+        let (served, stopped) = server.join().unwrap();
+        served.unwrap();
+        assert_eq!(stopped.cleanup, DaemonCleanupV1::Clean);
+        assert_eq!(
+            *decisions.lock().unwrap(),
+            vec![ActionV1::Submit, ActionV1::Submit, ActionV1::Submit],
+            "connect authentication, create-room revalidation, and disconnect revalidation each require a fresh command-scoped decision; durable replay requires none"
+        );
+        fs::remove_dir_all(directory).unwrap();
     }
 }

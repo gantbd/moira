@@ -26,6 +26,8 @@ agora-storage-directory = { path = "../../../agora/adapters/agora-storage-direct
 agora-wire = { path = "../../../agora/protocol/agora-wire" }
 moira-agora-local = { path = "../../adapters/moira-agora-local" }
 moira-agora = { path = "../../adapters/moira-agora" }
+moira-agora-publisher-sqlite = { path = "../../adapters/moira-agora-publisher-sqlite" }
+moira-core = { path = "../.." }
 moira-protocol = { path = "../../crates/moira-protocol" }
 keystone-storage = { path = "../../../keystone/crates/keystone-storage" }
 

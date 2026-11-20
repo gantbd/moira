@@ -1,7 +1,9 @@
-//! Separately owned SQLite checkpoint for Agora publication replay.
+//! Separately owned SQLite checkpoints for Agora effect replay.
 
 #![forbid(unsafe_code)]
 #![cfg(unix)]
+
+pub mod room;
 
 use agora_client::v2::ClientStateV2;
 use agora_protocol::v2::{ClientIdV2, RefusalV2, RequestIdV2, RequestV2};
@@ -57,7 +59,7 @@ pub enum PublisherStoreErrorV1 {
 
 impl std::fmt::Display for PublisherStoreErrorV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "Moira Agora publisher SQLite: {self:?}")
+        write!(formatter, "Moira Agora checkpoint SQLite: {self:?}")
     }
 }
 
