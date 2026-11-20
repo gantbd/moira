@@ -137,7 +137,7 @@ impl<'a> Reader<'a> {
 }
 
 pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8>, CodecErrorV1> {
-    encode_version(checkpoint, limits, 3)
+    encode_version(checkpoint, limits, 4)
 }
 
 fn encode_version(
@@ -172,6 +172,14 @@ fn encode_version(
     for value in canonical.journeys {
         journey(&mut writer, value, version)?;
     }
+    if version >= 4 {
+        writer.number(to_u64(canonical.participation_blueprints.len())?)?;
+        for value in canonical.participation_blueprints {
+            participation_blueprint(&mut writer, value)?;
+        }
+    } else if !canonical.participation_blueprints.is_empty() {
+        return Err(CodecErrorV1::Invalid);
+    }
     Ok(writer.bytes)
 }
 
@@ -182,7 +190,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         return Err(CodecErrorV1::Invalid);
     }
     let version = reader.byte()?;
-    if !matches!(version, 1..=3) {
+    if !matches!(version, 1..=4) {
         return Err(CodecErrorV1::Invalid);
     }
     let owner = OwnerIdV1(reader.id()?);
@@ -214,6 +222,19 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
     for _ in 0..journey_count {
         journeys.push(read_journey(&mut reader, version)?);
     }
+    let participation_blueprints = if version < 4 {
+        Vec::new()
+    } else {
+        let count = reader.count(domain.max_journeys)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| CodecErrorV1::Capacity)?;
+        for _ in 0..count {
+            values.push(read_participation_blueprint(&mut reader)?);
+        }
+        values
+    };
     reader.finish()?;
     let checkpoint = CheckpointV1 {
         owner,
@@ -224,6 +245,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         templates,
         previews,
         journeys,
+        participation_blueprints,
     };
     Engine::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
     if encode_version(&checkpoint, limits, version)? != bytes {
@@ -443,6 +465,165 @@ fn read_room(reader: &mut Reader<'_>) -> Result<RoomBindingV1, CodecErrorV1> {
     })
 }
 
+fn participation_blueprint(
+    writer: &mut Writer,
+    value: ParticipationBlueprintV1,
+) -> Result<(), CodecErrorV1> {
+    scoped_journey_id(writer, value.journey)?;
+    writer.number(value.expected_journey_revision)?;
+    participation_workflow(writer, value.workflow)?;
+    deliberation_member(writer, value.deliberation)?;
+    participation_binding(writer, value.binding)
+}
+
+fn read_participation_blueprint(
+    reader: &mut Reader<'_>,
+) -> Result<ParticipationBlueprintV1, CodecErrorV1> {
+    Ok(ParticipationBlueprintV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.number()?,
+        workflow: read_participation_workflow(reader)?,
+        deliberation: read_deliberation_member(reader)?,
+        binding: read_participation_binding(reader)?,
+    })
+}
+
+fn participation_workflow(
+    writer: &mut Writer,
+    value: ParticipationWorkflowReceiptV1,
+) -> Result<(), CodecErrorV1> {
+    writer.id(value.source)?;
+    writer.number(value.workflow_sequence)?;
+    writer.id(value.participation_workflow.into_bytes())?;
+    writer.number(value.relationship_revision)
+}
+
+fn read_participation_workflow(
+    reader: &mut Reader<'_>,
+) -> Result<ParticipationWorkflowReceiptV1, CodecErrorV1> {
+    Ok(ParticipationWorkflowReceiptV1 {
+        source: reader.id()?,
+        workflow_sequence: reader.number()?,
+        participation_workflow: WorkflowId::new(reader.id()?),
+        relationship_revision: reader.number()?,
+    })
+}
+
+fn deliberation_member(
+    writer: &mut Writer,
+    value: DeliberationMemberReceiptV1,
+) -> Result<(), CodecErrorV1> {
+    writer.id(value.deliberation.0)?;
+    writer.id(value.member.0)?;
+    method(writer, value.method)?;
+    grounding(writer, value.grounding)?;
+    writer.byte(persona_tag(value.persona))?;
+    ensemble_admission(writer, value.ensemble_admission)?;
+    writer.number(value.owner_revision)
+}
+
+fn read_deliberation_member(
+    reader: &mut Reader<'_>,
+) -> Result<DeliberationMemberReceiptV1, CodecErrorV1> {
+    Ok(DeliberationMemberReceiptV1 {
+        deliberation: DeliberationIdV1(reader.id()?),
+        member: EnsembleMemberIdV1(reader.id()?),
+        method: read_method(reader)?,
+        grounding: read_grounding(reader)?,
+        persona: read_persona(reader.byte()?)?,
+        ensemble_admission: read_ensemble_admission(reader)?,
+        owner_revision: reader.number()?,
+    })
+}
+
+fn participation_binding(
+    writer: &mut Writer,
+    value: AgentParticipationBindingV1,
+) -> Result<(), CodecErrorV1> {
+    writer.id(value.participation.0)?;
+    writer.id(value.workflow.into_bytes())?;
+    writer.id(value.deliberation.0)?;
+    writer.id(value.member.0)?;
+    writer.id(value.session.0)?;
+    writer.id(value.profile.0)?;
+    writer.id(value.attempt.task_key)?;
+    writer.number(value.attempt.incarnation)?;
+    writer.number(u64::from(value.attempt.attempt))?;
+    method(writer, value.method)?;
+    grounding(writer, value.grounding)?;
+    writer.byte(persona_tag(value.persona))
+}
+
+fn read_participation_binding(
+    reader: &mut Reader<'_>,
+) -> Result<AgentParticipationBindingV1, CodecErrorV1> {
+    Ok(AgentParticipationBindingV1 {
+        participation: crate::agent_participation::ParticipationIdV1(reader.id()?),
+        workflow: WorkflowId::new(reader.id()?),
+        deliberation: DeliberationIdV1(reader.id()?),
+        member: EnsembleMemberIdV1(reader.id()?),
+        session: crate::agent_participation::AgentSessionIdV1(reader.id()?),
+        profile: ProfileIdV1(reader.id()?),
+        attempt: crate::agent_participation::AttemptV1 {
+            task_key: reader.id()?,
+            incarnation: reader.number()?,
+            attempt: reader
+                .number()?
+                .try_into()
+                .map_err(|_| CodecErrorV1::Invalid)?,
+        },
+        method: read_method(reader)?,
+        grounding: read_grounding(reader)?,
+        persona: read_persona(reader.byte()?)?,
+    })
+}
+
+fn method(writer: &mut Writer, value: MethodRefV1) -> Result<(), CodecErrorV1> {
+    writer.digest(value.machine_digest)?;
+    writer.digest(value.state_digest)
+}
+
+fn read_method(reader: &mut Reader<'_>) -> Result<MethodRefV1, CodecErrorV1> {
+    Ok(MethodRefV1 {
+        machine_digest: reader.digest()?,
+        state_digest: reader.digest()?,
+    })
+}
+
+fn grounding(writer: &mut Writer, value: GroundingRefV1) -> Result<(), CodecErrorV1> {
+    writer.digest(value.authority_digest)?;
+    writer.digest(value.surface_digest)?;
+    writer.byte(surface_depth_tag(value.depth))
+}
+
+fn read_grounding(reader: &mut Reader<'_>) -> Result<GroundingRefV1, CodecErrorV1> {
+    Ok(GroundingRefV1 {
+        authority_digest: reader.digest()?,
+        surface_digest: reader.digest()?,
+        depth: read_surface_depth(reader.byte()?)?,
+    })
+}
+
+fn ensemble_admission(writer: &mut Writer, value: EnsembleAdmissionV1) -> Result<(), CodecErrorV1> {
+    writer.digest(value.affected_population_digest)?;
+    writer.digest(value.stakeholder_map_digest)?;
+    writer.digest(value.coverage_manifest_digest)?;
+    writer.digest(value.equity_assessment_digest)?;
+    writer.id(value.assessor_principal)?;
+    writer.byte(ensemble_fitness_tag(value.fitness))
+}
+
+fn read_ensemble_admission(reader: &mut Reader<'_>) -> Result<EnsembleAdmissionV1, CodecErrorV1> {
+    Ok(EnsembleAdmissionV1 {
+        affected_population_digest: reader.digest()?,
+        stakeholder_map_digest: reader.digest()?,
+        coverage_manifest_digest: reader.digest()?,
+        equity_assessment_digest: reader.digest()?,
+        assessor_principal: reader.id()?,
+        fitness: read_ensemble_fitness(reader.byte()?)?,
+    })
+}
+
 fn task_attempt(writer: &mut Writer, value: TaskAttemptBindingV1) -> Result<(), CodecErrorV1> {
     scoped_journey_id(writer, value.journey)?;
     writer.number(value.expected_journey_revision)?;
@@ -595,6 +776,63 @@ fn read_room_policy(value: u8) -> Result<RoomPolicyV1, CodecErrorV1> {
     match value {
         1 => Ok(RoomPolicyV1::Direct),
         2 => Ok(RoomPolicyV1::SharedContext),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn persona_tag(value: PersonaLensV1) -> u8 {
+    match value {
+        PersonaLensV1::Historian => 1,
+        PersonaLensV1::IdeaStormer => 2,
+        PersonaLensV1::Theorist => 3,
+        PersonaLensV1::Researcher => 4,
+        PersonaLensV1::RigorReviewer => 5,
+        PersonaLensV1::ConvergenceFacilitator => 6,
+    }
+}
+
+fn read_persona(value: u8) -> Result<PersonaLensV1, CodecErrorV1> {
+    match value {
+        1 => Ok(PersonaLensV1::Historian),
+        2 => Ok(PersonaLensV1::IdeaStormer),
+        3 => Ok(PersonaLensV1::Theorist),
+        4 => Ok(PersonaLensV1::Researcher),
+        5 => Ok(PersonaLensV1::RigorReviewer),
+        6 => Ok(PersonaLensV1::ConvergenceFacilitator),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn surface_depth_tag(value: crate::deliberation::SurfaceDepthV1) -> u8 {
+    match value {
+        crate::deliberation::SurfaceDepthV1::Ambient => 1,
+        crate::deliberation::SurfaceDepthV1::Activated => 2,
+        crate::deliberation::SurfaceDepthV1::Reference => 3,
+    }
+}
+
+fn read_surface_depth(value: u8) -> Result<crate::deliberation::SurfaceDepthV1, CodecErrorV1> {
+    match value {
+        1 => Ok(crate::deliberation::SurfaceDepthV1::Ambient),
+        2 => Ok(crate::deliberation::SurfaceDepthV1::Activated),
+        3 => Ok(crate::deliberation::SurfaceDepthV1::Reference),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn ensemble_fitness_tag(value: EnsembleFitnessV1) -> u8 {
+    match value {
+        EnsembleFitnessV1::Yes => 1,
+        EnsembleFitnessV1::No => 2,
+        EnsembleFitnessV1::Contested => 3,
+    }
+}
+
+fn read_ensemble_fitness(value: u8) -> Result<EnsembleFitnessV1, CodecErrorV1> {
+    match value {
+        1 => Ok(EnsembleFitnessV1::Yes),
+        2 => Ok(EnsembleFitnessV1::No),
+        3 => Ok(EnsembleFitnessV1::Contested),
         _ => Err(CodecErrorV1::Invalid),
     }
 }

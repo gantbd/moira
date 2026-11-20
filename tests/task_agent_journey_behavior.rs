@@ -334,6 +334,42 @@ fn participation_blueprint_reconciles_exact_owner_facts_without_allocating_them(
 }
 
 #[test]
+fn participation_blueprint_is_durably_prepared_before_dispatch_and_replays_exactly() {
+    let (mut engine, ready, workflow, deliberation, binding) = participation_engine_facts();
+    let expected = j::ParticipationBlueprintV1 {
+        journey: ready.id,
+        expected_journey_revision: ready.revision,
+        workflow,
+        deliberation,
+        binding,
+    };
+    let prepared = engine
+        .prepare_participation(ready.id, workflow, deliberation, binding)
+        .unwrap();
+    assert_eq!(prepared.blueprint, expected);
+    assert!(!prepared.replayed);
+    assert_eq!(engine.journey(ready.id), Some(&ready));
+    assert_eq!(engine.participation_blueprint(ready.id), Some(&expected));
+
+    assert!(
+        engine
+            .prepare_participation(ready.id, workflow, deliberation, binding)
+            .unwrap()
+            .replayed
+    );
+    let mut changed = binding;
+    changed.session = AgentSessionIdV1([99; 16]);
+    assert_eq!(
+        engine.prepare_participation(ready.id, workflow, deliberation, changed),
+        Err(j::RefusalV1::ParticipationConflict)
+    );
+
+    let recovered = j::Engine::recover(engine.checkpoint()).unwrap();
+    assert_eq!(recovered.journey(ready.id), Some(&ready));
+    assert_eq!(recovered.participation_blueprint(ready.id), Some(&expected));
+}
+
+#[test]
 fn participation_blueprint_refuses_invented_or_substituted_owner_facts() {
     let (ready, workflow, deliberation, binding) = participation_facts();
     let mut early = ready;
@@ -396,6 +432,17 @@ fn participation_blueprint_refuses_invented_or_substituted_owner_facts() {
 }
 
 fn participation_facts() -> (
+    j::JourneySnapshotV1,
+    j::ParticipationWorkflowReceiptV1,
+    j::DeliberationMemberReceiptV1,
+    AgentParticipationBindingV1,
+) {
+    let (_, ready, workflow, deliberation, binding) = participation_engine_facts();
+    (ready, workflow, deliberation, binding)
+}
+
+fn participation_engine_facts() -> (
+    j::Engine,
     j::JourneySnapshotV1,
     j::ParticipationWorkflowReceiptV1,
     j::DeliberationMemberReceiptV1,
@@ -465,7 +512,7 @@ fn participation_facts() -> (
         grounding: deliberation.grounding,
         persona: deliberation.persona,
     };
-    (ready, workflow, deliberation, binding)
+    (engine, ready, workflow, deliberation, binding)
 }
 
 #[test]

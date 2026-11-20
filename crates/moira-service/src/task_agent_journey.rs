@@ -439,7 +439,9 @@ fn refusal(value: domain::RefusalV1) -> public::RefusalV1 {
         | domain::RefusalV1::StaleChronosRevision
         | domain::RefusalV1::InvalidRoom
         | domain::RefusalV1::RoomMismatch
-        | domain::RefusalV1::RoomConflict => public::RefusalV1::InvalidCheckpoint,
+        | domain::RefusalV1::RoomConflict
+        | domain::RefusalV1::InvalidParticipation
+        | domain::RefusalV1::ParticipationConflict => public::RefusalV1::InvalidCheckpoint,
         domain::RefusalV1::IdentityExhausted => public::RefusalV1::IdentityExhausted,
         domain::RefusalV1::InvalidCheckpoint => public::RefusalV1::InvalidCheckpoint,
     }

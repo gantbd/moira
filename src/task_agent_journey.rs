@@ -248,6 +248,15 @@ pub struct ParticipationBlueprintV1 {
     pub binding: AgentParticipationBindingV1,
 }
 
+/// Durable preparation receipt for one exact participation intent. Persistence
+/// of this value authorizes no dispatch; the participation owner and Aegis
+/// remain separate sovereign boundaries.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationBlueprintReceiptV1 {
+    pub blueprint: ParticipationBlueprintV1,
+    pub replayed: bool,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParticipationBlueprintRefusalV1 {
     RoomNotReady,
@@ -447,6 +456,8 @@ pub enum RefusalV1 {
     InvalidRoom,
     RoomMismatch,
     RoomConflict,
+    InvalidParticipation,
+    ParticipationConflict,
     IdentityExhausted,
     InvalidCheckpoint,
 }
@@ -461,6 +472,7 @@ pub struct CheckpointV1 {
     pub templates: Vec<TemplateV1>,
     pub previews: Vec<PreviewSnapshotV1>,
     pub journeys: Vec<JourneySnapshotV1>,
+    pub participation_blueprints: Vec<ParticipationBlueprintV1>,
 }
 
 pub struct Engine {
@@ -473,6 +485,7 @@ pub struct Engine {
     previews: BTreeMap<PreviewIdV1, PreviewSnapshotV1>,
     preview_operations: BTreeMap<PreviewOperationIdV1, PreviewIdV1>,
     journeys: BTreeMap<JourneyIdV1, JourneySnapshotV1>,
+    participation_blueprints: BTreeMap<JourneyIdV1, ParticipationBlueprintV1>,
     instantiate_operations: BTreeMap<InstantiateOperationIdV1, JourneyIdV1>,
     preview_journeys: BTreeMap<PreviewIdV1, JourneyIdV1>,
 }
@@ -509,6 +522,7 @@ impl Engine {
             previews: BTreeMap::new(),
             preview_operations: BTreeMap::new(),
             journeys: BTreeMap::new(),
+            participation_blueprints: BTreeMap::new(),
             instantiate_operations: BTreeMap::new(),
             preview_journeys: BTreeMap::new(),
         })
@@ -528,6 +542,13 @@ impl Engine {
 
     pub fn journey(&self, id: JourneyIdV1) -> Option<&JourneySnapshotV1> {
         self.journeys.get(&id)
+    }
+
+    pub fn participation_blueprint(
+        &self,
+        journey: JourneyIdV1,
+    ) -> Option<&ParticipationBlueprintV1> {
+        self.participation_blueprints.get(&journey)
     }
 
     pub fn preview(
@@ -769,6 +790,41 @@ impl Engine {
         })
     }
 
+    /// Durably retain the exact owner-reconciled participation intent before
+    /// any Aegis authorization or participation-owner dispatch occurs.
+    pub fn prepare_participation(
+        &mut self,
+        journey: JourneyIdV1,
+        workflow: ParticipationWorkflowReceiptV1,
+        deliberation: DeliberationMemberReceiptV1,
+        binding: AgentParticipationBindingV1,
+    ) -> Result<ParticipationBlueprintReceiptV1, RefusalV1> {
+        if let Some(existing) = self.participation_blueprints.get(&journey) {
+            return if existing.workflow == workflow
+                && existing.deliberation == deliberation
+                && existing.binding == binding
+            {
+                Ok(ParticipationBlueprintReceiptV1 {
+                    blueprint: *existing,
+                    replayed: true,
+                })
+            } else {
+                Err(RefusalV1::ParticipationConflict)
+            };
+        }
+        let current = self
+            .journeys
+            .get(&journey)
+            .ok_or(RefusalV1::JourneyNotFound)?;
+        let blueprint = derive_participation_blueprint(current, workflow, deliberation, binding)
+            .map_err(|_| RefusalV1::InvalidParticipation)?;
+        self.participation_blueprints.insert(journey, blueprint);
+        Ok(ParticipationBlueprintReceiptV1 {
+            blueprint,
+            replayed: false,
+        })
+    }
+
     pub fn checkpoint(&self) -> CheckpointV1 {
         CheckpointV1 {
             owner: self.owner,
@@ -779,6 +835,7 @@ impl Engine {
             templates: self.templates.values().copied().collect(),
             previews: self.previews.values().copied().collect(),
             journeys: self.journeys.values().copied().collect(),
+            participation_blueprints: self.participation_blueprints.values().copied().collect(),
         }
     }
 
@@ -847,6 +904,20 @@ impl Engine {
                     };
                     recovered != journey
                 }
+            {
+                return Err(RefusalV1::InvalidCheckpoint);
+            }
+        }
+        for blueprint in checkpoint.participation_blueprints {
+            if engine
+                .prepare_participation(
+                    blueprint.journey,
+                    blueprint.workflow,
+                    blueprint.deliberation,
+                    blueprint.binding,
+                )?
+                .blueprint
+                != blueprint
             {
                 return Err(RefusalV1::InvalidCheckpoint);
             }

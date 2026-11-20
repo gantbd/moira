@@ -12,12 +12,16 @@ use moira_core::deliberation::{
     registry::{RegistryCommandV1, RegistryReceiptV1, RegistryRefusalV1, RegistryRevisionV1},
 };
 use moira_core::task_agent_journey::{
+    DeliberationMemberReceiptV1 as TaskAgentDeliberationMemberReceiptV1,
     InstantiateRequestV1 as TaskAgentInstantiateRequestV1, JourneyIdV1 as TaskAgentJourneyIdV1,
     JourneyReceiptV1 as TaskAgentJourneyReceiptV1, JourneySnapshotV1 as TaskAgentJourneySnapshotV1,
-    OwnerIdV1 as TaskAgentOwnerIdV1, PreviewIdV1 as TaskAgentPreviewIdV1,
-    PreviewReceiptV1 as TaskAgentPreviewReceiptV1, PreviewRequestV1 as TaskAgentPreviewRequestV1,
-    PreviewSnapshotV1 as TaskAgentPreviewSnapshotV1, RefusalV1 as TaskAgentJourneyRefusalV1,
-    TemplateV1 as TaskAgentTemplateV1,
+    OwnerIdV1 as TaskAgentOwnerIdV1,
+    ParticipationBlueprintReceiptV1 as TaskAgentParticipationBlueprintReceiptV1,
+    ParticipationBlueprintV1 as TaskAgentParticipationBlueprintV1,
+    ParticipationWorkflowReceiptV1 as TaskAgentParticipationWorkflowReceiptV1,
+    PreviewIdV1 as TaskAgentPreviewIdV1, PreviewReceiptV1 as TaskAgentPreviewReceiptV1,
+    PreviewRequestV1 as TaskAgentPreviewRequestV1, PreviewSnapshotV1 as TaskAgentPreviewSnapshotV1,
+    RefusalV1 as TaskAgentJourneyRefusalV1, TemplateV1 as TaskAgentTemplateV1,
 };
 use moira_core::tool_continuation::{
     CommandV1 as ToolContinuationCommandV1, RefusalV1 as ToolContinuationRefusalV1,
@@ -170,6 +174,14 @@ pub struct TaskAgentJourneyCensusV1 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TaskAgentParticipationPreparationV1 {
+    pub journey: TaskAgentJourneyIdV1,
+    pub workflow: TaskAgentParticipationWorkflowReceiptV1,
+    pub deliberation: TaskAgentDeliberationMemberReceiptV1,
+    pub binding: AgentParticipationBindingV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TaskAgentJourneyMutationV1 {
     Preview {
         request: TaskAgentPreviewRequestV1,
@@ -187,6 +199,7 @@ pub enum TaskAgentJourneyMutationV1 {
         journey: TaskAgentJourneyIdV1,
         receipt: moira_core::task_agent_journey::AgoraRoomReceiptV1,
     },
+    PrepareParticipation(Box<TaskAgentParticipationPreparationV1>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -195,6 +208,7 @@ pub enum TaskAgentJourneyApplyV1 {
     Instantiate(TaskAgentJourneyReceiptV1),
     TaskAttempt(TaskAgentJourneyReceiptV1),
     Room(TaskAgentJourneyReceiptV1),
+    ParticipationPrepared(TaskAgentParticipationBlueprintReceiptV1),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -223,6 +237,13 @@ pub trait TaskAgentJourneyStore {
     fn census(&self) -> TaskAgentJourneyCensusV1;
     fn preview(&self, id: TaskAgentPreviewIdV1) -> Option<TaskAgentPreviewSnapshotV1>;
     fn journey(&self, id: TaskAgentJourneyIdV1) -> Option<TaskAgentJourneySnapshotV1>;
+    fn participation_blueprint(
+        &self,
+        journey: TaskAgentJourneyIdV1,
+    ) -> Option<TaskAgentParticipationBlueprintV1> {
+        let _ = journey;
+        None
+    }
     fn apply(
         &mut self,
         expected_storage_revision: Option<u64>,
