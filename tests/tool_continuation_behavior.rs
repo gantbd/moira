@@ -204,6 +204,21 @@ fn duplicate_model_request_identity_refuses_before_effect_allocation() {
 }
 
 #[test]
+fn chronos_first_incarnation_remains_valid_across_tool_gates() {
+    let workflow = WorkflowId::new([35; 16]);
+    let mut first = gate();
+    first.attempt.incarnation = 0;
+    let mut engine = Engine::try_new(LimitsV1::default()).unwrap();
+    let effect = engine
+        .admit(workflow, EffectId::new([36; 16]), first.attempt, calls())
+        .unwrap()
+        .effects[0]
+        .effect;
+
+    engine.authorize(workflow, effect, first).unwrap();
+}
+
+#[test]
 fn semantic_checkpoint_recovery_preserves_gate_and_rejects_mutated_history() {
     let workflow = WorkflowId::new([40; 16]);
     let mut engine = Engine::try_new(LimitsV1::default()).unwrap();

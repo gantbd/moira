@@ -296,6 +296,18 @@ fn binding() -> agent::BindingV1 {
     }
 }
 
+#[test]
+fn chronos_first_incarnation_is_a_valid_exact_attempt_identity() {
+    let mut binding = binding();
+    binding.attempt.incarnation = 0;
+    let mut engine = agent::Engine::try_new(agent::LimitsV1::default()).unwrap();
+
+    assert_eq!(engine.admit(binding).unwrap().revision, 0);
+
+    binding.attempt.task_key = [0; 16];
+    assert_eq!(engine.admit(binding), Err(agent::RefusalV1::InvalidBinding));
+}
+
 fn observation(
     phase: agent::PhaseV1,
     session_revision: u64,

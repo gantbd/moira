@@ -578,12 +578,11 @@ fn valid_gate(gate: ToolGateV1) -> bool {
     gate.authority.decision.0 != [0; 16]
         && gate.authority.subject.0 != [0; 16]
         && gate.attempt.task_key != [0; 16]
-        && gate.attempt.incarnation != 0
         && gate.attempt.attempt != 0
 }
 
 fn valid_attempt(attempt: AttemptEvidenceV1) -> bool {
-    attempt.task_key != [0; 16] && attempt.incarnation != 0 && attempt.attempt != 0
+    attempt.task_key != [0; 16] && attempt.attempt != 0
 }
 
 fn state_gate(state: ToolEffectStateV1) -> Option<ToolGateV1> {

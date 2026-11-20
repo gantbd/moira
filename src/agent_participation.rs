@@ -493,7 +493,7 @@ fn valid_binding(value: BindingV1) -> bool {
 }
 
 fn valid_attempt(value: AttemptV1) -> bool {
-    value.task_key != [0; 16] && value.incarnation != 0 && value.attempt != 0
+    value.task_key != [0; 16] && value.attempt != 0
 }
 fn nonzero_key(value: IdempotencyKeyV1) -> bool {
     value.0 != [0; 16]
