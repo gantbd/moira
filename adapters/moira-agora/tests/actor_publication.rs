@@ -2,13 +2,15 @@ use agora_actor_publication_port::{
     ActorPublicationAcceptedV1, ActorPublicationObservationRefusalV1,
     ActorPublicationObservationV1, ActorPublicationProvenanceObservationV1,
     ActorPublicationProvenanceV1, ActorPublicationProvenanceWireClientV1,
-    ActorPublicationRefusalV1, ActorPublicationRequestV1, ActorPublicationWireClientV1,
+    ActorPublicationRefusalV1, ActorPublicationRequestV1,
+    ActorPublicationSubjectProvenanceObservationV1, ActorPublicationSubjectProvenanceV1,
+    ActorPublicationSubjectProvenanceWireClientV1, ActorPublicationWireClientV1,
 };
 use moira_agora::{
     PublicationIntentV1, PublicationLimitsV1,
     actor::{
         ActorObservationReplyV1, ActorProvenanceObservationReplyV1, ActorPublicationReplyV1,
-        ActorPublisherErrorV1, ActorResponsePublisher,
+        ActorPublisherErrorV1, ActorResponsePublisher, ActorSubjectProvenanceObservationReplyV1,
     },
 };
 use moira_protocol::EffectIdV1;
@@ -90,6 +92,35 @@ impl ActorPublicationProvenanceWireClientV1 for Client {
     }
 }
 
+impl ActorPublicationSubjectProvenanceWireClientV1 for Client {
+    type Error = Error;
+
+    fn observe_actor_subject_provenance_wire(
+        &mut self,
+        request: ActorPublicationRequestV1,
+    ) -> Result<
+        Result<
+            ActorPublicationSubjectProvenanceObservationV1,
+            ActorPublicationObservationRefusalV1,
+        >,
+        Self::Error,
+    > {
+        Ok(match self.retained.lock().unwrap().as_ref() {
+            Some((prior, accepted)) if prior == &request => {
+                Ok(ActorPublicationSubjectProvenanceObservationV1::Accepted(
+                    ActorPublicationSubjectProvenanceV1 {
+                        accepted: *accepted,
+                        actor: "agent".into(),
+                        subject: [0x45; 16],
+                    },
+                ))
+            }
+            Some(_) => Err(ActorPublicationObservationRefusalV1::Conflict),
+            None => Ok(ActorPublicationSubjectProvenanceObservationV1::Absent),
+        })
+    }
+}
+
 fn intent() -> PublicationIntentV1 {
     PublicationIntentV1 {
         effect: EffectIdV1([0x31; 16]),
@@ -139,6 +170,19 @@ fn lost_publish_reply_is_observed_after_independent_reconnect() {
     assert_eq!(provenance.room_id, "secret-room");
     assert!(!format!("{provenance:?}").contains("agent"));
     assert!(!format!("{provenance:?}").contains("secret-room"));
+    let ActorSubjectProvenanceObservationReplyV1::Published(subject_provenance) =
+        publisher.observe_subject_provenance(&intent()).unwrap()
+    else {
+        panic!("retained publication subject provenance expected")
+    };
+    assert_eq!(subject_provenance.published, observed);
+    assert_eq!(subject_provenance.actor, "agent");
+    assert_eq!(subject_provenance.subject, [0x45; 16]);
+    assert_eq!(subject_provenance.room_id, "secret-room");
+    let debug = format!("{subject_provenance:?}");
+    assert!(!debug.contains("agent"));
+    assert!(!debug.contains("45, 45"));
+    assert!(!debug.contains("secret-room"));
     assert!(matches!(
         publisher.publish(&intent()),
         Ok(ActorPublicationReplyV1::Published(replayed)) if replayed == observed
@@ -161,6 +205,10 @@ fn absence_and_conflict_never_fall_through_to_publication() {
     assert_eq!(
         publisher.observe_provenance(&intent()).unwrap(),
         ActorProvenanceObservationReplyV1::Absent
+    );
+    assert_eq!(
+        publisher.observe_subject_provenance(&intent()).unwrap(),
+        ActorSubjectProvenanceObservationReplyV1::Absent
     );
     assert!(matches!(
         publisher.publish(&intent()).unwrap(),

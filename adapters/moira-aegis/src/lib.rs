@@ -245,6 +245,23 @@ impl<P: ServicePort, T: TimeSourceV1> AegisParticipationAdmissionAuthorityV1<P, 
     ) -> Result<ParticipationAdmissionAuthorityV1, ParticipationAdmissionAuthorizationError<P::Error>>
     {
         let now = self.time.now();
+        let principal_reply = self
+            .authority
+            .current_principal()
+            .map_err(ParticipationAdmissionAuthorizationError::AuthorityTransport)?;
+        let ReplyV1::Accepted(OutcomeV1::CurrentPrincipal(current)) = principal_reply else {
+            return match principal_reply {
+                ReplyV1::Refused(refusal) => Err(
+                    ParticipationAdmissionAuthorizationError::AuthorityRefused(refusal),
+                ),
+                ReplyV1::Accepted(_) => {
+                    Err(ParticipationAdmissionAuthorizationError::UnexpectedAuthorityReply)
+                }
+            };
+        };
+        if current.principal == [0; 16] || current.principal != self.principal {
+            return Err(ParticipationAdmissionAuthorizationError::UnexpectedAuthorityReply);
+        }
         let reply = self
             .authority
             .authorize(
@@ -268,14 +285,13 @@ impl<P: ServicePort, T: TimeSourceV1> AegisParticipationAdmissionAuthorityV1<P, 
         if decision.engine != EngineNamespaceV1::Moira
             || decision.action != ActionV1::Submit
             || decision.expires_at <= now
-            || self.principal == [0; 16]
         {
             return Err(ParticipationAdmissionAuthorizationError::UnexpectedAuthorityReply);
         }
         Ok(ParticipationAdmissionAuthorityV1 {
             subject,
             decision: aegis_decision_id(decision.handle.0),
-            principal: self.principal,
+            principal: current.principal,
             epoch: decision.epoch,
             expires_at: decision.expires_at,
         })

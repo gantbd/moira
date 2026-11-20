@@ -307,8 +307,19 @@ fn exact_participation_identity_requires_fresh_submit_authority() {
     else {
         panic!("participation admission grant expected")
     };
-    let mut admission = AegisParticipationAdmissionAuthorityV1::new(
+    let mut mismatched = AegisParticipationAdmissionAuthorityV1::new(
         AuthorityClient::new(session, AegisPort { service: aegis }),
+        grant.handle,
+        [99; 16],
+        FixedTime(2),
+    );
+    assert!(matches!(
+        mismatched.authorize(subject),
+        Err(ParticipationAdmissionAuthorizationError::UnexpectedAuthorityReply)
+    ));
+    let (port, _) = mismatched.into_parts();
+    let mut admission = AegisParticipationAdmissionAuthorityV1::new(
+        AuthorityClient::new(session, port),
         grant.handle,
         principal,
         FixedTime(2),

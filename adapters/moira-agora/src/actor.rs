@@ -10,7 +10,9 @@ use agora_actor_publication_port::{
     ActorPublicationIdV1, ActorPublicationInputRefusalV1, ActorPublicationIntentV1,
     ActorPublicationObservationRefusalV1, ActorPublicationObservationV1,
     ActorPublicationProvenanceObservationV1, ActorPublicationProvenanceWireClientV1,
-    ActorPublicationRefusalV1, ActorPublicationRequestV1, ActorPublicationWireClientV1,
+    ActorPublicationRefusalV1, ActorPublicationRequestV1,
+    ActorPublicationSubjectProvenanceObservationV1, ActorPublicationSubjectProvenanceWireClientV1,
+    ActorPublicationWireClientV1,
 };
 use agora_protocol::v2::MessageIdV1;
 use moira_protocol::{MessageRefV1, PublicationReceiptV1};
@@ -49,6 +51,33 @@ impl std::fmt::Debug for ActorPublishedProvenanceV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ActorProvenanceObservationReplyV1 {
     Published(ActorPublishedProvenanceV1),
+    Absent,
+    Refused(ActorPublicationObservationRefusalV1),
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct ActorPublishedSubjectProvenanceV1 {
+    pub published: PublishedV1,
+    pub actor: String,
+    pub subject: [u8; 16],
+    pub room_id: String,
+}
+
+impl std::fmt::Debug for ActorPublishedSubjectProvenanceV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorPublishedSubjectProvenanceV1")
+            .field("published", &self.published)
+            .field("actor_bytes", &self.actor.len())
+            .field("subject", &"<redacted>")
+            .field("room_id_bytes", &self.room_id.len())
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActorSubjectProvenanceObservationReplyV1 {
+    Published(ActorPublishedSubjectProvenanceV1),
     Absent,
     Refused(ActorPublicationObservationRefusalV1),
 }
@@ -153,6 +182,47 @@ where
                 Ok(ActorProvenanceObservationReplyV1::Absent)
             }
             Err(refusal) => Ok(ActorProvenanceObservationReplyV1::Refused(refusal)),
+        }
+    }
+}
+
+impl<P> ActorResponsePublisher<P>
+where
+    P: ActorPublicationWireClientV1
+        + ActorPublicationSubjectProvenanceWireClientV1<
+            Error = <P as ActorPublicationWireClientV1>::Error,
+        >,
+{
+    /// Exact historical observation retaining Agora's Host-derived actor and
+    /// verified subject. It proves publication attribution only; workflow
+    /// identity requires a separate consuming-owner relationship.
+    pub fn observe_subject_provenance(
+        &mut self,
+        intent: &PublicationIntentV1,
+    ) -> Result<
+        ActorSubjectProvenanceObservationReplyV1,
+        ActorPublisherErrorV1<<P as ActorPublicationWireClientV1>::Error>,
+    > {
+        let request = request(self.limits, intent)?;
+        match self
+            .client
+            .observe_actor_subject_provenance_wire(request)
+            .map_err(ActorPublisherErrorV1::Transport)?
+        {
+            Ok(ActorPublicationSubjectProvenanceObservationV1::Accepted(provenance)) => {
+                Ok(ActorSubjectProvenanceObservationReplyV1::Published(
+                    ActorPublishedSubjectProvenanceV1 {
+                        published: published(intent, provenance.accepted),
+                        actor: provenance.actor,
+                        subject: provenance.subject,
+                        room_id: intent.room_id.clone(),
+                    },
+                ))
+            }
+            Ok(ActorPublicationSubjectProvenanceObservationV1::Absent) => {
+                Ok(ActorSubjectProvenanceObservationReplyV1::Absent)
+            }
+            Err(refusal) => Ok(ActorSubjectProvenanceObservationReplyV1::Refused(refusal)),
         }
     }
 }
