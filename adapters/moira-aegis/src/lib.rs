@@ -10,6 +10,7 @@ use aegis_protocol::{ActionV1, EngineNamespaceV1, GrantHandleV1, OutcomeV1, Refu
 use moira_core::deliberation::{
     AuthorityDecisionIdV1, AuthorityRefV1, AuthoritySubjectIdV1, CandidateIdV1, DeliberationIdV1,
 };
+use moira_core::{agent_participation::ParticipationIdV1, task_agent_journey::JourneyIdV1};
 use moira_host::{
     ActionSelectionDecisionV1, ActionSelectionSubjectV1, ActionSelectorV1, ChoiceAuthorityV1,
     ChoiceDecisionV1, ChoiceRequestV1, SagaStore,
@@ -57,6 +58,30 @@ pub enum ToolAuthorizationError<AuthorityError> {
     AuthorityRefused(RefusalV1),
     UnexpectedAuthorityReply,
     AuthorityTransport(AuthorityError),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ParticipationAdmissionAuthorizationError<AuthorityError> {
+    AuthorityRefused(RefusalV1),
+    UnexpectedAuthorityReply,
+    AuthorityTransport(AuthorityError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationAdmissionSubjectV1 {
+    pub journey: JourneyIdV1,
+    pub participation: ParticipationIdV1,
+}
+
+/// Historical attribution for one fresh participation-admission decision.
+/// The decision identity is not a grant handle and cannot authorize replay.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationAdmissionAuthorityV1 {
+    pub subject: ParticipationAdmissionSubjectV1,
+    pub decision: [u8; 16],
+    pub principal: [u8; 16],
+    pub epoch: u64,
+    pub expires_at: u64,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -142,6 +167,82 @@ impl<P: ServicePort, T: TimeSourceV1> AegisToolAuthorityV1<P, T> {
             subject: ToolAuthoritySubjectIdV1(self.subject),
             capability,
             epoch: decision.epoch,
+        })
+    }
+}
+
+/// Fresh command-scoped Aegis authority for admitting one exact owner-issued
+/// participation identity. Grant material remains session-local and is never
+/// included in the returned attribution.
+pub struct AegisParticipationAdmissionAuthorityV1<P, T> {
+    authority: AuthorityClient<P>,
+    grant: GrantHandleV1,
+    principal: [u8; 16],
+    time: T,
+}
+
+impl<P, T> AegisParticipationAdmissionAuthorityV1<P, T> {
+    pub const fn new(
+        authority: AuthorityClient<P>,
+        grant: GrantHandleV1,
+        principal: [u8; 16],
+        time: T,
+    ) -> Self {
+        Self {
+            authority,
+            grant,
+            principal,
+            time,
+        }
+    }
+}
+
+impl<P: ServicePort, T> AegisParticipationAdmissionAuthorityV1<P, T> {
+    pub fn into_parts(self) -> (P, T) {
+        (self.authority.into_port(), self.time)
+    }
+}
+
+impl<P: ServicePort, T: TimeSourceV1> AegisParticipationAdmissionAuthorityV1<P, T> {
+    pub fn authorize(
+        &mut self,
+        subject: ParticipationAdmissionSubjectV1,
+    ) -> Result<ParticipationAdmissionAuthorityV1, ParticipationAdmissionAuthorizationError<P::Error>>
+    {
+        let now = self.time.now();
+        let reply = self
+            .authority
+            .authorize(
+                self.grant,
+                now,
+                EngineNamespaceV1::Moira,
+                subject.participation.0,
+                ActionV1::Submit,
+            )
+            .map_err(ParticipationAdmissionAuthorizationError::AuthorityTransport)?;
+        let ReplyV1::Accepted(OutcomeV1::Authorized(decision)) = reply else {
+            return match reply {
+                ReplyV1::Refused(refusal) => Err(
+                    ParticipationAdmissionAuthorizationError::AuthorityRefused(refusal),
+                ),
+                ReplyV1::Accepted(_) => {
+                    Err(ParticipationAdmissionAuthorizationError::UnexpectedAuthorityReply)
+                }
+            };
+        };
+        if decision.engine != EngineNamespaceV1::Moira
+            || decision.action != ActionV1::Submit
+            || decision.expires_at <= now
+            || self.principal == [0; 16]
+        {
+            return Err(ParticipationAdmissionAuthorizationError::UnexpectedAuthorityReply);
+        }
+        Ok(ParticipationAdmissionAuthorityV1 {
+            subject,
+            decision: aegis_decision_id(decision.handle.0),
+            principal: self.principal,
+            epoch: decision.epoch,
+            expires_at: decision.expires_at,
         })
     }
 }

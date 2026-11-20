@@ -13,11 +13,11 @@ use keystone_storage::{
 };
 use moira_aegis::{
     AegisActionSelectorV1, AegisChoiceAuthorityV1, AegisHumanGateAuthorizerV1,
-    AegisOperatorAuthorizerV1, AegisPermissionAuthorizerV1, AegisToolAuthorityV1, OperatorAdapter,
-    ReconcileError, TimeSourceV1, ToolAuthorizationError, choice_resource, human_gate_resource,
-    permission_resource, saga_resource,
+    AegisOperatorAuthorizerV1, AegisParticipationAdmissionAuthorityV1, AegisPermissionAuthorizerV1,
+    AegisToolAuthorityV1, OperatorAdapter, ParticipationAdmissionAuthorizationError,
+    ParticipationAdmissionSubjectV1, ReconcileError, TimeSourceV1, ToolAuthorizationError,
+    choice_resource, human_gate_resource, permission_resource, saga_resource,
 };
-use moira_core::EffectId;
 use moira_core::deliberation::{
     AuthoritySubjectIdV1, CandidateIdV1, CandidateV1, ClaimKindV1, CriterionDirectionV1,
     CriterionIdV1, CriterionV1, DeliberationIdV1, DeliberationLimitsV1, DeliberationPlanV1,
@@ -27,6 +27,11 @@ use moira_core::deliberation::{
     registry::{RegistryCommandV1, RegistryLimitsV1, RegistryRevisionV1},
 };
 use moira_core::saga::{SagaLimitsV1, persistence::SagaCodecLimitsV1};
+use moira_core::{
+    EffectId,
+    agent_participation::ParticipationIdV1,
+    task_agent_journey::{JourneyIdV1, OwnerIdV1},
+};
 use moira_host::{
     ActionSelectionSubjectV1, ActionSelectorV1, ChoiceAuthorityV1, ChoiceRequestV1,
     ResolutionSubjectV1,
@@ -259,6 +264,69 @@ fn exact_daimon_capability_produces_attributed_tool_authority_evidence() {
     assert!(matches!(
         tools.authorize(ToolCapabilityIdV1([34; 16])),
         Err(ToolAuthorizationError::AuthorityRefused(_))
+    ));
+}
+
+#[test]
+fn exact_participation_identity_requires_fresh_submit_authority() {
+    let authority_id = EngineId::new([35; 16]);
+    let authority =
+        DurableAuthority::create_new(AuthorityStore::default(), authority_id, Limits::default())
+            .unwrap();
+    let mut aegis = Service::new(authority, authority_id, ServiceLimitsV1::default()).unwrap();
+    let principal = [36; 16];
+    let session = aegis
+        .open_session(AuthenticatedSessionV1 {
+            principal: PrincipalId::new(principal),
+            session: SessionId::new([37; 16]),
+            administrator: true,
+        })
+        .unwrap();
+    let subject = ParticipationAdmissionSubjectV1 {
+        journey: JourneyIdV1 {
+            owner: OwnerIdV1([38; 16]),
+            sequence: 4,
+        },
+        participation: ParticipationIdV1([39; 16]),
+    };
+    let ReplyV1::Accepted(OutcomeV1::GrantIssued(grant)) = aegis
+        .execute(
+            session,
+            CommandV1::Issue {
+                expected_epoch: 0,
+                now: 1,
+                expires_at: 10,
+                scopes: vec![ScopeV1 {
+                    engine: EngineNamespaceV1::Moira,
+                    resource: subject.participation.0,
+                    actions: 1 << ActionV1::Submit as u8,
+                }],
+            },
+        )
+        .unwrap()
+    else {
+        panic!("participation admission grant expected")
+    };
+    let mut admission = AegisParticipationAdmissionAuthorityV1::new(
+        AuthorityClient::new(session, AegisPort { service: aegis }),
+        grant.handle,
+        principal,
+        FixedTime(2),
+    );
+    let evidence = admission.authorize(subject).unwrap();
+    assert_eq!(evidence.subject, subject);
+    assert_eq!(evidence.principal, principal);
+    assert_eq!(evidence.epoch, 0);
+    assert_eq!(evidence.expires_at, 10);
+    assert_ne!(evidence.decision, [0; 16]);
+    assert!(matches!(
+        admission.authorize(ParticipationAdmissionSubjectV1 {
+            participation: ParticipationIdV1([40; 16]),
+            ..subject
+        }),
+        Err(ParticipationAdmissionAuthorizationError::AuthorityRefused(
+            _
+        ))
     ));
 }
 
