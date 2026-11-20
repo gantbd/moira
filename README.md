@@ -474,6 +474,14 @@ inbox. The receiver exposes no mutable engine, unrelated task admission, retirem
 or lease tokens. On uncertain storage failure, only last-confirmed revision/task
 counts remain observable and further commands require reopen.
 
+The receiver also exposes a read-only, redacted owner observation for the exact
+external task key, Chronos task ID, incarnation and admission revision retained
+by one receipt. It validates the task reference against the recovered Chronos
+engine and survives reopen without changing engine revision or command usage.
+This is namespace provenance inside one receiver, not ambient workspace scope,
+task-conversation qualification, a lease, settlement authority or evidence that
+the task reached any later phase.
+
 Actual tests restart both coordinator and receiver around a lost admission reply,
 and separately exit a receiver subprocess after commit but before origin
 acknowledgement. Both retain one exact task/receipt. Transaction faults cover

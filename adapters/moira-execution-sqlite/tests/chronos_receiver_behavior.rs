@@ -81,6 +81,43 @@ fn lost_admission_reply_reopens_original_receipt_without_second_task() {
 }
 
 #[test]
+fn owner_observes_exact_retained_task_namespace_after_recovery() {
+    let f = Fixture::new();
+    let mut r = f.open();
+    let admission = r
+        .admit(
+            effect(),
+            StateRevision::ZERO,
+            TaskSpecV2::new("secret-work"),
+        )
+        .unwrap();
+    let revision_before_observation = r.revision();
+    let usage_before_observation = r.usage();
+    let observed = r.observe_task_binding(effect()).unwrap().unwrap();
+    assert_eq!(observed.external_task_key, effect().into_bytes());
+    assert_eq!(observed.chronos_task_id, "secret-work");
+    assert_eq!(observed.incarnation, admission.incarnation);
+    assert_eq!(
+        observed.chronos_revision,
+        admission.receipt.chronos_revision()
+    );
+    assert!(!format!("{observed:?}").contains("secret-work"));
+    assert_eq!(r.revision(), revision_before_observation);
+    assert_eq!(r.usage(), usage_before_observation);
+    assert_eq!(
+        r.observe_task_binding(EffectId::new([9; 16])).unwrap(),
+        None
+    );
+
+    drop(r);
+    let mut recovered = f.open();
+    assert_eq!(
+        recovered.observe_task_binding(effect()).unwrap(),
+        Some(observed)
+    );
+}
+
+#[test]
 fn canonical_intent_conflict_and_stale_guard_do_not_record_an_admission() {
     let f = Fixture::new();
     let mut r = f.open();

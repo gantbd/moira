@@ -2,7 +2,7 @@
 //! this adapter owns the durable canonical-intent/admission-receipt inbox.
 use chronos_engine::{
     Agent, CapabilityGrant, Checkpoint, Engine, EngineLimits, IntegrationEffectIdV1,
-    RecoveryLimits, RetrySafetyV1, SnapshotRevision, StateRevision, TaskPhase, TaskSpecV2,
+    RecoveryLimits, RetrySafetyV1, SnapshotRevision, StateRevision, TaskId, TaskPhase, TaskSpecV2,
     TaskState,
 };
 use moira_core::{ChronosAdmissionReceiptV1, ChronosAttemptReceiptV1, ChronosTaskRefV1, EffectId};
@@ -74,6 +74,30 @@ pub struct Admission {
     pub incarnation: u64,
     /// Retained receipt, not permission to dispatch a second task.
     pub replayed: bool,
+}
+
+/// Exact owner-retained namespace binding for one admitted task.
+///
+/// This is read-only provenance. It does not identify an ambient workspace,
+/// grant a lease, qualify a task-conversation link, or authorize settlement.
+#[derive(Clone, Eq, PartialEq)]
+pub struct TaskBindingProvenanceV1 {
+    pub external_task_key: [u8; 16],
+    pub chronos_task_id: String,
+    pub incarnation: u64,
+    pub chronos_revision: u64,
+}
+
+impl std::fmt::Debug for TaskBindingProvenanceV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TaskBindingProvenanceV1")
+            .field("external_task_key", &"<opaque>")
+            .field("chronos_task_id_bytes", &self.chronos_task_id.len())
+            .field("incarnation", &self.incarnation)
+            .field("chronos_revision", &self.chronos_revision)
+            .finish()
+    }
 }
 
 /// Authority-free attribution plus current phase, never a lease. Replayed
@@ -574,6 +598,49 @@ impl ChronosReceiver {
         }
         result
     }
+
+    /// Observes the exact task namespace retained by this receiver for an
+    /// admission effect. `None` is authoritative only for this open receiver.
+    pub fn observe_task_binding(
+        &mut self,
+        effect: EffectId,
+    ) -> Result<Option<TaskBindingProvenanceV1>, ReceiverError> {
+        self.guard()?;
+        let retained: Option<(String, Vec<u8>, Vec<u8>)> = self
+            .connection
+            .query_row(
+                "SELECT task_id,incarnation,revision FROM receiver_receipts WHERE effect=?1",
+                [effect.into_bytes().as_slice()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .inspect_err(|_| self.healthy = false)?;
+        let Some((chronos_task_id, incarnation, chronos_revision)) = retained else {
+            return Ok(None);
+        };
+        let incarnation = number(&incarnation).inspect_err(|_| self.healthy = false)?;
+        let chronos_revision = number(&chronos_revision).inspect_err(|_| self.healthy = false)?;
+        let task_id = TaskId::new(chronos_task_id.clone());
+        let task = self.engine.task(&task_id).ok_or_else(|| {
+            self.healthy = false;
+            ReceiverError::InvalidState
+        })?;
+        if task
+            .reference()
+            .map(|reference| reference.incarnation().get())
+            != Some(incarnation)
+        {
+            self.healthy = false;
+            return Err(ReceiverError::InvalidState);
+        }
+        Ok(Some(TaskBindingProvenanceV1 {
+            external_task_key: effect.into_bytes(),
+            chronos_task_id,
+            incarnation,
+            chronos_revision,
+        }))
+    }
+
     fn admit_inner(
         &mut self,
         effect: EffectId,
