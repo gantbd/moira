@@ -8,7 +8,10 @@
 
 use crate::{
     ChronosAttemptReceiptV1, ChronosTaskRefV1, WorkflowId,
-    agent_participation::{BindingV1 as AgentParticipationBindingV1, ProfileIdV1},
+    agent_participation::{
+        BindingV1 as AgentParticipationBindingV1, PhaseV1 as AgentParticipationPhaseV1,
+        ProfileIdV1, SnapshotV1 as AgentParticipationSnapshotV1,
+    },
     deliberation::{
         DeliberationIdV1, EnsembleAdmissionV1, EnsembleFitnessV1, EnsembleMemberIdV1,
         GroundingRefV1, MethodRefV1, PersonaLensV1,
@@ -255,6 +258,46 @@ pub struct ParticipationBlueprintV1 {
 pub struct ParticipationBlueprintReceiptV1 {
     pub blueprint: ParticipationBlueprintV1,
     pub replayed: bool,
+}
+
+/// Content-minimized current fact from the participation owner. `Absent` is
+/// safe only for the exact owner queried by the caller; neither variant grants
+/// authority or permits an unprepared dispatch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParticipationOwnerReconciliationV1 {
+    Absent,
+    Exact {
+        revision: u64,
+        phase: AgentParticipationPhaseV1,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParticipationOwnerReconciliationRefusalV1 {
+    BindingConflict,
+}
+
+/// Reconcile a durably prepared blueprint with the exact current
+/// participation-owner observation before an admission retry.
+///
+/// Absence authorizes nothing: a later composer still needs fresh Aegis
+/// authority. Presence is accepted only when the full retained binding is
+/// identical, including workflow, deliberation, member, session, profile,
+/// attempt, method, grounding and persona.
+pub fn reconcile_participation_owner(
+    blueprint: ParticipationBlueprintV1,
+    observed: Option<&AgentParticipationSnapshotV1>,
+) -> Result<ParticipationOwnerReconciliationV1, ParticipationOwnerReconciliationRefusalV1> {
+    let Some(observed) = observed else {
+        return Ok(ParticipationOwnerReconciliationV1::Absent);
+    };
+    if observed.binding != blueprint.binding {
+        return Err(ParticipationOwnerReconciliationRefusalV1::BindingConflict);
+    }
+    Ok(ParticipationOwnerReconciliationV1::Exact {
+        revision: observed.revision,
+        phase: observed.phase,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

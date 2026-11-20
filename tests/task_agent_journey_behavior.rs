@@ -1,8 +1,9 @@
 use moira_core::{
     ChronosAttemptReceiptV1, ChronosTaskRefV1, WorkflowId,
     agent_participation::{
-        AgentSessionIdV1, AttemptV1, BindingV1 as AgentParticipationBindingV1, ParticipationIdV1,
-        ProfileIdV1,
+        AgentSessionIdV1, AttemptV1, BindingV1 as AgentParticipationBindingV1,
+        Engine as AgentParticipationEngine, LimitsV1 as AgentParticipationLimitsV1,
+        ParticipationIdV1, PhaseV1 as AgentParticipationPhaseV1, ProfileIdV1,
     },
     deliberation::{
         DeliberationIdV1, EnsembleAdmissionV1, EnsembleFitnessV1, EnsembleMemberIdV1,
@@ -367,6 +368,41 @@ fn participation_blueprint_is_durably_prepared_before_dispatch_and_replays_exact
     let recovered = j::Engine::recover(engine.checkpoint()).unwrap();
     assert_eq!(recovered.journey(ready.id), Some(&ready));
     assert_eq!(recovered.participation_blueprint(ready.id), Some(&expected));
+}
+
+#[test]
+fn prepared_participation_reconciles_owner_absence_exact_match_and_conflict() {
+    let (_, ready, workflow, deliberation, binding) = participation_engine_facts();
+    let blueprint = j::ParticipationBlueprintV1 {
+        journey: ready.id,
+        expected_journey_revision: ready.revision,
+        workflow,
+        deliberation,
+        binding,
+    };
+    assert_eq!(
+        j::reconcile_participation_owner(blueprint, None),
+        Ok(j::ParticipationOwnerReconciliationV1::Absent)
+    );
+
+    let mut owner =
+        AgentParticipationEngine::try_new(AgentParticipationLimitsV1::default()).unwrap();
+    owner.admit(binding).unwrap();
+    let exact = owner.participation(binding.participation).unwrap();
+    assert_eq!(
+        j::reconcile_participation_owner(blueprint, Some(exact)),
+        Ok(j::ParticipationOwnerReconciliationV1::Exact {
+            revision: 0,
+            phase: AgentParticipationPhaseV1::Admitted,
+        })
+    );
+
+    let mut substituted = exact.clone();
+    substituted.binding.session = AgentSessionIdV1([99; 16]);
+    assert_eq!(
+        j::reconcile_participation_owner(blueprint, Some(&substituted)),
+        Err(j::ParticipationOwnerReconciliationRefusalV1::BindingConflict)
+    );
 }
 
 #[test]
