@@ -512,6 +512,93 @@ fn attributed_owner_admission_advances_once_and_recovers_exactly() {
 }
 
 #[test]
+fn exact_actor_publication_binds_admitted_participation_and_replays() {
+    let (mut engine, journey, publication) = actor_relationship_engine();
+    let retained = engine
+        .bind_actor_participation_relationship(journey.id, publication.clone())
+        .unwrap();
+    assert!(!retained.replayed);
+    assert_eq!(retained.relationship.journey, journey.id);
+    assert_eq!(retained.relationship.journey_revision, journey.revision);
+    assert_eq!(retained.relationship.publication, publication);
+    assert_eq!(
+        retained.relationship.participation,
+        engine.participation_blueprint(journey.id).unwrap().binding
+    );
+    assert_eq!(
+        retained.relationship.authority.principal,
+        publication.subject
+    );
+    assert!(
+        engine
+            .bind_actor_participation_relationship(journey.id, publication.clone())
+            .unwrap()
+            .replayed
+    );
+    assert_eq!(
+        engine.actor_participation_relationship(journey.id),
+        Some(&retained.relationship)
+    );
+
+    let diagnostic = format!("{retained:?}");
+    assert!(!diagnostic.contains("secret-agent"));
+    assert!(!diagnostic.contains("secret-room"));
+
+    let mut substituted = publication;
+    substituted.subject = [99; 16];
+    assert_eq!(
+        engine.bind_actor_participation_relationship(journey.id, substituted),
+        Err(j::RefusalV1::ActorParticipationRelationshipConflict)
+    );
+}
+
+#[test]
+fn actor_participation_relationship_refuses_early_or_mismatched_owner_facts() {
+    let (mut engine, ready, workflow, deliberation, binding) = participation_engine_facts();
+    let publication = actor_publication(ready, [44; 16]);
+    assert_eq!(
+        engine.bind_actor_participation_relationship(ready.id, publication.clone()),
+        Err(j::RefusalV1::InvalidActorParticipationRelationship)
+    );
+
+    engine
+        .prepare_participation(ready.id, workflow, deliberation, binding)
+        .unwrap();
+    let authority = j::ParticipationAdmissionAuthorityV1 {
+        journey: ready.id,
+        participation: binding.participation,
+        decision: [43; 16],
+        principal: [44; 16],
+        epoch: 8,
+        expires_at: 2_100,
+    };
+    engine
+        .attribute_participation_dispatch(ready.id, authority)
+        .unwrap();
+    let mut owner =
+        AgentParticipationEngine::try_new(AgentParticipationLimitsV1::default()).unwrap();
+    owner.admit(binding).unwrap();
+    let observed = owner.participation(binding.participation).unwrap();
+    let admitted = engine
+        .bind_participation(ready.id, observed)
+        .unwrap()
+        .journey;
+
+    let mut wrong_room = actor_publication(admitted, authority.principal);
+    wrong_room.room_sequence += 1;
+    assert_eq!(
+        engine.bind_actor_participation_relationship(admitted.id, wrong_room),
+        Err(j::RefusalV1::InvalidActorParticipationRelationship)
+    );
+    let mut wrong_subject = actor_publication(admitted, [99; 16]);
+    wrong_subject.source = admitted.room.unwrap().source;
+    assert_eq!(
+        engine.bind_actor_participation_relationship(admitted.id, wrong_subject),
+        Err(j::RefusalV1::InvalidActorParticipationRelationship)
+    );
+}
+
+#[test]
 fn participation_binding_requires_exact_owner_and_prior_attribution() {
     let (mut engine, ready, workflow, deliberation, binding) = participation_engine_facts();
     engine
@@ -690,6 +777,56 @@ fn participation_engine_facts() -> (
         persona: deliberation.persona,
     };
     (engine, ready, workflow, deliberation, binding)
+}
+
+fn actor_relationship_engine() -> (
+    j::Engine,
+    j::JourneySnapshotV1,
+    j::ActorPublicationEvidenceV1,
+) {
+    let (mut engine, ready, workflow, deliberation, binding) = participation_engine_facts();
+    engine
+        .prepare_participation(ready.id, workflow, deliberation, binding)
+        .unwrap();
+    let authority = j::ParticipationAdmissionAuthorityV1 {
+        journey: ready.id,
+        participation: binding.participation,
+        decision: [43; 16],
+        principal: [44; 16],
+        epoch: 8,
+        expires_at: 2_100,
+    };
+    engine
+        .attribute_participation_dispatch(ready.id, authority)
+        .unwrap();
+    let mut owner =
+        AgentParticipationEngine::try_new(AgentParticipationLimitsV1::default()).unwrap();
+    owner.admit(binding).unwrap();
+    let observed = owner.participation(binding.participation).unwrap();
+    let admitted = engine
+        .bind_participation(ready.id, observed)
+        .unwrap()
+        .journey;
+    let publication = actor_publication(admitted, authority.principal);
+    (engine, admitted, publication)
+}
+
+fn actor_publication(
+    journey: j::JourneySnapshotV1,
+    subject: [u8; 16],
+) -> j::ActorPublicationEvidenceV1 {
+    let room = journey.room.unwrap();
+    j::ActorPublicationEvidenceV1 {
+        effect: [45; 16],
+        source: room.source,
+        room_sequence: room.room_sequence,
+        room_id: "secret-room".into(),
+        message_sequence: 3,
+        message_id: [46; 16],
+        agora_revision: room.agora_revision + 1,
+        actor: "secret-agent".into(),
+        subject,
+    }
 }
 
 #[test]

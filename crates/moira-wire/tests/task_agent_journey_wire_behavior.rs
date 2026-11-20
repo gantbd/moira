@@ -1,4 +1,7 @@
-use moira_protocol::{TaskRefV1, agent_participation::ProfileIdV1, task_agent_journey as p};
+use agent::ProfileIdV1;
+use moira_protocol::{
+    TaskRefV1, agent_participation as agent, deliberation, task_agent_journey as p,
+};
 use moira_wire::{
     LimitsV1, decode_task_agent_journey_reply, decode_task_agent_journey_request,
     encode_task_agent_journey_reply, encode_task_agent_journey_request,
@@ -34,6 +37,12 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
             },
         },
         p::CommandV1::TaskAttemptNamespace {
+            journey: p::JourneyIdV1 {
+                owner: preview.id.owner,
+                sequence: 0,
+            },
+        },
+        p::CommandV1::ActorParticipationRelationship {
             journey: p::JourneyIdV1 {
                 owner: preview.id.owner,
                 sequence: 0,
@@ -118,6 +127,7 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
         chronos_revision: 12,
         chronos_task_id: "exact-task".into(),
     };
+    let relationship = relationship(journey.id);
     let replies = vec![
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Catalogue {
             owner: preview.id.owner,
@@ -152,6 +162,10 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
             namespace,
         )))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::TaskAttemptNamespace(None))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::ActorParticipationRelationship(
+            Some(relationship),
+        ))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::ActorParticipationRelationship(None))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Status(p::StatusV1 {
             owner: preview.id.owner,
             owner_revision: 1,
@@ -208,6 +222,52 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
             decode_task_agent_journey_reply(&bytes, LimitsV1::default()),
             Ok(reply)
         );
+    }
+}
+
+fn relationship(journey: p::JourneyIdV1) -> p::ActorParticipationRelationshipViewV1 {
+    p::ActorParticipationRelationshipViewV1 {
+        journey,
+        journey_revision: 3,
+        participation: agent::BindingV1 {
+            participation: agent::ParticipationIdV1([21; 16]),
+            workflow: moira_protocol::WorkflowIdV1([22; 16]),
+            deliberation: deliberation::DeliberationIdV1([23; 16]),
+            member: deliberation::EnsembleMemberIdV1([24; 16]),
+            session: agent::AgentSessionIdV1([25; 16]),
+            profile: agent::ProfileIdV1([26; 16]),
+            attempt: agent::AttemptV1 {
+                task_key: [27; 16],
+                incarnation: 2,
+                attempt: 3,
+            },
+            method: deliberation::MethodRefV1 {
+                machine_digest: [28; 32],
+                state_digest: [29; 32],
+            },
+            grounding: deliberation::GroundingRefV1 {
+                authority_digest: [30; 32],
+                surface_digest: [31; 32],
+                depth: deliberation::SurfaceDepthV1::Activated,
+            },
+            persona: deliberation::PersonaLensV1::Researcher,
+        },
+        participation_owner_revision: 4,
+        authority_decision: [32; 16],
+        authority_principal: [33; 16],
+        authority_epoch: 5,
+        authority_expires_at: 2_000,
+        publication: p::ActorPublicationEvidenceViewV1 {
+            effect: [34; 16],
+            source: journey.owner.0,
+            room_sequence: journey.sequence,
+            room_id: "exact-room".into(),
+            message_sequence: 6,
+            message_id: [35; 16],
+            agora_revision: 9,
+            actor: "exact-agent".into(),
+            subject: [33; 16],
+        },
     }
 }
 

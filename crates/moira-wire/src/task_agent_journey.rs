@@ -1,5 +1,8 @@
 use super::{CodecErrorV1, LimitsV1, Reader, Writer};
-use moira_protocol::{TaskRefV1, agent_participation::ProfileIdV1, task_agent_journey as p};
+use agent::ProfileIdV1;
+use moira_protocol::{
+    TaskRefV1, agent_participation as agent, deliberation, task_agent_journey as p,
+};
 
 const REQUEST: u8 = 18;
 const REPLY: u8 = 19;
@@ -91,6 +94,10 @@ fn command(writer: &mut Writer, value: &p::CommandV1) -> Result<(), CodecErrorV1
             writer.byte(7)?;
             journey_id(writer, *journey)
         }
+        p::CommandV1::ActorParticipationRelationship { journey } => {
+            writer.byte(8)?;
+            journey_id(writer, *journey)
+        }
     }
 }
 
@@ -116,6 +123,9 @@ fn read_command(reader: &mut Reader<'_>) -> Result<p::CommandV1, CodecErrorV1> {
             journey: read_journey_id(reader)?,
         }),
         7 => Ok(p::CommandV1::TaskAttemptNamespace {
+            journey: read_journey_id(reader)?,
+        }),
+        8 => Ok(p::CommandV1::ActorParticipationRelationship {
             journey: read_journey_id(reader)?,
         }),
         _ => Err(CodecErrorV1::Unsupported),
@@ -178,6 +188,10 @@ fn outcome(writer: &mut Writer, value: &p::OutcomeV1) -> Result<(), CodecErrorV1
             writer.byte(7)?;
             writer.option(value.as_ref(), task_attempt_namespace)
         }
+        p::OutcomeV1::ActorParticipationRelationship(value) => {
+            writer.byte(8)?;
+            writer.option(value.as_ref(), actor_participation_relationship)
+        }
     }
 }
 
@@ -225,6 +239,9 @@ fn read_outcome(reader: &mut Reader<'_>) -> Result<p::OutcomeV1, CodecErrorV1> {
         7 => Ok(p::OutcomeV1::TaskAttemptNamespace(
             reader.option(read_task_attempt_namespace)?,
         )),
+        8 => Ok(p::OutcomeV1::ActorParticipationRelationship(
+            reader.option(read_actor_participation_relationship)?,
+        )),
         _ => Err(CodecErrorV1::Unsupported),
     }
 }
@@ -270,6 +287,159 @@ fn read_task_attempt_namespace(
         attempt_number,
         chronos_revision,
         chronos_task_id,
+    })
+}
+
+fn actor_participation_relationship(
+    writer: &mut Writer,
+    value: &p::ActorParticipationRelationshipViewV1,
+) -> Result<(), CodecErrorV1> {
+    journey_id(writer, value.journey)?;
+    writer.u64(value.journey_revision)?;
+    participation_binding(writer, value.participation)?;
+    writer.u64(value.participation_owner_revision)?;
+    writer.raw(&value.authority_decision)?;
+    writer.raw(&value.authority_principal)?;
+    writer.u64(value.authority_epoch)?;
+    writer.u64(value.authority_expires_at)?;
+    actor_publication_evidence(writer, &value.publication)
+}
+
+fn read_actor_participation_relationship(
+    reader: &mut Reader<'_>,
+) -> Result<p::ActorParticipationRelationshipViewV1, CodecErrorV1> {
+    Ok(p::ActorParticipationRelationshipViewV1 {
+        journey: read_journey_id(reader)?,
+        journey_revision: reader.u64()?,
+        participation: read_participation_binding(reader)?,
+        participation_owner_revision: reader.u64()?,
+        authority_decision: reader.raw()?,
+        authority_principal: reader.raw()?,
+        authority_epoch: reader.u64()?,
+        authority_expires_at: reader.u64()?,
+        publication: read_actor_publication_evidence(reader)?,
+    })
+}
+
+fn actor_publication_evidence(
+    writer: &mut Writer,
+    value: &p::ActorPublicationEvidenceViewV1,
+) -> Result<(), CodecErrorV1> {
+    if value.actor.is_empty()
+        || value.actor.len() > p::MAX_AGORA_ACTOR_BYTES_V1
+        || value.room_id.is_empty()
+        || value.room_id.len() > p::MAX_AGORA_ROOM_ID_BYTES_V1
+    {
+        return Err(CodecErrorV1::Limit);
+    }
+    writer.raw(&value.effect)?;
+    writer.raw(&value.source)?;
+    writer.u64(value.room_sequence)?;
+    writer.bytes(value.room_id.as_bytes())?;
+    writer.u64(value.message_sequence)?;
+    writer.raw(&value.message_id)?;
+    writer.u64(value.agora_revision)?;
+    writer.bytes(value.actor.as_bytes())?;
+    writer.raw(&value.subject)
+}
+
+fn read_actor_publication_evidence(
+    reader: &mut Reader<'_>,
+) -> Result<p::ActorPublicationEvidenceViewV1, CodecErrorV1> {
+    let effect = reader.raw()?;
+    let source = reader.raw()?;
+    let room_sequence = reader.u64()?;
+    let room_id = String::from_utf8(reader.bytes()?).map_err(|_| CodecErrorV1::Malformed)?;
+    let message_sequence = reader.u64()?;
+    let message_id = reader.raw()?;
+    let agora_revision = reader.u64()?;
+    let actor = String::from_utf8(reader.bytes()?).map_err(|_| CodecErrorV1::Malformed)?;
+    let subject = reader.raw()?;
+    if actor.is_empty()
+        || actor.len() > p::MAX_AGORA_ACTOR_BYTES_V1
+        || room_id.is_empty()
+        || room_id.len() > p::MAX_AGORA_ROOM_ID_BYTES_V1
+    {
+        return Err(CodecErrorV1::Limit);
+    }
+    Ok(p::ActorPublicationEvidenceViewV1 {
+        effect,
+        source,
+        room_sequence,
+        room_id,
+        message_sequence,
+        message_id,
+        agora_revision,
+        actor,
+        subject,
+    })
+}
+
+fn participation_binding(writer: &mut Writer, value: agent::BindingV1) -> Result<(), CodecErrorV1> {
+    writer.raw(&value.participation.0)?;
+    writer.raw(&value.workflow.0)?;
+    writer.raw(&value.deliberation.0)?;
+    writer.raw(&value.member.0)?;
+    writer.raw(&value.session.0)?;
+    writer.raw(&value.profile.0)?;
+    writer.raw(&value.attempt.task_key)?;
+    writer.u64(value.attempt.incarnation)?;
+    writer.u64(u64::from(value.attempt.attempt))?;
+    writer.raw(&value.method.machine_digest)?;
+    writer.raw(&value.method.state_digest)?;
+    writer.raw(&value.grounding.authority_digest)?;
+    writer.raw(&value.grounding.surface_digest)?;
+    writer.byte(match value.grounding.depth {
+        deliberation::SurfaceDepthV1::Ambient => 1,
+        deliberation::SurfaceDepthV1::Activated => 2,
+        deliberation::SurfaceDepthV1::Reference => 3,
+    })?;
+    writer.byte(match value.persona {
+        deliberation::PersonaLensV1::Historian => 1,
+        deliberation::PersonaLensV1::IdeaStormer => 2,
+        deliberation::PersonaLensV1::Theorist => 3,
+        deliberation::PersonaLensV1::Researcher => 4,
+        deliberation::PersonaLensV1::RigorReviewer => 5,
+        deliberation::PersonaLensV1::ConvergenceFacilitator => 6,
+    })
+}
+
+fn read_participation_binding(reader: &mut Reader<'_>) -> Result<agent::BindingV1, CodecErrorV1> {
+    Ok(agent::BindingV1 {
+        participation: agent::ParticipationIdV1(reader.raw()?),
+        workflow: moira_protocol::WorkflowIdV1(reader.raw()?),
+        deliberation: deliberation::DeliberationIdV1(reader.raw()?),
+        member: deliberation::EnsembleMemberIdV1(reader.raw()?),
+        session: agent::AgentSessionIdV1(reader.raw()?),
+        profile: agent::ProfileIdV1(reader.raw()?),
+        attempt: agent::AttemptV1 {
+            task_key: reader.raw()?,
+            incarnation: reader.u64()?,
+            attempt: reader.u64()?.try_into().map_err(|_| CodecErrorV1::Limit)?,
+        },
+        method: deliberation::MethodRefV1 {
+            machine_digest: reader.raw()?,
+            state_digest: reader.raw()?,
+        },
+        grounding: deliberation::GroundingRefV1 {
+            authority_digest: reader.raw()?,
+            surface_digest: reader.raw()?,
+            depth: match reader.byte()? {
+                1 => deliberation::SurfaceDepthV1::Ambient,
+                2 => deliberation::SurfaceDepthV1::Activated,
+                3 => deliberation::SurfaceDepthV1::Reference,
+                _ => return Err(CodecErrorV1::Unsupported),
+            },
+        },
+        persona: match reader.byte()? {
+            1 => deliberation::PersonaLensV1::Historian,
+            2 => deliberation::PersonaLensV1::IdeaStormer,
+            3 => deliberation::PersonaLensV1::Theorist,
+            4 => deliberation::PersonaLensV1::Researcher,
+            5 => deliberation::PersonaLensV1::RigorReviewer,
+            6 => deliberation::PersonaLensV1::ConvergenceFacilitator,
+            _ => return Err(CodecErrorV1::Unsupported),
+        },
     })
 }
 

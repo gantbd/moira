@@ -12,6 +12,9 @@ use moira_core::deliberation::{
     registry::{RegistryCommandV1, RegistryReceiptV1, RegistryRefusalV1, RegistryRevisionV1},
 };
 use moira_core::task_agent_journey::{
+    ActorParticipationRelationshipReceiptV1 as TaskAgentActorParticipationRelationshipReceiptV1,
+    ActorParticipationRelationshipV1 as TaskAgentActorParticipationRelationshipV1,
+    ActorPublicationEvidenceV1 as TaskAgentActorPublicationEvidenceV1,
     DeliberationMemberReceiptV1 as TaskAgentDeliberationMemberReceiptV1,
     InstantiateRequestV1 as TaskAgentInstantiateRequestV1, JourneyIdV1 as TaskAgentJourneyIdV1,
     JourneyReceiptV1 as TaskAgentJourneyReceiptV1, JourneySnapshotV1 as TaskAgentJourneySnapshotV1,
@@ -216,9 +219,13 @@ pub enum TaskAgentJourneyMutationV1 {
         journey: TaskAgentJourneyIdV1,
         observed: Box<AgentParticipationSnapshotV1>,
     },
+    BindActorParticipationRelationship {
+        journey: TaskAgentJourneyIdV1,
+        publication: TaskAgentActorPublicationEvidenceV1,
+    },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TaskAgentJourneyApplyV1 {
     Preview(TaskAgentPreviewReceiptV1),
     Instantiate(TaskAgentJourneyReceiptV1),
@@ -227,9 +234,10 @@ pub enum TaskAgentJourneyApplyV1 {
     ParticipationPrepared(TaskAgentParticipationBlueprintReceiptV1),
     ParticipationAttributed(TaskAgentParticipationDispatchAttributionReceiptV1),
     ParticipationAdmitted(TaskAgentJourneyReceiptV1),
+    ActorParticipationRelationship(TaskAgentActorParticipationRelationshipReceiptV1),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskAgentJourneyApplyReceiptV1 {
     pub storage_revision: u64,
     pub outcome: TaskAgentJourneyApplyV1,
@@ -273,6 +281,13 @@ pub trait TaskAgentJourneyStore {
         &self,
         journey: TaskAgentJourneyIdV1,
     ) -> Option<TaskAgentParticipationDispatchAttributionV1> {
+        let _ = journey;
+        None
+    }
+    fn actor_participation_relationship(
+        &self,
+        journey: TaskAgentJourneyIdV1,
+    ) -> Option<TaskAgentActorParticipationRelationshipV1> {
         let _ = journey;
         None
     }

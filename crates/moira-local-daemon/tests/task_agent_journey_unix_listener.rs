@@ -280,6 +280,12 @@ fn private_port_admits_and_reopens_a_human_bound_task_agent_journey() {
         reader.journey(journey.id).unwrap(),
         public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Journey(Some(journey))))
     );
+    assert_eq!(
+        reader.actor_participation_relationship(journey.id).unwrap(),
+        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::ActorParticipationRelationship(
+            None
+        )))
+    );
     drop(reader);
     worker.join().unwrap();
 }

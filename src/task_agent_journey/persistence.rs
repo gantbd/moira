@@ -158,7 +158,7 @@ impl<'a> Reader<'a> {
 }
 
 pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8>, CodecErrorV1> {
-    encode_version(checkpoint, limits, 6)
+    encode_version(checkpoint, limits, 7)
 }
 
 fn encode_version(
@@ -222,6 +222,14 @@ fn encode_version(
     } else if !canonical.task_attempt_namespaces.is_empty() {
         return Err(CodecErrorV1::Invalid);
     }
+    if version >= 7 {
+        writer.number(to_u64(canonical.actor_participation_relationships.len())?)?;
+        for value in canonical.actor_participation_relationships {
+            actor_participation_relationship(&mut writer, &value)?;
+        }
+    } else if !canonical.actor_participation_relationships.is_empty() {
+        return Err(CodecErrorV1::Invalid);
+    }
     Ok(writer.bytes)
 }
 
@@ -232,7 +240,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         return Err(CodecErrorV1::Invalid);
     }
     let version = reader.byte()?;
-    if !matches!(version, 1..=6) {
+    if !matches!(version, 1..=7) {
         return Err(CodecErrorV1::Invalid);
     }
     let owner = OwnerIdV1(reader.id()?);
@@ -303,6 +311,19 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         }
         values
     };
+    let actor_participation_relationships = if version < 7 {
+        Vec::new()
+    } else {
+        let count = reader.count(domain.max_journeys)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| CodecErrorV1::Capacity)?;
+        for _ in 0..count {
+            values.push(read_actor_participation_relationship(&mut reader)?);
+        }
+        values
+    };
     reader.finish()?;
     let checkpoint = CheckpointV1 {
         owner,
@@ -316,6 +337,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         participation_blueprints,
         participation_attributions,
         task_attempt_namespaces,
+        actor_participation_relationships,
     };
     Engine::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
     if encode_version(&checkpoint, limits, version)? != bytes {
@@ -843,6 +865,62 @@ fn read_task_attempt_namespace(
             .map_err(|_| CodecErrorV1::Invalid)?,
         chronos_revision: reader.number()?,
         chronos_task_id: reader.text(MAX_CHRONOS_TASK_ID_BYTES_V1)?,
+    })
+}
+
+fn actor_participation_relationship(
+    writer: &mut Writer,
+    value: &ActorParticipationRelationshipV1,
+) -> Result<(), CodecErrorV1> {
+    scoped_journey_id(writer, value.journey)?;
+    writer.number(value.journey_revision)?;
+    participation_binding(writer, value.participation)?;
+    writer.number(value.participation_owner_revision)?;
+    participation_authority(writer, value.authority)?;
+    actor_publication_evidence(writer, &value.publication)
+}
+
+fn read_actor_participation_relationship(
+    reader: &mut Reader<'_>,
+) -> Result<ActorParticipationRelationshipV1, CodecErrorV1> {
+    Ok(ActorParticipationRelationshipV1 {
+        journey: read_journey_id(reader)?,
+        journey_revision: reader.number()?,
+        participation: read_participation_binding(reader)?,
+        participation_owner_revision: reader.number()?,
+        authority: read_participation_authority(reader)?,
+        publication: read_actor_publication_evidence(reader)?,
+    })
+}
+
+fn actor_publication_evidence(
+    writer: &mut Writer,
+    value: &ActorPublicationEvidenceV1,
+) -> Result<(), CodecErrorV1> {
+    writer.id(value.effect)?;
+    writer.id(value.source)?;
+    writer.number(value.room_sequence)?;
+    writer.text(&value.room_id)?;
+    writer.number(value.message_sequence)?;
+    writer.id(value.message_id)?;
+    writer.number(value.agora_revision)?;
+    writer.text(&value.actor)?;
+    writer.id(value.subject)
+}
+
+fn read_actor_publication_evidence(
+    reader: &mut Reader<'_>,
+) -> Result<ActorPublicationEvidenceV1, CodecErrorV1> {
+    Ok(ActorPublicationEvidenceV1 {
+        effect: reader.id()?,
+        source: reader.id()?,
+        room_sequence: reader.number()?,
+        room_id: reader.text(MAX_AGORA_ROOM_ID_BYTES_V1)?,
+        message_sequence: reader.number()?,
+        message_id: reader.id()?,
+        agora_revision: reader.number()?,
+        actor: reader.text(MAX_AGORA_ACTOR_BYTES_V1)?,
+        subject: reader.id()?,
     })
 }
 

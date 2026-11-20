@@ -15,6 +15,13 @@ use agora_actor_publication_port::{
     ActorPublicationWireClientV1,
 };
 use agora_protocol::v2::MessageIdV1;
+use moira_core::task_agent_journey::{
+    ActorParticipationRelationshipReceiptV1, ActorPublicationEvidenceV1, JourneyIdV1,
+};
+use moira_host::{
+    TaskAgentJourneyApplyErrorV1, TaskAgentJourneyApplyV1, TaskAgentJourneyMutationV1,
+    TaskAgentJourneyStore,
+};
 use moira_protocol::{MessageRefV1, PublicationReceiptV1};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -80,6 +87,57 @@ pub enum ActorSubjectProvenanceObservationReplyV1 {
     Published(ActorPublishedSubjectProvenanceV1),
     Absent,
     Refused(ActorPublicationObservationRefusalV1),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActorParticipationRelationshipOutcomeV1 {
+    pub storage_revision: u64,
+    pub receipt: ActorParticipationRelationshipReceiptV1,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ActorParticipationRelationshipErrorV1<E> {
+    Apply(TaskAgentJourneyApplyErrorV1<E>),
+    UnexpectedOutcome,
+}
+
+/// Consume Agora's exact Host-derived actor and subject observation into the
+/// private Moira task-agent owner. The public task-agent protocol deliberately
+/// exposes no corresponding mutation command.
+pub fn retain_actor_participation_relationship<S: TaskAgentJourneyStore>(
+    store: &mut S,
+    expected_storage_revision: Option<u64>,
+    journey: JourneyIdV1,
+    provenance: ActorPublishedSubjectProvenanceV1,
+) -> Result<ActorParticipationRelationshipOutcomeV1, ActorParticipationRelationshipErrorV1<S::Error>>
+{
+    let publication = ActorPublicationEvidenceV1 {
+        effect: provenance.published.receipt.effect.0,
+        source: provenance.published.receipt.message.source,
+        room_sequence: provenance.published.receipt.message.room_sequence,
+        room_id: provenance.room_id,
+        message_sequence: provenance.published.receipt.message.message_sequence,
+        message_id: provenance.published.message_id.into_bytes(),
+        agora_revision: provenance.published.receipt.agora_revision,
+        actor: provenance.actor,
+        subject: provenance.subject,
+    };
+    let applied = store
+        .apply(
+            expected_storage_revision,
+            TaskAgentJourneyMutationV1::BindActorParticipationRelationship {
+                journey,
+                publication,
+            },
+        )
+        .map_err(ActorParticipationRelationshipErrorV1::Apply)?;
+    let TaskAgentJourneyApplyV1::ActorParticipationRelationship(receipt) = applied.outcome else {
+        return Err(ActorParticipationRelationshipErrorV1::UnexpectedOutcome);
+    };
+    Ok(ActorParticipationRelationshipOutcomeV1 {
+        storage_revision: applied.storage_revision,
+        receipt,
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -259,6 +259,12 @@ impl TaskAgentJourneySqliteStore {
                     candidate.bind_participation(journey, &observed)?,
                 )
             }
+            TaskAgentJourneyMutationV1::BindActorParticipationRelationship {
+                journey,
+                publication,
+            } => TaskAgentJourneyApplyV1::ActorParticipationRelationship(
+                candidate.bind_actor_participation_relationship(journey, publication)?,
+            ),
         };
         let changed = candidate.checkpoint() != self.engine.checkpoint();
         let actual = read_revision(&self.connection)?;
@@ -380,6 +386,15 @@ impl TaskAgentJourneyStore for TaskAgentJourneySqliteStore {
         journey: JourneyIdV1,
     ) -> Option<ParticipationDispatchAttributionV1> {
         self.engine.participation_attribution(journey).copied()
+    }
+
+    fn actor_participation_relationship(
+        &self,
+        journey: JourneyIdV1,
+    ) -> Option<moira_core::task_agent_journey::ActorParticipationRelationshipV1> {
+        self.engine
+            .actor_participation_relationship(journey)
+            .cloned()
     }
 
     fn apply(

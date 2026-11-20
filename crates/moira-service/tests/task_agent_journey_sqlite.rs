@@ -521,6 +521,62 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         admitted.journey.phase,
         domain::PhaseV1::ParticipationAdmitted
     );
+    let publication = domain::ActorPublicationEvidenceV1 {
+        effect: [36; 16],
+        source: room.source,
+        room_sequence: room.room_sequence,
+        room_id: "exact-room".into(),
+        message_sequence: 3,
+        message_id: [37; 16],
+        agora_revision: 9,
+        actor: "exact-agent".into(),
+        subject: authority.principal,
+    };
+    let relationship = store
+        .apply(
+            Some(7),
+            TaskAgentJourneyMutationV1::BindActorParticipationRelationship {
+                journey: domain_journey,
+                publication: publication.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(relationship.storage_revision, 8);
+    let TaskAgentJourneyApplyV1::ActorParticipationRelationship(relationship) =
+        relationship.outcome
+    else {
+        panic!("actor-participation relationship expected")
+    };
+    assert!(!relationship.replayed);
+    assert_eq!(relationship.relationship.publication, publication);
+    let replay = store
+        .apply(
+            Some(8),
+            TaskAgentJourneyMutationV1::BindActorParticipationRelationship {
+                journey: domain_journey,
+                publication: publication.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(replay.storage_revision, 8);
+    let TaskAgentJourneyApplyV1::ActorParticipationRelationship(replay) = replay.outcome else {
+        panic!("actor-participation relationship replay expected")
+    };
+    assert!(replay.replayed);
+    let mut substituted = publication.clone();
+    substituted.subject = [99; 16];
+    assert!(matches!(
+        store.apply(
+            Some(8),
+            TaskAgentJourneyMutationV1::BindActorParticipationRelationship {
+                journey: domain_journey,
+                publication: substituted,
+            },
+        ),
+        Err(TaskAgentJourneyApplyErrorV1::Domain(
+            domain::RefusalV1::ActorParticipationRelationshipConflict
+        ))
+    ));
     drop(store);
 
     let ready_view = public::JourneyViewV1 {
@@ -579,7 +635,7 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Status(public::StatusV1 {
             owner: public::OwnerIdV1([1; 16]),
             owner_revision: 1,
-            storage_revision: 7,
+            storage_revision: 8,
             template_count: 1,
             preview_count: 1,
             journey_count: 1,
@@ -596,6 +652,55 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
             participation_ready_view
         ))))
     );
+    assert_eq!(
+        service
+            .execute_authorized(
+                AccessV1 {
+                    read: false,
+                    mutate: true,
+                },
+                public::CommandV1::ActorParticipationRelationship {
+                    journey: journey.id,
+                },
+            )
+            .unwrap(),
+        public::ReplyV1::Refused(public::RefusalV1::NotAuthorized)
+    );
+    let public::ReplyV1::Accepted(observed_relationship) = service
+        .execute(public::CommandV1::ActorParticipationRelationship {
+            journey: journey.id,
+        })
+        .unwrap()
+    else {
+        panic!("actor-participation relationship observation expected")
+    };
+    let public::OutcomeV1::ActorParticipationRelationship(Some(observed_relationship)) =
+        *observed_relationship
+    else {
+        panic!("actor-participation relationship outcome expected")
+    };
+    assert_eq!(observed_relationship.journey, journey.id);
+    assert_eq!(observed_relationship.journey_revision, 3);
+    assert_eq!(
+        observed_relationship.participation.session.0,
+        binding.session.0
+    );
+    assert_eq!(
+        observed_relationship.authority_principal,
+        authority.principal
+    );
+    assert_eq!(observed_relationship.publication.effect, publication.effect);
+    assert_eq!(
+        observed_relationship.publication.message_id,
+        publication.message_id
+    );
+    assert_eq!(
+        observed_relationship.publication.subject,
+        authority.principal
+    );
+    let diagnostic = format!("{observed_relationship:?}");
+    assert!(!diagnostic.contains("exact-room"));
+    assert!(!diagnostic.contains("exact-agent"));
     assert_eq!(
         service
             .execute(public::CommandV1::Participation {

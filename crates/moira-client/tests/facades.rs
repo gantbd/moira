@@ -118,9 +118,13 @@ fn task_namespace_observation_is_read_only_and_journey_scoped() {
     };
     let mut reader = TaskAgentJourneyReadOnlyClient::new(JourneyPort::default());
     reader.task_attempt_namespace(journey).unwrap();
+    reader.actor_participation_relationship(journey).unwrap();
     assert_eq!(
         reader.into_port().0,
-        vec![journey::CommandV1::TaskAttemptNamespace { journey }]
+        vec![
+            journey::CommandV1::TaskAttemptNamespace { journey },
+            journey::CommandV1::ActorParticipationRelationship { journey },
+        ]
     );
 }
 

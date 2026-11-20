@@ -58,6 +58,7 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
             | public::CommandV1::Journey { .. }
             | public::CommandV1::Participation { .. }
             | public::CommandV1::TaskAttemptNamespace { .. }
+            | public::CommandV1::ActorParticipationRelationship { .. }
             | public::CommandV1::Status => access.read,
         };
         if !allowed {
@@ -135,6 +136,15 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
                         .map(task_attempt_namespace_view),
                 )),
             )),
+            public::CommandV1::ActorParticipationRelationship { journey } => {
+                Ok(public::ReplyV1::Accepted(Box::new(
+                    public::OutcomeV1::ActorParticipationRelationship(
+                        self.store
+                            .actor_participation_relationship(journey_id(journey))
+                            .map(actor_participation_relationship_view),
+                    ),
+                )))
+            }
             public::CommandV1::Status => {
                 let census = self.store.census();
                 Ok(public::ReplyV1::Accepted(Box::new(
@@ -480,6 +490,86 @@ fn task_attempt_namespace_view(
     }
 }
 
+fn actor_participation_relationship_view(
+    value: domain::ActorParticipationRelationshipV1,
+) -> public::ActorParticipationRelationshipViewV1 {
+    public::ActorParticipationRelationshipViewV1 {
+        journey: journey_id_view(value.journey),
+        journey_revision: value.journey_revision,
+        participation: participation_binding_view(value.participation),
+        participation_owner_revision: value.participation_owner_revision,
+        authority_decision: value.authority.decision,
+        authority_principal: value.authority.principal,
+        authority_epoch: value.authority.epoch,
+        authority_expires_at: value.authority.expires_at,
+        publication: public::ActorPublicationEvidenceViewV1 {
+            effect: value.publication.effect,
+            source: value.publication.source,
+            room_sequence: value.publication.room_sequence,
+            room_id: value.publication.room_id,
+            message_sequence: value.publication.message_sequence,
+            message_id: value.publication.message_id,
+            agora_revision: value.publication.agora_revision,
+            actor: value.publication.actor,
+            subject: value.publication.subject,
+        },
+    }
+}
+
+fn participation_binding_view(
+    value: core::agent_participation::BindingV1,
+) -> moira_protocol::agent_participation::BindingV1 {
+    use moira_protocol::{agent_participation as agent, deliberation};
+    agent::BindingV1 {
+        participation: agent::ParticipationIdV1(value.participation.0),
+        workflow: moira_protocol::WorkflowIdV1(value.workflow.into_bytes()),
+        deliberation: deliberation::DeliberationIdV1(value.deliberation.0),
+        member: deliberation::EnsembleMemberIdV1(value.member.0),
+        session: agent::AgentSessionIdV1(value.session.0),
+        profile: agent::ProfileIdV1(value.profile.0),
+        attempt: agent::AttemptV1 {
+            task_key: value.attempt.task_key,
+            incarnation: value.attempt.incarnation,
+            attempt: value.attempt.attempt,
+        },
+        method: deliberation::MethodRefV1 {
+            machine_digest: value.method.machine_digest,
+            state_digest: value.method.state_digest,
+        },
+        grounding: deliberation::GroundingRefV1 {
+            authority_digest: value.grounding.authority_digest,
+            surface_digest: value.grounding.surface_digest,
+            depth: match value.grounding.depth {
+                core::deliberation::SurfaceDepthV1::Ambient => {
+                    deliberation::SurfaceDepthV1::Ambient
+                }
+                core::deliberation::SurfaceDepthV1::Activated => {
+                    deliberation::SurfaceDepthV1::Activated
+                }
+                core::deliberation::SurfaceDepthV1::Reference => {
+                    deliberation::SurfaceDepthV1::Reference
+                }
+            },
+        },
+        persona: match value.persona {
+            core::deliberation::PersonaLensV1::Historian => deliberation::PersonaLensV1::Historian,
+            core::deliberation::PersonaLensV1::IdeaStormer => {
+                deliberation::PersonaLensV1::IdeaStormer
+            }
+            core::deliberation::PersonaLensV1::Theorist => deliberation::PersonaLensV1::Theorist,
+            core::deliberation::PersonaLensV1::Researcher => {
+                deliberation::PersonaLensV1::Researcher
+            }
+            core::deliberation::PersonaLensV1::RigorReviewer => {
+                deliberation::PersonaLensV1::RigorReviewer
+            }
+            core::deliberation::PersonaLensV1::ConvergenceFacilitator => {
+                deliberation::PersonaLensV1::ConvergenceFacilitator
+            }
+        },
+    }
+}
+
 fn refusal(value: domain::RefusalV1) -> public::RefusalV1 {
     match value {
         domain::RefusalV1::InvalidLimits => public::RefusalV1::InvalidLimits,
@@ -515,7 +605,11 @@ fn refusal(value: domain::RefusalV1) -> public::RefusalV1 {
         | domain::RefusalV1::RoomMismatch
         | domain::RefusalV1::RoomConflict
         | domain::RefusalV1::InvalidParticipation
-        | domain::RefusalV1::ParticipationConflict => public::RefusalV1::InvalidCheckpoint,
+        | domain::RefusalV1::ParticipationConflict
+        | domain::RefusalV1::InvalidActorParticipationRelationship
+        | domain::RefusalV1::ActorParticipationRelationshipConflict => {
+            public::RefusalV1::InvalidCheckpoint
+        }
         domain::RefusalV1::IdentityExhausted => public::RefusalV1::IdentityExhausted,
         domain::RefusalV1::InvalidCheckpoint => public::RefusalV1::InvalidCheckpoint,
     }

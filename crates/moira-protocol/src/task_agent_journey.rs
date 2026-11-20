@@ -154,6 +154,8 @@ pub struct TaskAttemptBindingV1 {
 }
 
 pub const MAX_CHRONOS_TASK_ID_BYTES_V1: usize = 256;
+pub const MAX_AGORA_ACTOR_BYTES_V1: usize = 256;
+pub const MAX_AGORA_ROOM_ID_BYTES_V1: usize = 256;
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct TaskAttemptNamespaceViewV1 {
@@ -175,6 +177,66 @@ impl std::fmt::Debug for TaskAttemptNamespaceViewV1 {
             .field("attempt_number", &self.attempt_number)
             .field("chronos_revision", &self.chronos_revision)
             .field("chronos_task_id_bytes", &self.chronos_task_id.len())
+            .finish()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct ActorPublicationEvidenceViewV1 {
+    pub effect: [u8; 16],
+    pub source: [u8; 16],
+    pub room_sequence: u64,
+    pub room_id: String,
+    pub message_sequence: u64,
+    pub message_id: [u8; 16],
+    pub agora_revision: u64,
+    pub actor: String,
+    pub subject: [u8; 16],
+}
+
+impl std::fmt::Debug for ActorPublicationEvidenceViewV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorPublicationEvidenceViewV1")
+            .field("effect", &"<opaque>")
+            .field("source", &"<opaque>")
+            .field("room_sequence", &self.room_sequence)
+            .field("room_id_bytes", &self.room_id.len())
+            .field("message_sequence", &self.message_sequence)
+            .field("message_id", &"<opaque>")
+            .field("agora_revision", &self.agora_revision)
+            .field("actor_bytes", &self.actor.len())
+            .field("subject", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct ActorParticipationRelationshipViewV1 {
+    pub journey: JourneyIdV1,
+    pub journey_revision: u64,
+    pub participation: crate::agent_participation::BindingV1,
+    pub participation_owner_revision: u64,
+    pub authority_decision: [u8; 16],
+    pub authority_principal: [u8; 16],
+    pub authority_epoch: u64,
+    pub authority_expires_at: u64,
+    pub publication: ActorPublicationEvidenceViewV1,
+}
+
+impl std::fmt::Debug for ActorParticipationRelationshipViewV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorParticipationRelationshipViewV1")
+            .field("journey", &self.journey)
+            .field("journey_revision", &self.journey_revision)
+            .field("participation", &"<opaque>")
+            .field(
+                "participation_owner_revision",
+                &self.participation_owner_revision,
+            )
+            .field("authority", &"<redacted>")
+            .field("publication", &self.publication)
             .finish()
     }
 }
@@ -249,6 +311,9 @@ pub enum CommandV1 {
     TaskAttemptNamespace {
         journey: JourneyIdV1,
     },
+    ActorParticipationRelationship {
+        journey: JourneyIdV1,
+    },
     Status,
 }
 
@@ -283,6 +348,7 @@ pub enum OutcomeV1 {
     Journey(Option<JourneyViewV1>),
     Participation(Option<ParticipationAdmissionViewV1>),
     TaskAttemptNamespace(Option<TaskAttemptNamespaceViewV1>),
+    ActorParticipationRelationship(Option<ActorParticipationRelationshipViewV1>),
     Status(StatusV1),
 }
 

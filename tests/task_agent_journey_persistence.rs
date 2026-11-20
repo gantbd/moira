@@ -1,5 +1,14 @@
 use moira_core::{
-    ChronosAttemptReceiptV1, ChronosTaskRefV1, agent_participation::ProfileIdV1,
+    ChronosAttemptReceiptV1, ChronosTaskRefV1, WorkflowId,
+    agent_participation::{
+        AgentSessionIdV1, AttemptV1, BindingV1 as AgentParticipationBindingV1,
+        Engine as AgentParticipationEngine, LimitsV1 as AgentParticipationLimitsV1,
+        ParticipationIdV1, ProfileIdV1,
+    },
+    deliberation::{
+        DeliberationIdV1, EnsembleAdmissionV1, EnsembleMemberIdV1, GroundingRefV1, MethodRefV1,
+        PersonaLensV1, SurfaceDepthV1,
+    },
     task_agent_journey as j,
 };
 
@@ -49,6 +58,25 @@ fn canonical_checkpoint_round_trips_and_reopens_exact_journey() {
 }
 
 #[test]
+fn version_seven_relationship_round_trips_and_reopens_exact_owner_evidence() {
+    let (engine, journey, relationship) = relationship_engine();
+    let limits = j::persistence::CodecLimitsV1::default();
+    let bytes = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
+    assert_eq!(bytes[8], 7);
+
+    let checkpoint = j::persistence::decode(&bytes, limits).unwrap();
+    let reopened = j::Engine::recover(checkpoint).unwrap();
+    assert_eq!(
+        reopened.actor_participation_relationship(journey.id),
+        Some(&relationship)
+    );
+    assert_eq!(
+        j::persistence::encode(&reopened.checkpoint(), limits).unwrap(),
+        bytes
+    );
+}
+
+#[test]
 fn legacy_admitted_checkpoint_decodes_and_upgrades_canonically() {
     let mut engine = engine();
     let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
@@ -59,14 +87,14 @@ fn legacy_admitted_checkpoint_decodes_and_upgrades_canonically() {
     let limits = j::persistence::CodecLimitsV1::default();
     let mut legacy = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
     legacy[8] = 1;
-    for _ in 0..27 {
+    for _ in 0..35 {
         assert_eq!(legacy.pop(), Some(0));
     }
 
     let checkpoint = j::persistence::decode(&legacy, limits).unwrap();
     assert_eq!(checkpoint.journeys, vec![admitted]);
     let upgraded = j::persistence::encode(&checkpoint, limits).unwrap();
-    assert_eq!(upgraded[8], 6);
+    assert_eq!(upgraded[8], 7);
     assert_eq!(
         j::persistence::decode(&upgraded, limits).unwrap(),
         checkpoint
@@ -91,14 +119,14 @@ fn version_two_task_attempt_checkpoint_decodes_and_upgrades_canonically() {
     let limits = j::persistence::CodecLimitsV1::default();
     let mut version_two = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
     version_two[8] = 2;
-    for _ in 0..26 {
+    for _ in 0..34 {
         assert_eq!(version_two.pop(), Some(0));
     }
 
     let checkpoint = j::persistence::decode(&version_two, limits).unwrap();
     assert_eq!(checkpoint.journeys, vec![task_ready]);
     let upgraded = j::persistence::encode(&checkpoint, limits).unwrap();
-    assert_eq!(upgraded[8], 6);
+    assert_eq!(upgraded[8], 7);
     assert_eq!(
         j::persistence::decode(&upgraded, limits).unwrap(),
         checkpoint
@@ -135,6 +163,119 @@ fn truncation_tail_mutation_and_host_limit_refuse() {
 
 fn engine() -> j::Engine {
     j::Engine::try_new(j::OwnerIdV1([1; 16]), j::LimitsV1::default(), [template()]).unwrap()
+}
+
+fn relationship_engine() -> (
+    j::Engine,
+    j::JourneySnapshotV1,
+    j::ActorParticipationRelationshipV1,
+) {
+    let mut engine = engine();
+    let preview = engine.preview(preview_request(), 1_000).unwrap().preview;
+    let admitted = engine
+        .instantiate(instantiate_request(preview), 1_002)
+        .unwrap()
+        .journey;
+    let task_ready = engine
+        .bind_task_attempt_namespace(
+            admitted.id,
+            ChronosAttemptReceiptV1::new(preview.request.task.task, 2, 12),
+            "exact-task".into(),
+        )
+        .unwrap()
+        .journey;
+    let room_ready = engine
+        .bind_room(
+            admitted.id,
+            j::AgoraRoomReceiptV1 {
+                source: task_ready.workflow.owner.0,
+                room_sequence: task_ready.workflow.sequence,
+                agora_revision: 8,
+            },
+        )
+        .unwrap()
+        .journey;
+    let workflow = j::ParticipationWorkflowReceiptV1 {
+        source: room_ready.workflow.owner.0,
+        workflow_sequence: room_ready.workflow.sequence,
+        participation_workflow: WorkflowId::new([20; 16]),
+        relationship_revision: 0,
+    };
+    let deliberation = j::DeliberationMemberReceiptV1 {
+        deliberation: DeliberationIdV1([21; 16]),
+        member: EnsembleMemberIdV1([22; 16]),
+        method: MethodRefV1 {
+            machine_digest: [23; 32],
+            state_digest: [24; 32],
+        },
+        grounding: GroundingRefV1 {
+            authority_digest: [25; 32],
+            surface_digest: [26; 32],
+            depth: SurfaceDepthV1::Activated,
+        },
+        persona: PersonaLensV1::Researcher,
+        ensemble_admission: EnsembleAdmissionV1::affirmed(
+            [29; 32], [30; 32], [31; 32], [32; 32], [33; 16],
+        ),
+        owner_revision: 0,
+    };
+    let task = room_ready.task_attempt.unwrap();
+    let binding = AgentParticipationBindingV1 {
+        participation: ParticipationIdV1([27; 16]),
+        workflow: workflow.participation_workflow,
+        deliberation: deliberation.deliberation,
+        member: deliberation.member,
+        session: AgentSessionIdV1([28; 16]),
+        profile: room_ready.preview.request.profile,
+        attempt: AttemptV1 {
+            task_key: task.task.external_task_key(),
+            incarnation: task.task.incarnation(),
+            attempt: task.attempt_number,
+        },
+        method: deliberation.method,
+        grounding: deliberation.grounding,
+        persona: deliberation.persona,
+    };
+    engine
+        .prepare_participation(room_ready.id, workflow, deliberation, binding)
+        .unwrap();
+    let authority = j::ParticipationAdmissionAuthorityV1 {
+        journey: room_ready.id,
+        participation: binding.participation,
+        decision: [41; 16],
+        principal: [42; 16],
+        epoch: 7,
+        expires_at: 2_000,
+    };
+    engine
+        .attribute_participation_dispatch(room_ready.id, authority)
+        .unwrap();
+    let mut owner =
+        AgentParticipationEngine::try_new(AgentParticipationLimitsV1::default()).unwrap();
+    owner.admit(binding).unwrap();
+    let observed = owner.participation(binding.participation).unwrap();
+    let journey = engine
+        .bind_participation(room_ready.id, observed)
+        .unwrap()
+        .journey;
+    let relationship = engine
+        .bind_actor_participation_relationship(
+            journey.id,
+            j::ActorPublicationEvidenceV1 {
+                effect: [43; 16],
+                source: room_ready.room.unwrap().source,
+                room_sequence: room_ready.room.unwrap().room_sequence,
+                room_id: "exact-room".into(),
+                message_sequence: 3,
+                message_id: [44; 16],
+                agora_revision: 9,
+                actor: "exact-agent".into(),
+                subject: authority.principal,
+            },
+        )
+        .unwrap()
+        .relationship;
+    (engine, journey, relationship)
 }
 
 fn template() -> j::TemplateV1 {

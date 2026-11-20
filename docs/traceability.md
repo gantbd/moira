@@ -66,6 +66,16 @@ The task-agent journey read-only family separately exposes the V6 exact
 Chronos task-namespace binding by journey identity. Canonical wire tests and a
 real SQLite reopen/service test prove exact key, task ID, incarnation, attempt
 and revision projection without granting scope, lease or mutation authority.
+The same family now exposes the V7 actor-participation relationship by exact
+journey identity. A private `moira-agora` consumer is the only public-component
+adapter that prepares its mutation: it maps Agora's exact Host-derived actor,
+subject, effect, room, message and revision into the journey store. Domain
+tests require the retained participation blueprint, task attempt, room
+source/sequence and admission principal; V7 persistence, canonical wire,
+capability-shaped client, authorization-first service, real SQLite reopen and
+real Unix daemon/client tests qualify observation. Diagnostics redact actor,
+room, subject, participation and authority material. The relationship is not
+task scope, authentication, delivery, acceptance, completion or rollout.
 The governed participation component now renders that complete projection too,
 while retaining refresh and close as its only active controls.
 Recovery mutation is isolated in a separate M20 control: the worker first

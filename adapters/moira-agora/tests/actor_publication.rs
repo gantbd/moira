@@ -11,7 +11,21 @@ use moira_agora::{
     actor::{
         ActorObservationReplyV1, ActorProvenanceObservationReplyV1, ActorPublicationReplyV1,
         ActorPublisherErrorV1, ActorResponsePublisher, ActorSubjectProvenanceObservationReplyV1,
+        retain_actor_participation_relationship,
     },
+};
+use moira_core::{
+    WorkflowId,
+    agent_participation::{AgentSessionIdV1, AttemptV1, BindingV1, ParticipationIdV1, ProfileIdV1},
+    deliberation::{
+        DeliberationIdV1, EnsembleMemberIdV1, GroundingRefV1, MethodRefV1, PersonaLensV1,
+        SurfaceDepthV1,
+    },
+    task_agent_journey as journey,
+};
+use moira_host::{
+    TaskAgentJourneyApplyErrorV1, TaskAgentJourneyApplyReceiptV1, TaskAgentJourneyApplyV1,
+    TaskAgentJourneyCensusV1, TaskAgentJourneyMutationV1, TaskAgentJourneyStore,
 };
 use moira_protocol::EffectIdV1;
 use std::sync::{Arc, Mutex};
@@ -220,4 +234,167 @@ fn absence_and_conflict_never_fall_through_to_publication() {
         publisher.observe(&changed).unwrap(),
         ActorObservationReplyV1::Refused(ActorPublicationObservationRefusalV1::Conflict)
     );
+}
+
+#[test]
+fn subject_provenance_is_consumed_only_through_private_journey_mutation() {
+    let journey_id = journey::JourneyIdV1 {
+        owner: journey::OwnerIdV1([0x32; 16]),
+        sequence: 5,
+    };
+    let provenance = moira_agora::actor::ActorPublishedSubjectProvenanceV1 {
+        published: moira_agora::PublishedV1 {
+            receipt: moira_protocol::PublicationReceiptV1 {
+                effect: EffectIdV1([0x31; 16]),
+                message: moira_protocol::MessageRefV1 {
+                    source: [0x32; 16],
+                    room_sequence: 5,
+                    message_sequence: 7,
+                },
+                agora_revision: 19,
+            },
+            message_id: agora_protocol::v2::MessageIdV1::new([0x44; 16]),
+        },
+        actor: "agent".into(),
+        subject: [0x45; 16],
+        room_id: "secret-room".into(),
+    };
+    let mut store = RecordingStore::new(journey_id);
+    let retained =
+        retain_actor_participation_relationship(&mut store, Some(8), journey_id, provenance)
+            .unwrap();
+    assert_eq!(retained.storage_revision, 9);
+    assert_eq!(retained.receipt.relationship.publication.effect, [0x31; 16]);
+    assert_eq!(retained.receipt.relationship.publication.source, [0x32; 16]);
+    assert_eq!(retained.receipt.relationship.publication.room_sequence, 5);
+    assert_eq!(
+        retained.receipt.relationship.publication.message_sequence,
+        7
+    );
+    assert_eq!(
+        retained.receipt.relationship.publication.message_id,
+        [0x44; 16]
+    );
+    assert_eq!(retained.receipt.relationship.publication.agora_revision, 19);
+    assert_eq!(retained.receipt.relationship.publication.actor, "agent");
+    assert_eq!(
+        retained.receipt.relationship.publication.subject,
+        [0x45; 16]
+    );
+    assert_eq!(store.expected_revision, Some(8));
+}
+
+struct RecordingStore {
+    journey: journey::JourneyIdV1,
+    expected_revision: Option<u64>,
+}
+
+impl RecordingStore {
+    fn new(journey: journey::JourneyIdV1) -> Self {
+        Self {
+            journey,
+            expected_revision: None,
+        }
+    }
+}
+
+impl TaskAgentJourneyStore for RecordingStore {
+    type Error = ();
+
+    fn owner(&self) -> journey::OwnerIdV1 {
+        self.journey.owner
+    }
+
+    fn owner_revision(&self) -> u64 {
+        1
+    }
+
+    fn storage_revision(&self) -> u64 {
+        8
+    }
+
+    fn needs_reopen(&self) -> bool {
+        false
+    }
+
+    fn catalogue(&self) -> Vec<journey::TemplateV1> {
+        Vec::new()
+    }
+
+    fn census(&self) -> TaskAgentJourneyCensusV1 {
+        TaskAgentJourneyCensusV1 {
+            templates: 0,
+            previews: 0,
+            journeys: 1,
+        }
+    }
+
+    fn preview(&self, _id: journey::PreviewIdV1) -> Option<journey::PreviewSnapshotV1> {
+        None
+    }
+
+    fn journey(&self, _id: journey::JourneyIdV1) -> Option<journey::JourneySnapshotV1> {
+        None
+    }
+
+    fn apply(
+        &mut self,
+        expected_storage_revision: Option<u64>,
+        mutation: TaskAgentJourneyMutationV1,
+    ) -> Result<TaskAgentJourneyApplyReceiptV1, TaskAgentJourneyApplyErrorV1<Self::Error>> {
+        self.expected_revision = expected_storage_revision;
+        let TaskAgentJourneyMutationV1::BindActorParticipationRelationship {
+            journey,
+            publication,
+        } = mutation
+        else {
+            panic!("private relationship mutation expected")
+        };
+        let authority = journey::ParticipationAdmissionAuthorityV1 {
+            journey,
+            participation: ParticipationIdV1([1; 16]),
+            decision: [2; 16],
+            principal: publication.subject,
+            epoch: 3,
+            expires_at: 4,
+        };
+        Ok(TaskAgentJourneyApplyReceiptV1 {
+            storage_revision: 9,
+            outcome: TaskAgentJourneyApplyV1::ActorParticipationRelationship(
+                journey::ActorParticipationRelationshipReceiptV1 {
+                    relationship: journey::ActorParticipationRelationshipV1 {
+                        journey,
+                        journey_revision: 3,
+                        participation: BindingV1 {
+                            participation: authority.participation,
+                            workflow: WorkflowId::new([5; 16]),
+                            deliberation: DeliberationIdV1([6; 16]),
+                            member: EnsembleMemberIdV1([7; 16]),
+                            session: AgentSessionIdV1([8; 16]),
+                            profile: ProfileIdV1([9; 16]),
+                            attempt: AttemptV1 {
+                                task_key: [10; 16],
+                                incarnation: 11,
+                                attempt: 12,
+                            },
+                            method: MethodRefV1 {
+                                machine_digest: [13; 32],
+                                state_digest: [14; 32],
+                            },
+                            grounding: GroundingRefV1 {
+                                authority_digest: [15; 32],
+                                surface_digest: [16; 32],
+                                depth: SurfaceDepthV1::Activated,
+                            },
+                            persona: PersonaLensV1::Researcher,
+                        },
+                        participation_owner_revision: 0,
+                        authority,
+                        publication,
+                    },
+                    replayed: false,
+                },
+            ),
+        })
+    }
 }

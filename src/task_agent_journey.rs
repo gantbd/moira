@@ -196,6 +196,8 @@ pub struct TaskAttemptBindingV1 {
 }
 
 pub const MAX_CHRONOS_TASK_ID_BYTES_V1: usize = 256;
+pub const MAX_AGORA_ACTOR_BYTES_V1: usize = 256;
+pub const MAX_AGORA_ROOM_ID_BYTES_V1: usize = 256;
 
 /// Exact Chronos namespace retained beside one task-attempt binding.
 ///
@@ -209,6 +211,83 @@ pub struct TaskAttemptNamespaceBindingV1 {
     pub attempt_number: u32,
     pub chronos_revision: u64,
     pub chronos_task_id: String,
+}
+
+/// Complete, content-free Agora owner observation offered to the task-agent
+/// journey for one actor-to-participation relationship.
+///
+/// `actor` and `room_id` are retained for exact attribution and routing
+/// provenance but remain redacted from diagnostics. This value grants no
+/// authority and is not itself proof of an agent relationship until the
+/// journey owner validates it against retained participation and room facts.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ActorPublicationEvidenceV1 {
+    pub effect: [u8; 16],
+    pub source: [u8; 16],
+    pub room_sequence: u64,
+    pub room_id: String,
+    pub message_sequence: u64,
+    pub message_id: [u8; 16],
+    pub agora_revision: u64,
+    pub actor: String,
+    pub subject: [u8; 16],
+}
+
+impl std::fmt::Debug for ActorPublicationEvidenceV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorPublicationEvidenceV1")
+            .field("effect", &"<opaque>")
+            .field("source", &"<opaque>")
+            .field("room_sequence", &self.room_sequence)
+            .field("room_id_bytes", &self.room_id.len())
+            .field("message_sequence", &self.message_sequence)
+            .field("message_id", &"<opaque>")
+            .field("agora_revision", &self.agora_revision)
+            .field("actor_bytes", &self.actor.len())
+            .field("subject", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Moira-owned durable relationship joining one exact Agora publication to
+/// the already-admitted participation and its complete retained blueprint.
+///
+/// Equal subject/principal bytes are only one precondition. The relationship
+/// also retains the full participation binding, participation-owner revision,
+/// exact admission authority attribution and exact publication evidence. It
+/// is not authentication, a task-room scope grant, acceptance or completion.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ActorParticipationRelationshipV1 {
+    pub journey: JourneyIdV1,
+    pub journey_revision: u64,
+    pub participation: AgentParticipationBindingV1,
+    pub participation_owner_revision: u64,
+    pub authority: ParticipationAdmissionAuthorityV1,
+    pub publication: ActorPublicationEvidenceV1,
+}
+
+impl std::fmt::Debug for ActorParticipationRelationshipV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorParticipationRelationshipV1")
+            .field("journey", &self.journey)
+            .field("journey_revision", &self.journey_revision)
+            .field("participation", &"<opaque>")
+            .field(
+                "participation_owner_revision",
+                &self.participation_owner_revision,
+            )
+            .field("authority", &"<redacted>")
+            .field("publication", &self.publication)
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActorParticipationRelationshipReceiptV1 {
+    pub relationship: ActorParticipationRelationshipV1,
+    pub replayed: bool,
 }
 
 /// Exact non-authorizing Agora owner receipt retained for the journey's stable
@@ -561,6 +640,8 @@ pub enum RefusalV1 {
     RoomConflict,
     InvalidParticipation,
     ParticipationConflict,
+    InvalidActorParticipationRelationship,
+    ActorParticipationRelationshipConflict,
     IdentityExhausted,
     InvalidCheckpoint,
 }
@@ -578,6 +659,7 @@ pub struct CheckpointV1 {
     pub participation_blueprints: Vec<ParticipationBlueprintV1>,
     pub participation_attributions: Vec<ParticipationDispatchAttributionV1>,
     pub task_attempt_namespaces: Vec<TaskAttemptNamespaceBindingV1>,
+    pub actor_participation_relationships: Vec<ActorParticipationRelationshipV1>,
 }
 
 pub struct Engine {
@@ -593,6 +675,7 @@ pub struct Engine {
     participation_blueprints: BTreeMap<JourneyIdV1, ParticipationBlueprintV1>,
     participation_attributions: BTreeMap<JourneyIdV1, ParticipationDispatchAttributionV1>,
     task_attempt_namespaces: BTreeMap<JourneyIdV1, TaskAttemptNamespaceBindingV1>,
+    actor_participation_relationships: BTreeMap<JourneyIdV1, ActorParticipationRelationshipV1>,
     instantiate_operations: BTreeMap<InstantiateOperationIdV1, JourneyIdV1>,
     preview_journeys: BTreeMap<PreviewIdV1, JourneyIdV1>,
 }
@@ -632,6 +715,7 @@ impl Engine {
             participation_blueprints: BTreeMap::new(),
             participation_attributions: BTreeMap::new(),
             task_attempt_namespaces: BTreeMap::new(),
+            actor_participation_relationships: BTreeMap::new(),
             instantiate_operations: BTreeMap::new(),
             preview_journeys: BTreeMap::new(),
         })
@@ -672,6 +756,13 @@ impl Engine {
         journey: JourneyIdV1,
     ) -> Option<&TaskAttemptNamespaceBindingV1> {
         self.task_attempt_namespaces.get(&journey)
+    }
+
+    pub fn actor_participation_relationship(
+        &self,
+        journey: JourneyIdV1,
+    ) -> Option<&ActorParticipationRelationshipV1> {
+        self.actor_participation_relationships.get(&journey)
     }
 
     pub fn preview(
@@ -1100,6 +1191,92 @@ impl Engine {
         })
     }
 
+    /// Retain the complete owner-observed relationship between one exact
+    /// Agora publication and the journey's already-admitted participation.
+    ///
+    /// This is additive evidence, not a phase transition. Equal subject bytes
+    /// are insufficient: the current journey, retained participation
+    /// blueprint, admission authority, task attempt and room relationship must
+    /// all match before the first record can be inserted. Every later call is
+    /// an exact replay or a conflict.
+    pub fn bind_actor_participation_relationship(
+        &mut self,
+        journey: JourneyIdV1,
+        publication: ActorPublicationEvidenceV1,
+    ) -> Result<ActorParticipationRelationshipReceiptV1, RefusalV1> {
+        if let Some(existing) = self.actor_participation_relationships.get(&journey) {
+            return if existing.publication == publication {
+                Ok(ActorParticipationRelationshipReceiptV1 {
+                    relationship: existing.clone(),
+                    replayed: true,
+                })
+            } else {
+                Err(RefusalV1::ActorParticipationRelationshipConflict)
+            };
+        }
+        let current = *self
+            .journeys
+            .get(&journey)
+            .ok_or(RefusalV1::JourneyNotFound)?;
+        let participation = current
+            .participation
+            .ok_or(RefusalV1::InvalidActorParticipationRelationship)?;
+        let blueprint = *self
+            .participation_blueprints
+            .get(&journey)
+            .ok_or(RefusalV1::InvalidActorParticipationRelationship)?;
+        let attribution = *self
+            .participation_attributions
+            .get(&journey)
+            .ok_or(RefusalV1::InvalidActorParticipationRelationship)?;
+        let room = current
+            .room
+            .ok_or(RefusalV1::InvalidActorParticipationRelationship)?;
+        let task = current
+            .task_attempt
+            .ok_or(RefusalV1::InvalidActorParticipationRelationship)?;
+
+        if current.phase != PhaseV1::ParticipationAdmitted
+            || participation.journey != journey
+            || participation.participation != blueprint.binding.participation
+            || participation.authority != attribution.authority
+            || attribution.blueprint != blueprint
+            || blueprint.binding.attempt.task_key != task.task.external_task_key()
+            || blueprint.binding.attempt.incarnation != task.task.incarnation()
+            || blueprint.binding.attempt.attempt != task.attempt_number
+            || publication.effect == [0; 16]
+            || publication.source == [0; 16]
+            || publication.message_id == [0; 16]
+            || publication.subject == [0; 16]
+            || publication.actor.is_empty()
+            || publication.actor.len() > MAX_AGORA_ACTOR_BYTES_V1
+            || publication.room_id.is_empty()
+            || publication.room_id.len() > MAX_AGORA_ROOM_ID_BYTES_V1
+            || publication.agora_revision == 0
+            || publication.agora_revision < room.agora_revision
+            || publication.source != room.source
+            || publication.room_sequence != room.room_sequence
+            || publication.subject != participation.authority.principal
+        {
+            return Err(RefusalV1::InvalidActorParticipationRelationship);
+        }
+
+        let relationship = ActorParticipationRelationshipV1 {
+            journey,
+            journey_revision: current.revision,
+            participation: blueprint.binding,
+            participation_owner_revision: participation.owner_revision,
+            authority: participation.authority,
+            publication,
+        };
+        self.actor_participation_relationships
+            .insert(journey, relationship.clone());
+        Ok(ActorParticipationRelationshipReceiptV1 {
+            relationship,
+            replayed: false,
+        })
+    }
+
     pub fn checkpoint(&self) -> CheckpointV1 {
         CheckpointV1 {
             owner: self.owner,
@@ -1113,6 +1290,11 @@ impl Engine {
             participation_blueprints: self.participation_blueprints.values().copied().collect(),
             participation_attributions: self.participation_attributions.values().copied().collect(),
             task_attempt_namespaces: self.task_attempt_namespaces.values().cloned().collect(),
+            actor_participation_relationships: self
+                .actor_participation_relationships
+                .values()
+                .cloned()
+                .collect(),
         }
     }
 
@@ -1124,6 +1306,17 @@ impl Engine {
             .collect::<BTreeMap<_, _>>();
         if task_attempt_namespaces.len() != checkpoint.task_attempt_namespaces.len()
             || task_attempt_namespaces.len() > checkpoint.limits.max_journeys
+        {
+            return Err(RefusalV1::InvalidCheckpoint);
+        }
+        let actor_participation_relationships = checkpoint
+            .actor_participation_relationships
+            .iter()
+            .map(|binding| (binding.journey, binding.clone()))
+            .collect::<BTreeMap<_, _>>();
+        if actor_participation_relationships.len()
+            != checkpoint.actor_participation_relationships.len()
+            || actor_participation_relationships.len() > checkpoint.limits.max_journeys
         {
             return Err(RefusalV1::InvalidCheckpoint);
         }
@@ -1270,7 +1463,22 @@ impl Engine {
                 }
             }
         }
+        for relationship in checkpoint.actor_participation_relationships {
+            if engine
+                .bind_actor_participation_relationship(
+                    relationship.journey,
+                    relationship.publication.clone(),
+                )?
+                .relationship
+                != relationship
+            {
+                return Err(RefusalV1::InvalidCheckpoint);
+            }
+        }
         if engine.task_attempt_namespaces != task_attempt_namespaces {
+            return Err(RefusalV1::InvalidCheckpoint);
+        }
+        if engine.actor_participation_relationships != actor_participation_relationships {
             return Err(RefusalV1::InvalidCheckpoint);
         }
         if engine.next_preview != checkpoint.next_preview

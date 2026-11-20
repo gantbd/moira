@@ -71,12 +71,15 @@ The model-proposal checkpoint now uses `MOIRAMP2`. V2 adds the required action-
 selection digest to every saga, so the former unbound `MOIRAMP1` identity is
 refused rather than silently assigned synthetic authority during recovery.
 
-The task-agent journey `MOIRATJ1` checkpoint encoder now emits version 6. V6
-adds a bounded exact Chronos task-namespace binding as a separate owner fact;
-decoders continue to accept versions 1 through 5 and preserve their honest
-absence of namespace evidence. Re-encoding upgrades them to V6 without
-inventing a task ID. V6 readers are required for checkpoints that contain the
-new binding; no downgrade projection is claimed.
+The task-agent journey `MOIRATJ1` checkpoint encoder now emits version 7. V6
+added a bounded exact Chronos task-namespace binding as a separate owner fact.
+V7 adds the separately versioned Agora-actor-to-admitted-participation
+relationship, including the complete retained participation binding, admission
+authority attribution and content-free publication provenance. Decoders
+continue to accept versions 1 through 6 and preserve their honest absence of
+the later evidence. Re-encoding upgrades them to V7 without inventing a task ID
+or actor relationship. V7 readers are required for checkpoints containing the
+new relationship; no downgrade projection is claimed.
 
 The `moira-chronos` mapping selects Chronos V3 atomic `SubmitGraph` with one task,
 derives the invocation key as lowercase hexadecimal Moira effect bytes, and uses

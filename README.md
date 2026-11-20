@@ -243,7 +243,7 @@ fresh Chronos claim/lease, room and participation effects, Daimon dispatch and
 settlement remain open and cannot be inferred from admission.
 
 Subsequent owner progression retains a trusted Chronos claim before room and
-participation admission. Checkpoint V6 adds a separate exact task-namespace
+participation admission. Checkpoint V6 added a separate exact task-namespace
 binding beside the unchanged V1 attempt binding: journey, external task key,
 incarnation, attempt, Chronos revision and the Chronos-owned task ID are
 committed atomically by the journey store. The trusted worker supplies the task
@@ -256,6 +256,20 @@ The existing task-agent journey read-only protocol now exposes that exact
 binding by journey identity through service, canonical wire and client layers;
 diagnostics redact the task key and task ID. Authoritative absence remains
 scoped to the queried journey owner.
+
+Checkpoint V7 adds a separate actor-participation relationship without
+changing the V1 journey, room or participation bindings. The private
+`moira-agora` consumer accepts only Agora's exact Host-derived actor and subject
+publication provenance, then the journey owner requires `ParticipationAdmitted`,
+the retained participation blueprint and authority principal, the exact task
+attempt, and the exact room source/sequence before atomically retaining actor,
+subject, effect, room, message, publication revision and the full admitted
+participation. Exact replay is stable and every changed publication conflicts.
+Versions 1 through 6 upgrade with the relationship honestly absent. A separate
+read-only service/wire/client operation observes the record after SQLite and
+process reopen; there is no public relationship mutation command. Equal
+principal bytes alone remain insufficient, and the record grants no task scope,
+publication authority, delivery, acceptance, completion or rollout claim.
 
 `moira-client` now also owns a bounded optional Unix port for the governed
 participation service, so runtime workers do not depend on terminal presentation

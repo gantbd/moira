@@ -200,6 +200,13 @@ documented terminal reason why none is safe.
     by a new authenticated public client without republishing. The same proof
     now runs through the exact `aegis-daemon` and `agora-private-local` standalone
     binaries with current bounded grants and ordered clean shutdown.
+  - [x] Retain Agora's Host-derived actor and verified subject as a V7
+    task-agent relationship only after the subject equals the exact
+    participation-admission principal and the full retained participation, task
+    attempt and room relationship match. The mutation is private to the
+    qualified `moira-agora` consumer; public service, wire and client surfaces
+    are read-only and survive SQLite/process reopen. Task-conversation scope and
+    human acceptance remain separate composition work.
 - [x] Add Vellum only through its public revisioned publication contract. The
   independent-process qualification launches Vellum's exact standalone daemon,
   establishes a saved baseline, discards the accepted durable edit reply, and
