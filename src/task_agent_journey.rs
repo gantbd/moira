@@ -153,6 +153,7 @@ pub enum PhaseV1 {
     Admitted,
     TaskAttemptReady,
     RoomReady,
+    ParticipationAdmitted,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -166,6 +167,7 @@ pub struct JourneySnapshotV1 {
     pub preview: PreviewSnapshotV1,
     pub task_attempt: Option<TaskAttemptBindingV1>,
     pub room: Option<RoomBindingV1>,
+    pub participation: Option<ParticipationAdmissionBindingV1>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -258,6 +260,46 @@ pub struct ParticipationBlueprintV1 {
 pub struct ParticipationBlueprintReceiptV1 {
     pub blueprint: ParticipationBlueprintV1,
     pub replayed: bool,
+}
+
+/// Durable, non-bearer attribution for the fresh Aegis decision used by one
+/// participation admission attempt. It cannot authorize dispatch after the
+/// adapter call returns; the grant remains session-local to Aegis.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationAdmissionAuthorityV1 {
+    pub journey: JourneyIdV1,
+    pub participation: crate::agent_participation::ParticipationIdV1,
+    pub decision: [u8; 16],
+    pub principal: [u8; 16],
+    pub epoch: u64,
+    pub expires_at: u64,
+}
+
+/// Latest durable dispatch attribution for a prepared participation. A newer
+/// fresh decision may replace it only while the exact owner still reports the
+/// participation absent. This record is evidence, never retry authority.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationDispatchAttributionV1 {
+    pub blueprint: ParticipationBlueprintV1,
+    pub authority: ParticipationAdmissionAuthorityV1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationDispatchAttributionReceiptV1 {
+    pub attribution: ParticipationDispatchAttributionV1,
+    pub replayed: bool,
+}
+
+/// Definitive participation-owner fact bound into the journey after dispatch
+/// or recovery observation. The full binding remains in the durable blueprint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationAdmissionBindingV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub participation: crate::agent_participation::ParticipationIdV1,
+    pub owner_revision: u64,
+    pub owner_phase: AgentParticipationPhaseV1,
+    pub authority: ParticipationAdmissionAuthorityV1,
 }
 
 /// Content-minimized current fact from the participation owner. `Absent` is
@@ -516,6 +558,7 @@ pub struct CheckpointV1 {
     pub previews: Vec<PreviewSnapshotV1>,
     pub journeys: Vec<JourneySnapshotV1>,
     pub participation_blueprints: Vec<ParticipationBlueprintV1>,
+    pub participation_attributions: Vec<ParticipationDispatchAttributionV1>,
 }
 
 pub struct Engine {
@@ -529,6 +572,7 @@ pub struct Engine {
     preview_operations: BTreeMap<PreviewOperationIdV1, PreviewIdV1>,
     journeys: BTreeMap<JourneyIdV1, JourneySnapshotV1>,
     participation_blueprints: BTreeMap<JourneyIdV1, ParticipationBlueprintV1>,
+    participation_attributions: BTreeMap<JourneyIdV1, ParticipationDispatchAttributionV1>,
     instantiate_operations: BTreeMap<InstantiateOperationIdV1, JourneyIdV1>,
     preview_journeys: BTreeMap<PreviewIdV1, JourneyIdV1>,
 }
@@ -566,6 +610,7 @@ impl Engine {
             preview_operations: BTreeMap::new(),
             journeys: BTreeMap::new(),
             participation_blueprints: BTreeMap::new(),
+            participation_attributions: BTreeMap::new(),
             instantiate_operations: BTreeMap::new(),
             preview_journeys: BTreeMap::new(),
         })
@@ -592,6 +637,13 @@ impl Engine {
         journey: JourneyIdV1,
     ) -> Option<&ParticipationBlueprintV1> {
         self.participation_blueprints.get(&journey)
+    }
+
+    pub fn participation_attribution(
+        &self,
+        journey: JourneyIdV1,
+    ) -> Option<&ParticipationDispatchAttributionV1> {
+        self.participation_attributions.get(&journey)
     }
 
     pub fn preview(
@@ -721,6 +773,7 @@ impl Engine {
             preview,
             task_attempt: None,
             room: None,
+            participation: None,
         };
         self.journeys.insert(id, journey);
         self.instantiate_operations.insert(request.operation, id);
@@ -868,6 +921,116 @@ impl Engine {
         })
     }
 
+    /// Persist non-bearer attribution before the corresponding owner effect.
+    /// Replacement is allowed only before definitive admission and exists so a
+    /// recovery run can obtain fresh authority after proving owner absence.
+    pub fn attribute_participation_dispatch(
+        &mut self,
+        journey: JourneyIdV1,
+        authority: ParticipationAdmissionAuthorityV1,
+    ) -> Result<ParticipationDispatchAttributionReceiptV1, RefusalV1> {
+        let current = self
+            .journeys
+            .get(&journey)
+            .ok_or(RefusalV1::JourneyNotFound)?;
+        if current.phase != PhaseV1::RoomReady || current.participation.is_some() {
+            return Err(RefusalV1::InvalidParticipation);
+        }
+        let blueprint = *self
+            .participation_blueprints
+            .get(&journey)
+            .ok_or(RefusalV1::InvalidParticipation)?;
+        if authority.journey != journey
+            || authority.participation != blueprint.binding.participation
+            || authority.decision == [0; 16]
+            || authority.principal == [0; 16]
+            || authority.expires_at == 0
+        {
+            return Err(RefusalV1::InvalidParticipation);
+        }
+        let attribution = ParticipationDispatchAttributionV1 {
+            blueprint,
+            authority,
+        };
+        if self.participation_attributions.get(&journey) == Some(&attribution) {
+            return Ok(ParticipationDispatchAttributionReceiptV1 {
+                attribution,
+                replayed: true,
+            });
+        }
+        self.participation_attributions.insert(journey, attribution);
+        Ok(ParticipationDispatchAttributionReceiptV1 {
+            attribution,
+            replayed: false,
+        })
+    }
+
+    /// Bind a definitive exact owner observation. No absent observation, stale
+    /// binding, or authority attribution for another subject can advance the
+    /// journey to `ParticipationAdmitted`.
+    pub fn bind_participation(
+        &mut self,
+        journey: JourneyIdV1,
+        observed: &AgentParticipationSnapshotV1,
+    ) -> Result<JourneyReceiptV1, RefusalV1> {
+        let current = *self
+            .journeys
+            .get(&journey)
+            .ok_or(RefusalV1::JourneyNotFound)?;
+        let attribution = *self
+            .participation_attributions
+            .get(&journey)
+            .ok_or(RefusalV1::InvalidParticipation)?;
+        match reconcile_participation_owner(attribution.blueprint, Some(observed))
+            .map_err(|_| RefusalV1::ParticipationConflict)?
+        {
+            ParticipationOwnerReconciliationV1::Exact { .. } => {}
+            ParticipationOwnerReconciliationV1::Absent => {
+                return Err(RefusalV1::InvalidParticipation);
+            }
+        }
+        if current.phase == PhaseV1::ParticipationAdmitted {
+            let binding = current.participation.ok_or(RefusalV1::InvalidCheckpoint)?;
+            return if observed.binding.participation == binding.participation
+                && observed.revision == binding.owner_revision
+                && observed.phase == binding.owner_phase
+            {
+                Ok(JourneyReceiptV1 {
+                    journey: current,
+                    replayed: true,
+                })
+            } else {
+                Err(RefusalV1::ParticipationConflict)
+            };
+        }
+        if current.phase != PhaseV1::RoomReady {
+            return Err(RefusalV1::InvalidParticipation);
+        }
+        let revision = current
+            .revision
+            .checked_add(1)
+            .ok_or(RefusalV1::IdentityExhausted)?;
+        let participation = ParticipationAdmissionBindingV1 {
+            journey,
+            expected_journey_revision: current.revision,
+            participation: observed.binding.participation,
+            owner_revision: observed.revision,
+            owner_phase: observed.phase,
+            authority: attribution.authority,
+        };
+        let next = JourneySnapshotV1 {
+            revision,
+            phase: PhaseV1::ParticipationAdmitted,
+            participation: Some(participation),
+            ..current
+        };
+        self.journeys.insert(journey, next);
+        Ok(JourneyReceiptV1 {
+            journey: next,
+            replayed: false,
+        })
+    }
+
     pub fn checkpoint(&self) -> CheckpointV1 {
         CheckpointV1 {
             owner: self.owner,
@@ -879,6 +1042,7 @@ impl Engine {
             previews: self.previews.values().copied().collect(),
             journeys: self.journeys.values().copied().collect(),
             participation_blueprints: self.participation_blueprints.values().copied().collect(),
+            participation_attributions: self.participation_attributions.values().copied().collect(),
         }
     }
 
@@ -906,7 +1070,7 @@ impl Engine {
                 return Err(RefusalV1::InvalidCheckpoint);
             }
         }
-        for journey in checkpoint.journeys {
+        for journey in checkpoint.journeys.iter().copied() {
             if journey.id.owner != checkpoint.owner
                 || journey.workflow.owner != checkpoint.owner
                 || journey.id.sequence != journey.workflow.sequence
@@ -945,7 +1109,16 @@ impl Engine {
                         }
                         None => recovered,
                     };
-                    recovered != journey
+                    let expected = match journey.participation {
+                        Some(participation) => JourneySnapshotV1 {
+                            revision: participation.expected_journey_revision,
+                            phase: PhaseV1::RoomReady,
+                            participation: None,
+                            ..journey
+                        },
+                        None => journey,
+                    };
+                    recovered != expected
                 }
             {
                 return Err(RefusalV1::InvalidCheckpoint);
@@ -963,6 +1136,43 @@ impl Engine {
                 != blueprint
             {
                 return Err(RefusalV1::InvalidCheckpoint);
+            }
+        }
+        for attribution in checkpoint.participation_attributions {
+            if engine
+                .attribute_participation_dispatch(
+                    attribution.blueprint.journey,
+                    attribution.authority,
+                )?
+                .attribution
+                != attribution
+            {
+                return Err(RefusalV1::InvalidCheckpoint);
+            }
+        }
+        for journey in checkpoint.journeys.iter().copied() {
+            if let Some(participation) = journey.participation {
+                let blueprint = *engine
+                    .participation_blueprint(journey.id)
+                    .ok_or(RefusalV1::InvalidCheckpoint)?;
+                let observed = AgentParticipationSnapshotV1 {
+                    binding: blueprint.binding,
+                    revision: participation.owner_revision,
+                    phase: participation.owner_phase,
+                    session_revision: None,
+                    last_event_cursor: None,
+                    profile_document_digest: None,
+                    capabilities: Default::default(),
+                    active_turn: None,
+                    permission: None,
+                    terminal: None,
+                    pending: None,
+                    last_operation: None,
+                    last_observation: None,
+                };
+                if engine.bind_participation(journey.id, &observed)?.journey != journey {
+                    return Err(RefusalV1::InvalidCheckpoint);
+                }
             }
         }
         if engine.next_preview != checkpoint.next_preview

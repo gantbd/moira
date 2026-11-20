@@ -7,7 +7,8 @@
 use crate::{StoreRevision, resource::OwnedResource, validate_sqlite_integrity};
 use moira_core::task_agent_journey::{
     CheckpointV1, Engine, JourneyIdV1, JourneySnapshotV1, LimitsV1, OwnerIdV1,
-    ParticipationBlueprintV1, PreviewIdV1, PreviewSnapshotV1, RefusalV1, TemplateV1,
+    ParticipationBlueprintV1, ParticipationDispatchAttributionV1, PreviewIdV1, PreviewSnapshotV1,
+    RefusalV1, TemplateV1,
     persistence::{CodecErrorV1, CodecLimitsV1, decode, encode},
 };
 use moira_host::{
@@ -239,6 +240,16 @@ impl TaskAgentJourneySqliteStore {
                     preparation.binding,
                 )?)
             }
+            TaskAgentJourneyMutationV1::AttributeParticipation { journey, authority } => {
+                TaskAgentJourneyApplyV1::ParticipationAttributed(
+                    candidate.attribute_participation_dispatch(journey, authority)?,
+                )
+            }
+            TaskAgentJourneyMutationV1::BindParticipation { journey, observed } => {
+                TaskAgentJourneyApplyV1::ParticipationAdmitted(
+                    candidate.bind_participation(journey, &observed)?,
+                )
+            }
         };
         let changed = candidate.checkpoint() != self.engine.checkpoint();
         let actual = read_revision(&self.connection)?;
@@ -346,6 +357,13 @@ impl TaskAgentJourneyStore for TaskAgentJourneySqliteStore {
 
     fn participation_blueprint(&self, journey: JourneyIdV1) -> Option<ParticipationBlueprintV1> {
         self.engine.participation_blueprint(journey).copied()
+    }
+
+    fn participation_attribution(
+        &self,
+        journey: JourneyIdV1,
+    ) -> Option<ParticipationDispatchAttributionV1> {
+        self.engine.participation_attribution(journey).copied()
     }
 
     fn apply(

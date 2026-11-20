@@ -3,7 +3,8 @@
 use moira_core::{
     ChronosAttemptReceiptV1, ChronosTaskRefV1, WorkflowId,
     agent_participation::{
-        AgentSessionIdV1, AttemptV1, BindingV1, ParticipationIdV1, ProfileIdV1 as DomainProfileIdV1,
+        AgentSessionIdV1, AttemptV1, BindingV1, Engine as ParticipationEngine,
+        LimitsV1 as ParticipationLimitsV1, ParticipationIdV1, ProfileIdV1 as DomainProfileIdV1,
     },
     deliberation::{
         DeliberationIdV1, EnsembleAdmissionV1, EnsembleMemberIdV1, GroundingRefV1, MethodRefV1,
@@ -447,6 +448,52 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
             domain::RefusalV1::ParticipationConflict
         ))
     ));
+    let authority = domain::ParticipationAdmissionAuthorityV1 {
+        journey: domain_journey,
+        participation: binding.participation,
+        decision: [34; 16],
+        principal: [35; 16],
+        epoch: 6,
+        expires_at: 400,
+    };
+    let attributed = store
+        .apply(
+            Some(5),
+            TaskAgentJourneyMutationV1::AttributeParticipation {
+                journey: domain_journey,
+                authority,
+            },
+        )
+        .unwrap();
+    assert_eq!(attributed.storage_revision, 6);
+    let TaskAgentJourneyApplyV1::ParticipationAttributed(attributed) = attributed.outcome else {
+        panic!("participation attribution expected")
+    };
+    assert_eq!(attributed.attribution.authority, authority);
+    let mut participation_owner =
+        ParticipationEngine::try_new(ParticipationLimitsV1::default()).unwrap();
+    participation_owner.admit(binding).unwrap();
+    let observed = participation_owner
+        .participation(binding.participation)
+        .unwrap()
+        .clone();
+    let admitted = store
+        .apply(
+            Some(6),
+            TaskAgentJourneyMutationV1::BindParticipation {
+                journey: domain_journey,
+                observed: Box::new(observed),
+            },
+        )
+        .unwrap();
+    assert_eq!(admitted.storage_revision, 7);
+    let TaskAgentJourneyApplyV1::ParticipationAdmitted(admitted) = admitted.outcome else {
+        panic!("participation admission expected")
+    };
+    assert_eq!(
+        admitted.journey.phase,
+        domain::PhaseV1::ParticipationAdmitted
+    );
     drop(store);
 
     let ready_view = public::JourneyViewV1 {
@@ -473,11 +520,31 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         }),
         ..ready_view
     };
+    let participation_ready_view = public::JourneyViewV1 {
+        revision: 3,
+        phase: public::PhaseV1::ParticipationAdmitted,
+        ..room_ready_view
+    };
+    let participation_view = public::ParticipationAdmissionViewV1 {
+        journey: journey.id,
+        expected_journey_revision: 2,
+        participation: binding.participation.0,
+        owner_revision: 0,
+        owner_phase: moira_protocol::agent_participation::PhaseV1::Admitted,
+        authority_decision: authority.decision,
+        authority_principal: authority.principal,
+        authority_epoch: authority.epoch,
+        authority_expires_at: authority.expires_at,
+    };
 
     let reopened = fixture.store();
     assert_eq!(
         reopened.participation_blueprint(domain_journey),
         Some(prepared.blueprint)
+    );
+    assert_eq!(
+        reopened.participation_attribution(domain_journey),
+        Some(attributed.attribution)
     );
     let mut service = TaskAgentJourneyService::new(reopened, Time(200));
     assert_eq!(
@@ -485,7 +552,7 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
         public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Status(public::StatusV1 {
             owner: public::OwnerIdV1([1; 16]),
             owner_revision: 1,
-            storage_revision: 5,
+            storage_revision: 7,
             template_count: 1,
             preview_count: 1,
             journey_count: 1,
@@ -498,7 +565,19 @@ fn public_service_persists_preview_admission_and_exact_replay_across_reopen() {
                 journey: journey.id,
             })
             .unwrap(),
-        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Journey(Some(room_ready_view))))
+        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Journey(Some(
+            participation_ready_view
+        ))))
+    );
+    assert_eq!(
+        service
+            .execute(public::CommandV1::Participation {
+                journey: journey.id,
+            })
+            .unwrap(),
+        public::ReplyV1::Accepted(Box::new(public::OutcomeV1::Participation(Some(
+            participation_view
+        ))))
     );
     assert_eq!(
         service.execute(preview_command).unwrap(),

@@ -56,6 +56,7 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
             public::CommandV1::Catalogue
             | public::CommandV1::PreviewView { .. }
             | public::CommandV1::Journey { .. }
+            | public::CommandV1::Participation { .. }
             | public::CommandV1::Status => access.read,
         };
         if !allowed {
@@ -118,6 +119,14 @@ impl<S: TaskAgentJourneyStore, T: TrustedTimeV1> TaskAgentJourneyService<S, T> {
                     self.store.journey(journey_id(journey)).map(journey_view),
                 ),
             ))),
+            public::CommandV1::Participation { journey } => Ok(public::ReplyV1::Accepted(
+                Box::new(public::OutcomeV1::Participation(
+                    self.store
+                        .journey(journey_id(journey))
+                        .and_then(|snapshot| snapshot.participation)
+                        .map(participation_view),
+                )),
+            )),
             public::CommandV1::Status => {
                 let census = self.store.census();
                 Ok(public::ReplyV1::Accepted(Box::new(
@@ -385,6 +394,7 @@ fn journey_view(value: domain::JourneySnapshotV1) -> public::JourneyViewV1 {
             domain::PhaseV1::Admitted => public::PhaseV1::Admitted,
             domain::PhaseV1::TaskAttemptReady => public::PhaseV1::TaskAttemptReady,
             domain::PhaseV1::RoomReady => public::PhaseV1::RoomReady,
+            domain::PhaseV1::ParticipationAdmitted => public::PhaseV1::ParticipationAdmitted,
         },
         admission: instantiate_request_view(value.admission),
         confirmed_at: value.confirmed_at,
@@ -405,6 +415,47 @@ fn journey_view(value: domain::JourneySnapshotV1) -> public::JourneyViewV1 {
             room_sequence: binding.room_sequence,
             agora_revision: binding.agora_revision,
         }),
+    }
+}
+
+fn participation_view(
+    binding: domain::ParticipationAdmissionBindingV1,
+) -> public::ParticipationAdmissionViewV1 {
+    public::ParticipationAdmissionViewV1 {
+        journey: journey_id_view(binding.journey),
+        expected_journey_revision: binding.expected_journey_revision,
+        participation: binding.participation.0,
+        owner_revision: binding.owner_revision,
+        owner_phase: match binding.owner_phase {
+            core::agent_participation::PhaseV1::Admitted => {
+                moira_protocol::agent_participation::PhaseV1::Admitted
+            }
+            core::agent_participation::PhaseV1::Ready => {
+                moira_protocol::agent_participation::PhaseV1::Ready
+            }
+            core::agent_participation::PhaseV1::TurnActive => {
+                moira_protocol::agent_participation::PhaseV1::TurnActive
+            }
+            core::agent_participation::PhaseV1::AwaitingPermission => {
+                moira_protocol::agent_participation::PhaseV1::AwaitingPermission
+            }
+            core::agent_participation::PhaseV1::Terminal => {
+                moira_protocol::agent_participation::PhaseV1::Terminal
+            }
+            core::agent_participation::PhaseV1::FencedUnknown => {
+                moira_protocol::agent_participation::PhaseV1::FencedUnknown
+            }
+            core::agent_participation::PhaseV1::Closed => {
+                moira_protocol::agent_participation::PhaseV1::Closed
+            }
+            core::agent_participation::PhaseV1::ReattachRequired => {
+                moira_protocol::agent_participation::PhaseV1::ReattachRequired
+            }
+        },
+        authority_decision: binding.authority.decision,
+        authority_principal: binding.authority.principal,
+        authority_epoch: binding.authority.epoch,
+        authority_expires_at: binding.authority.expires_at,
     }
 }
 

@@ -10,10 +10,20 @@ use aegis_protocol::{ActionV1, EngineNamespaceV1, GrantHandleV1, OutcomeV1, Refu
 use moira_core::deliberation::{
     AuthorityDecisionIdV1, AuthorityRefV1, AuthoritySubjectIdV1, CandidateIdV1, DeliberationIdV1,
 };
-use moira_core::{agent_participation::ParticipationIdV1, task_agent_journey::JourneyIdV1};
+use moira_core::{
+    agent_participation::ParticipationIdV1,
+    task_agent_journey::{
+        JourneyIdV1, JourneyReceiptV1,
+        ParticipationAdmissionAuthorityV1 as JourneyParticipationAdmissionAuthorityV1,
+        ParticipationOwnerReconciliationRefusalV1, ParticipationOwnerReconciliationV1,
+        reconcile_participation_owner,
+    },
+};
 use moira_host::{
-    ActionSelectionDecisionV1, ActionSelectionSubjectV1, ActionSelectorV1, ChoiceAuthorityV1,
-    ChoiceDecisionV1, ChoiceRequestV1, SagaStore,
+    ActionSelectionDecisionV1, ActionSelectionSubjectV1, ActionSelectorV1,
+    AgentParticipationApplyErrorV1, AgentParticipationMutationV1, AgentParticipationStore,
+    ChoiceAuthorityV1, ChoiceDecisionV1, ChoiceRequestV1, SagaStore, TaskAgentJourneyApplyErrorV1,
+    TaskAgentJourneyApplyV1, TaskAgentJourneyMutationV1, TaskAgentJourneyStore,
 };
 use moira_protocol::tool_continuation::{
     AuthorityDecisionIdV1 as ToolAuthorityDecisionIdV1,
@@ -83,6 +93,31 @@ pub struct ParticipationAdmissionAuthorityV1 {
     pub epoch: u64,
     pub expires_at: u64,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationAdmissionOutcomeV1 {
+    pub journey: JourneyReceiptV1,
+    pub owner_was_already_exact: bool,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ParticipationAdmissionComposerErrorV1<AuthorityError, JourneyError, ParticipationError> {
+    JourneyUnavailable,
+    ParticipationOwnerUnavailable,
+    BlueprintMissing,
+    OwnerBindingConflict(ParticipationOwnerReconciliationRefusalV1),
+    AttributionMissing,
+    Authorization(ParticipationAdmissionAuthorizationError<AuthorityError>),
+    JourneyApply(TaskAgentJourneyApplyErrorV1<JourneyError>),
+    ParticipationApply(AgentParticipationApplyErrorV1<ParticipationError>),
+    UnexpectedJourneyOutcome,
+}
+
+pub type ParticipationAdmissionComposerResultV1<AuthorityError, JourneyError, ParticipationError> =
+    Result<
+        ParticipationAdmissionOutcomeV1,
+        ParticipationAdmissionComposerErrorV1<AuthorityError, JourneyError, ParticipationError>,
+    >;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum PermissionAuthorizationError<AuthorityError> {
@@ -245,6 +280,123 @@ impl<P: ServicePort, T: TimeSourceV1> AegisParticipationAdmissionAuthorityV1<P, 
             expires_at: decision.expires_at,
         })
     }
+}
+
+/// Stateful prepared-participation composer.
+///
+/// Every entry observes the participation owner before considering a dispatch.
+/// An exact owner fact is bound without a second effect. Absence receives fresh
+/// Aegis authority, persists only its non-bearer attribution, dispatches once,
+/// and then binds the definitive owner result. Any owner-store error returns
+/// immediately; a later invocation must observe again before another dispatch.
+pub fn admit_prepared_participation<P, T, J, S>(
+    authority: &mut AegisParticipationAdmissionAuthorityV1<P, T>,
+    journeys: &mut J,
+    participations: &mut S,
+    journey: JourneyIdV1,
+) -> ParticipationAdmissionComposerResultV1<P::Error, J::Error, S::Error>
+where
+    P: ServicePort,
+    T: TimeSourceV1,
+    J: TaskAgentJourneyStore,
+    S: AgentParticipationStore,
+{
+    if journeys.needs_reopen() {
+        return Err(ParticipationAdmissionComposerErrorV1::JourneyUnavailable);
+    }
+    if participations.needs_reopen() {
+        return Err(ParticipationAdmissionComposerErrorV1::ParticipationOwnerUnavailable);
+    }
+    let blueprint = journeys
+        .participation_blueprint(journey)
+        .ok_or(ParticipationAdmissionComposerErrorV1::BlueprintMissing)?;
+    let observed = participations.participation(blueprint.binding.participation);
+    let reconciliation = reconcile_participation_owner(blueprint, observed.as_ref())
+        .map_err(ParticipationAdmissionComposerErrorV1::OwnerBindingConflict)?;
+
+    if matches!(
+        reconciliation,
+        ParticipationOwnerReconciliationV1::Exact { .. }
+    ) {
+        if journeys.participation_attribution(journey).is_none() {
+            return Err(ParticipationAdmissionComposerErrorV1::AttributionMissing);
+        }
+        let Some(observed) = observed else {
+            return Err(ParticipationAdmissionComposerErrorV1::UnexpectedJourneyOutcome);
+        };
+        let journey_revision = journeys.storage_revision();
+        let applied = journeys
+            .apply(
+                Some(journey_revision),
+                TaskAgentJourneyMutationV1::BindParticipation {
+                    journey,
+                    observed: Box::new(observed),
+                },
+            )
+            .map_err(ParticipationAdmissionComposerErrorV1::JourneyApply)?;
+        let TaskAgentJourneyApplyV1::ParticipationAdmitted(journey) = applied.outcome else {
+            return Err(ParticipationAdmissionComposerErrorV1::UnexpectedJourneyOutcome);
+        };
+        return Ok(ParticipationAdmissionOutcomeV1 {
+            journey,
+            owner_was_already_exact: true,
+        });
+    }
+
+    let authorized = authority
+        .authorize(ParticipationAdmissionSubjectV1 {
+            journey,
+            participation: blueprint.binding.participation,
+        })
+        .map_err(ParticipationAdmissionComposerErrorV1::Authorization)?;
+    let attribution = JourneyParticipationAdmissionAuthorityV1 {
+        journey,
+        participation: blueprint.binding.participation,
+        decision: authorized.decision,
+        principal: authorized.principal,
+        epoch: authorized.epoch,
+        expires_at: authorized.expires_at,
+    };
+    let journey_revision = journeys.storage_revision();
+    let attributed = journeys
+        .apply(
+            Some(journey_revision),
+            TaskAgentJourneyMutationV1::AttributeParticipation {
+                journey,
+                authority: attribution,
+            },
+        )
+        .map_err(ParticipationAdmissionComposerErrorV1::JourneyApply)?;
+    if !matches!(
+        attributed.outcome,
+        TaskAgentJourneyApplyV1::ParticipationAttributed(_)
+    ) {
+        return Err(ParticipationAdmissionComposerErrorV1::UnexpectedJourneyOutcome);
+    }
+    let participation_revision = participations.storage_revision();
+    let admitted = participations
+        .apply(
+            participation_revision,
+            AgentParticipationMutationV1::Admit(blueprint.binding),
+        )
+        .map_err(ParticipationAdmissionComposerErrorV1::ParticipationApply)?;
+    let journey_revision = journeys.storage_revision();
+    let applied = journeys
+        .apply(
+            Some(journey_revision),
+            TaskAgentJourneyMutationV1::BindParticipation {
+                journey,
+                observed: Box::new(admitted.participation),
+            },
+        )
+        .map_err(ParticipationAdmissionComposerErrorV1::JourneyApply)?;
+    let TaskAgentJourneyApplyV1::ParticipationAdmitted(journey) = applied.outcome else {
+        return Err(ParticipationAdmissionComposerErrorV1::UnexpectedJourneyOutcome);
+    };
+    Ok(ParticipationAdmissionOutcomeV1 {
+        journey,
+        owner_was_already_exact: false,
+    })
 }
 
 /// One explicit candidate selection whose subject must hold a current Aegis

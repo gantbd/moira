@@ -51,13 +51,14 @@ fn legacy_admitted_checkpoint_decodes_and_upgrades_canonically() {
     let limits = j::persistence::CodecLimitsV1::default();
     let mut legacy = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
     legacy[8] = 1;
-    assert_eq!(legacy.pop(), Some(0));
-    assert_eq!(legacy.pop(), Some(0));
+    for _ in 0..19 {
+        assert_eq!(legacy.pop(), Some(0));
+    }
 
     let checkpoint = j::persistence::decode(&legacy, limits).unwrap();
     assert_eq!(checkpoint.journeys, vec![admitted]);
     let upgraded = j::persistence::encode(&checkpoint, limits).unwrap();
-    assert_eq!(upgraded[8], 3);
+    assert_eq!(upgraded[8], 5);
     assert_eq!(
         j::persistence::decode(&upgraded, limits).unwrap(),
         checkpoint
@@ -82,12 +83,14 @@ fn version_two_task_attempt_checkpoint_decodes_and_upgrades_canonically() {
     let limits = j::persistence::CodecLimitsV1::default();
     let mut version_two = j::persistence::encode(&engine.checkpoint(), limits).unwrap();
     version_two[8] = 2;
-    assert_eq!(version_two.pop(), Some(0));
+    for _ in 0..18 {
+        assert_eq!(version_two.pop(), Some(0));
+    }
 
     let checkpoint = j::persistence::decode(&version_two, limits).unwrap();
     assert_eq!(checkpoint.journeys, vec![task_ready]);
     let upgraded = j::persistence::encode(&checkpoint, limits).unwrap();
-    assert_eq!(upgraded[8], 3);
+    assert_eq!(upgraded[8], 5);
     assert_eq!(
         j::persistence::decode(&upgraded, limits).unwrap(),
         checkpoint

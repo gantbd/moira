@@ -27,6 +27,12 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
                 sequence: 0,
             },
         },
+        p::CommandV1::Participation {
+            journey: p::JourneyIdV1 {
+                owner: preview.id.owner,
+                sequence: 0,
+            },
+        },
         p::CommandV1::Status,
     ];
     for value in commands {
@@ -82,6 +88,22 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
         }),
         ..ready
     };
+    let participation_ready = p::JourneyViewV1 {
+        revision: 3,
+        phase: p::PhaseV1::ParticipationAdmitted,
+        ..room_ready
+    };
+    let participation = p::ParticipationAdmissionViewV1 {
+        journey: journey.id,
+        expected_journey_revision: 2,
+        participation: [21; 16],
+        owner_revision: 0,
+        owner_phase: moira_protocol::agent_participation::PhaseV1::Admitted,
+        authority_decision: [22; 16],
+        authority_principal: [23; 16],
+        authority_epoch: 4,
+        authority_expires_at: 2_000,
+    };
     let replies = vec![
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Catalogue {
             owner: preview.id.owner,
@@ -108,7 +130,10 @@ fn every_command_outcome_and_refusal_round_trips_in_disjoint_family() {
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(Some(journey)))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(Some(ready)))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(Some(room_ready)))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(Some(participation_ready)))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Journey(None))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Participation(Some(participation)))),
+        p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Participation(None))),
         p::ReplyV1::Accepted(Box::new(p::OutcomeV1::Status(p::StatusV1 {
             owner: preview.id.owner,
             owner_revision: 1,

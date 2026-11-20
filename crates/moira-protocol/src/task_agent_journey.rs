@@ -141,6 +141,7 @@ pub enum PhaseV1 {
     Admitted,
     TaskAttemptReady,
     RoomReady,
+    ParticipationAdmitted,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -159,6 +160,19 @@ pub struct RoomBindingV1 {
     pub source: [u8; 16],
     pub room_sequence: u64,
     pub agora_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParticipationAdmissionViewV1 {
+    pub journey: JourneyIdV1,
+    pub expected_journey_revision: u64,
+    pub participation: [u8; 16],
+    pub owner_revision: u64,
+    pub owner_phase: crate::agent_participation::PhaseV1,
+    pub authority_decision: [u8; 16],
+    pub authority_principal: [u8; 16],
+    pub authority_epoch: u64,
+    pub authority_expires_at: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -203,6 +217,9 @@ pub enum CommandV1 {
     Journey {
         journey: JourneyIdV1,
     },
+    Participation {
+        journey: JourneyIdV1,
+    },
     Status,
 }
 
@@ -235,6 +252,7 @@ pub enum OutcomeV1 {
     },
     Preview(Option<PreviewViewV1>),
     Journey(Option<JourneyViewV1>),
+    Participation(Option<ParticipationAdmissionViewV1>),
     Status(StatusV1),
 }
 

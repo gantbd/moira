@@ -83,6 +83,10 @@ fn command(writer: &mut Writer, value: &p::CommandV1) -> Result<(), CodecErrorV1
             journey_id(writer, *journey)
         }
         p::CommandV1::Status => writer.byte(5),
+        p::CommandV1::Participation { journey } => {
+            writer.byte(6)?;
+            journey_id(writer, *journey)
+        }
     }
 }
 
@@ -104,6 +108,9 @@ fn read_command(reader: &mut Reader<'_>) -> Result<p::CommandV1, CodecErrorV1> {
             journey: read_journey_id(reader)?,
         }),
         5 => Ok(p::CommandV1::Status),
+        6 => Ok(p::CommandV1::Participation {
+            journey: read_journey_id(reader)?,
+        }),
         _ => Err(CodecErrorV1::Unsupported),
     }
 }
@@ -156,6 +163,10 @@ fn outcome(writer: &mut Writer, value: &p::OutcomeV1) -> Result<(), CodecErrorV1
             writer.byte(5)?;
             status(writer, *value)
         }
+        p::OutcomeV1::Participation(value) => {
+            writer.byte(6)?;
+            writer.option(*value, participation_admission)
+        }
     }
 }
 
@@ -197,6 +208,9 @@ fn read_outcome(reader: &mut Reader<'_>) -> Result<p::OutcomeV1, CodecErrorV1> {
         3 => Ok(p::OutcomeV1::Preview(reader.option(read_preview_view)?)),
         4 => Ok(p::OutcomeV1::Journey(reader.option(read_journey_view)?)),
         5 => Ok(p::OutcomeV1::Status(read_status(reader)?)),
+        6 => Ok(p::OutcomeV1::Participation(
+            reader.option(read_participation_admission)?,
+        )),
         _ => Err(CodecErrorV1::Unsupported),
     }
 }
@@ -319,6 +333,7 @@ fn journey_view(writer: &mut Writer, value: p::JourneyViewV1) -> Result<(), Code
         p::PhaseV1::Admitted => 1,
         p::PhaseV1::TaskAttemptReady => 2,
         p::PhaseV1::RoomReady => 3,
+        p::PhaseV1::ParticipationAdmitted => 4,
     })?;
     instantiate_request(writer, value.admission)?;
     writer.u64(value.confirmed_at)?;
@@ -339,6 +354,7 @@ fn read_journey_view(reader: &mut Reader<'_>) -> Result<p::JourneyViewV1, CodecE
             1 => p::PhaseV1::Admitted,
             2 => p::PhaseV1::TaskAttemptReady,
             3 => p::PhaseV1::RoomReady,
+            4 => p::PhaseV1::ParticipationAdmitted,
             _ => return Err(CodecErrorV1::Unsupported),
         },
         admission: read_instantiate_request(reader)?,
@@ -346,6 +362,56 @@ fn read_journey_view(reader: &mut Reader<'_>) -> Result<p::JourneyViewV1, CodecE
         preview: read_preview_view(reader)?,
         task_attempt: reader.option(read_task_attempt)?,
         room: reader.option(read_room)?,
+    })
+}
+
+fn participation_admission(
+    writer: &mut Writer,
+    value: p::ParticipationAdmissionViewV1,
+) -> Result<(), CodecErrorV1> {
+    journey_id(writer, value.journey)?;
+    writer.u64(value.expected_journey_revision)?;
+    writer.raw(&value.participation)?;
+    writer.u64(value.owner_revision)?;
+    writer.byte(match value.owner_phase {
+        moira_protocol::agent_participation::PhaseV1::Admitted => 1,
+        moira_protocol::agent_participation::PhaseV1::Ready => 2,
+        moira_protocol::agent_participation::PhaseV1::TurnActive => 3,
+        moira_protocol::agent_participation::PhaseV1::AwaitingPermission => 4,
+        moira_protocol::agent_participation::PhaseV1::Terminal => 5,
+        moira_protocol::agent_participation::PhaseV1::FencedUnknown => 6,
+        moira_protocol::agent_participation::PhaseV1::Closed => 7,
+        moira_protocol::agent_participation::PhaseV1::ReattachRequired => 8,
+    })?;
+    writer.raw(&value.authority_decision)?;
+    writer.raw(&value.authority_principal)?;
+    writer.u64(value.authority_epoch)?;
+    writer.u64(value.authority_expires_at)
+}
+
+fn read_participation_admission(
+    reader: &mut Reader<'_>,
+) -> Result<p::ParticipationAdmissionViewV1, CodecErrorV1> {
+    Ok(p::ParticipationAdmissionViewV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.u64()?,
+        participation: reader.raw()?,
+        owner_revision: reader.u64()?,
+        owner_phase: match reader.byte()? {
+            1 => moira_protocol::agent_participation::PhaseV1::Admitted,
+            2 => moira_protocol::agent_participation::PhaseV1::Ready,
+            3 => moira_protocol::agent_participation::PhaseV1::TurnActive,
+            4 => moira_protocol::agent_participation::PhaseV1::AwaitingPermission,
+            5 => moira_protocol::agent_participation::PhaseV1::Terminal,
+            6 => moira_protocol::agent_participation::PhaseV1::FencedUnknown,
+            7 => moira_protocol::agent_participation::PhaseV1::Closed,
+            8 => moira_protocol::agent_participation::PhaseV1::ReattachRequired,
+            _ => return Err(CodecErrorV1::Unsupported),
+        },
+        authority_decision: reader.raw()?,
+        authority_principal: reader.raw()?,
+        authority_epoch: reader.u64()?,
+        authority_expires_at: reader.u64()?,
     })
 }
 

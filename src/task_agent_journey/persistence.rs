@@ -137,7 +137,7 @@ impl<'a> Reader<'a> {
 }
 
 pub fn encode(checkpoint: &CheckpointV1, limits: CodecLimitsV1) -> Result<Vec<u8>, CodecErrorV1> {
-    encode_version(checkpoint, limits, 4)
+    encode_version(checkpoint, limits, 5)
 }
 
 fn encode_version(
@@ -169,7 +169,7 @@ fn encode_version(
         preview(&mut writer, value)?;
     }
     writer.number(to_u64(canonical.journeys.len())?)?;
-    for value in canonical.journeys {
+    for value in canonical.journeys.iter().copied() {
         journey(&mut writer, value, version)?;
     }
     if version >= 4 {
@@ -178,6 +178,19 @@ fn encode_version(
             participation_blueprint(&mut writer, value)?;
         }
     } else if !canonical.participation_blueprints.is_empty() {
+        return Err(CodecErrorV1::Invalid);
+    }
+    if version >= 5 {
+        writer.number(to_u64(canonical.participation_attributions.len())?)?;
+        for value in canonical.participation_attributions {
+            participation_attribution(&mut writer, value)?;
+        }
+    } else if !canonical.participation_attributions.is_empty()
+        || canonical
+            .journeys
+            .iter()
+            .any(|journey| journey.participation.is_some())
+    {
         return Err(CodecErrorV1::Invalid);
     }
     Ok(writer.bytes)
@@ -190,7 +203,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         return Err(CodecErrorV1::Invalid);
     }
     let version = reader.byte()?;
-    if !matches!(version, 1..=4) {
+    if !matches!(version, 1..=5) {
         return Err(CodecErrorV1::Invalid);
     }
     let owner = OwnerIdV1(reader.id()?);
@@ -235,6 +248,19 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         }
         values
     };
+    let participation_attributions = if version < 5 {
+        Vec::new()
+    } else {
+        let count = reader.count(domain.max_journeys)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| CodecErrorV1::Capacity)?;
+        for _ in 0..count {
+            values.push(read_participation_attribution(&mut reader)?);
+        }
+        values
+    };
     reader.finish()?;
     let checkpoint = CheckpointV1 {
         owner,
@@ -246,6 +272,7 @@ pub fn decode(bytes: &[u8], limits: CodecLimitsV1) -> Result<CheckpointV1, Codec
         previews,
         journeys,
         participation_blueprints,
+        participation_attributions,
     };
     Engine::recover(checkpoint.clone()).map_err(|_| CodecErrorV1::Invalid)?;
     if encode_version(&checkpoint, limits, version)? != bytes {
@@ -367,12 +394,16 @@ fn journey(writer: &mut Writer, value: JourneySnapshotV1, version: u8) -> Result
         PhaseV1::Admitted => 1,
         PhaseV1::TaskAttemptReady => 2,
         PhaseV1::RoomReady => 3,
+        PhaseV1::ParticipationAdmitted => 4,
     })?;
     instantiate_request(writer, value.admission)?;
     writer.number(value.confirmed_at)?;
     preview(writer, value.preview)?;
     if version == 1 {
-        if value.task_attempt.is_some() || value.room.is_some() || value.phase != PhaseV1::Admitted
+        if value.task_attempt.is_some()
+            || value.room.is_some()
+            || value.participation.is_some()
+            || value.phase != PhaseV1::Admitted
         {
             return Err(CodecErrorV1::Invalid);
         }
@@ -386,7 +417,13 @@ fn journey(writer: &mut Writer, value: JourneySnapshotV1, version: u8) -> Result
         }
     }?;
     if version == 2 {
-        if value.room.is_some() || value.phase == PhaseV1::RoomReady {
+        if value.room.is_some()
+            || value.participation.is_some()
+            || matches!(
+                value.phase,
+                PhaseV1::RoomReady | PhaseV1::ParticipationAdmitted
+            )
+        {
             return Err(CodecErrorV1::Invalid);
         }
         return Ok(());
@@ -396,6 +433,19 @@ fn journey(writer: &mut Writer, value: JourneySnapshotV1, version: u8) -> Result
         Some(binding) => {
             writer.byte(1)?;
             room(writer, binding)
+        }
+    }?;
+    if version < 5 {
+        if value.participation.is_some() || value.phase == PhaseV1::ParticipationAdmitted {
+            return Err(CodecErrorV1::Invalid);
+        }
+        return Ok(());
+    }
+    match value.participation {
+        None => writer.byte(0),
+        Some(binding) => {
+            writer.byte(1)?;
+            participation_admission(writer, binding)
         }
     }
 }
@@ -411,6 +461,7 @@ fn read_journey(reader: &mut Reader<'_>, version: u8) -> Result<JourneySnapshotV
         1 => PhaseV1::Admitted,
         2 if version >= 2 => PhaseV1::TaskAttemptReady,
         3 if version >= 3 => PhaseV1::RoomReady,
+        4 if version >= 5 => PhaseV1::ParticipationAdmitted,
         _ => return Err(CodecErrorV1::Invalid),
     };
     let admission = read_instantiate_request(reader)?;
@@ -434,6 +485,15 @@ fn read_journey(reader: &mut Reader<'_>, version: u8) -> Result<JourneySnapshotV
             _ => return Err(CodecErrorV1::Invalid),
         }
     };
+    let participation = if version < 5 {
+        None
+    } else {
+        match reader.byte()? {
+            0 => None,
+            1 => Some(read_participation_admission(reader)?),
+            _ => return Err(CodecErrorV1::Invalid),
+        }
+    };
     Ok(JourneySnapshotV1 {
         id,
         workflow,
@@ -444,6 +504,74 @@ fn read_journey(reader: &mut Reader<'_>, version: u8) -> Result<JourneySnapshotV
         preview,
         task_attempt,
         room,
+        participation,
+    })
+}
+
+fn participation_attribution(
+    writer: &mut Writer,
+    value: ParticipationDispatchAttributionV1,
+) -> Result<(), CodecErrorV1> {
+    participation_blueprint(writer, value.blueprint)?;
+    participation_authority(writer, value.authority)
+}
+
+fn read_participation_attribution(
+    reader: &mut Reader<'_>,
+) -> Result<ParticipationDispatchAttributionV1, CodecErrorV1> {
+    Ok(ParticipationDispatchAttributionV1 {
+        blueprint: read_participation_blueprint(reader)?,
+        authority: read_participation_authority(reader)?,
+    })
+}
+
+fn participation_authority(
+    writer: &mut Writer,
+    value: ParticipationAdmissionAuthorityV1,
+) -> Result<(), CodecErrorV1> {
+    scoped_journey_id(writer, value.journey)?;
+    writer.id(value.participation.0)?;
+    writer.id(value.decision)?;
+    writer.id(value.principal)?;
+    writer.number(value.epoch)?;
+    writer.number(value.expires_at)
+}
+
+fn read_participation_authority(
+    reader: &mut Reader<'_>,
+) -> Result<ParticipationAdmissionAuthorityV1, CodecErrorV1> {
+    Ok(ParticipationAdmissionAuthorityV1 {
+        journey: read_journey_id(reader)?,
+        participation: crate::agent_participation::ParticipationIdV1(reader.id()?),
+        decision: reader.id()?,
+        principal: reader.id()?,
+        epoch: reader.number()?,
+        expires_at: reader.number()?,
+    })
+}
+
+fn participation_admission(
+    writer: &mut Writer,
+    value: ParticipationAdmissionBindingV1,
+) -> Result<(), CodecErrorV1> {
+    scoped_journey_id(writer, value.journey)?;
+    writer.number(value.expected_journey_revision)?;
+    writer.id(value.participation.0)?;
+    writer.number(value.owner_revision)?;
+    writer.byte(agent_participation_phase_tag(value.owner_phase))?;
+    participation_authority(writer, value.authority)
+}
+
+fn read_participation_admission(
+    reader: &mut Reader<'_>,
+) -> Result<ParticipationAdmissionBindingV1, CodecErrorV1> {
+    Ok(ParticipationAdmissionBindingV1 {
+        journey: read_journey_id(reader)?,
+        expected_journey_revision: reader.number()?,
+        participation: crate::agent_participation::ParticipationIdV1(reader.id()?),
+        owner_revision: reader.number()?,
+        owner_phase: read_agent_participation_phase(reader.byte()?)?,
+        authority: read_participation_authority(reader)?,
     })
 }
 
@@ -833,6 +961,33 @@ fn read_ensemble_fitness(value: u8) -> Result<EnsembleFitnessV1, CodecErrorV1> {
         1 => Ok(EnsembleFitnessV1::Yes),
         2 => Ok(EnsembleFitnessV1::No),
         3 => Ok(EnsembleFitnessV1::Contested),
+        _ => Err(CodecErrorV1::Invalid),
+    }
+}
+
+fn agent_participation_phase_tag(value: AgentParticipationPhaseV1) -> u8 {
+    match value {
+        AgentParticipationPhaseV1::Admitted => 1,
+        AgentParticipationPhaseV1::Ready => 2,
+        AgentParticipationPhaseV1::TurnActive => 3,
+        AgentParticipationPhaseV1::AwaitingPermission => 4,
+        AgentParticipationPhaseV1::Terminal => 5,
+        AgentParticipationPhaseV1::FencedUnknown => 6,
+        AgentParticipationPhaseV1::Closed => 7,
+        AgentParticipationPhaseV1::ReattachRequired => 8,
+    }
+}
+
+fn read_agent_participation_phase(value: u8) -> Result<AgentParticipationPhaseV1, CodecErrorV1> {
+    match value {
+        1 => Ok(AgentParticipationPhaseV1::Admitted),
+        2 => Ok(AgentParticipationPhaseV1::Ready),
+        3 => Ok(AgentParticipationPhaseV1::TurnActive),
+        4 => Ok(AgentParticipationPhaseV1::AwaitingPermission),
+        5 => Ok(AgentParticipationPhaseV1::Terminal),
+        6 => Ok(AgentParticipationPhaseV1::FencedUnknown),
+        7 => Ok(AgentParticipationPhaseV1::Closed),
+        8 => Ok(AgentParticipationPhaseV1::ReattachRequired),
         _ => Err(CodecErrorV1::Invalid),
     }
 }

@@ -406,6 +406,91 @@ fn prepared_participation_reconciles_owner_absence_exact_match_and_conflict() {
 }
 
 #[test]
+fn attributed_owner_admission_advances_once_and_recovers_exactly() {
+    let (mut engine, ready, workflow, deliberation, binding) = participation_engine_facts();
+    engine
+        .prepare_participation(ready.id, workflow, deliberation, binding)
+        .unwrap();
+    let authority = j::ParticipationAdmissionAuthorityV1 {
+        journey: ready.id,
+        participation: binding.participation,
+        decision: [41; 16],
+        principal: [42; 16],
+        epoch: 7,
+        expires_at: 2_000,
+    };
+    let attributed = engine
+        .attribute_participation_dispatch(ready.id, authority)
+        .unwrap();
+    assert!(!attributed.replayed);
+    assert_eq!(attributed.attribution.authority, authority);
+    assert!(
+        engine
+            .attribute_participation_dispatch(ready.id, authority)
+            .unwrap()
+            .replayed
+    );
+
+    let mut owner =
+        AgentParticipationEngine::try_new(AgentParticipationLimitsV1::default()).unwrap();
+    owner.admit(binding).unwrap();
+    let observed = owner.participation(binding.participation).unwrap();
+    let admitted = engine.bind_participation(ready.id, observed).unwrap();
+    assert!(!admitted.replayed);
+    assert_eq!(admitted.journey.phase, j::PhaseV1::ParticipationAdmitted);
+    assert_eq!(admitted.journey.revision, ready.revision + 1);
+    assert_eq!(admitted.journey.participation.unwrap().authority, authority);
+    assert!(
+        engine
+            .bind_participation(ready.id, observed)
+            .unwrap()
+            .replayed
+    );
+
+    let reopened = j::Engine::recover(engine.checkpoint()).unwrap();
+    assert_eq!(reopened.journey(ready.id), Some(&admitted.journey));
+    assert_eq!(
+        reopened.participation_attribution(ready.id),
+        Some(&attributed.attribution)
+    );
+}
+
+#[test]
+fn participation_binding_requires_exact_owner_and_prior_attribution() {
+    let (mut engine, ready, workflow, deliberation, binding) = participation_engine_facts();
+    engine
+        .prepare_participation(ready.id, workflow, deliberation, binding)
+        .unwrap();
+    let mut owner =
+        AgentParticipationEngine::try_new(AgentParticipationLimitsV1::default()).unwrap();
+    owner.admit(binding).unwrap();
+    let observed = owner.participation(binding.participation).unwrap();
+    assert_eq!(
+        engine.bind_participation(ready.id, observed),
+        Err(j::RefusalV1::InvalidParticipation)
+    );
+
+    let authority = j::ParticipationAdmissionAuthorityV1 {
+        journey: ready.id,
+        participation: binding.participation,
+        decision: [43; 16],
+        principal: [44; 16],
+        epoch: 8,
+        expires_at: 2_100,
+    };
+    engine
+        .attribute_participation_dispatch(ready.id, authority)
+        .unwrap();
+    let mut substituted = observed.clone();
+    substituted.binding.session = AgentSessionIdV1([99; 16]);
+    assert_eq!(
+        engine.bind_participation(ready.id, &substituted),
+        Err(j::RefusalV1::ParticipationConflict)
+    );
+    assert_eq!(engine.journey(ready.id), Some(&ready));
+}
+
+#[test]
 fn participation_blueprint_refuses_invented_or_substituted_owner_facts() {
     let (ready, workflow, deliberation, binding) = participation_facts();
     let mut early = ready;

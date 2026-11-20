@@ -16,8 +16,11 @@ use moira_core::task_agent_journey::{
     InstantiateRequestV1 as TaskAgentInstantiateRequestV1, JourneyIdV1 as TaskAgentJourneyIdV1,
     JourneyReceiptV1 as TaskAgentJourneyReceiptV1, JourneySnapshotV1 as TaskAgentJourneySnapshotV1,
     OwnerIdV1 as TaskAgentOwnerIdV1,
+    ParticipationAdmissionAuthorityV1 as TaskAgentParticipationAdmissionAuthorityV1,
     ParticipationBlueprintReceiptV1 as TaskAgentParticipationBlueprintReceiptV1,
     ParticipationBlueprintV1 as TaskAgentParticipationBlueprintV1,
+    ParticipationDispatchAttributionReceiptV1 as TaskAgentParticipationDispatchAttributionReceiptV1,
+    ParticipationDispatchAttributionV1 as TaskAgentParticipationDispatchAttributionV1,
     ParticipationWorkflowReceiptV1 as TaskAgentParticipationWorkflowReceiptV1,
     PreviewIdV1 as TaskAgentPreviewIdV1, PreviewReceiptV1 as TaskAgentPreviewReceiptV1,
     PreviewRequestV1 as TaskAgentPreviewRequestV1, PreviewSnapshotV1 as TaskAgentPreviewSnapshotV1,
@@ -200,6 +203,14 @@ pub enum TaskAgentJourneyMutationV1 {
         receipt: moira_core::task_agent_journey::AgoraRoomReceiptV1,
     },
     PrepareParticipation(Box<TaskAgentParticipationPreparationV1>),
+    AttributeParticipation {
+        journey: TaskAgentJourneyIdV1,
+        authority: TaskAgentParticipationAdmissionAuthorityV1,
+    },
+    BindParticipation {
+        journey: TaskAgentJourneyIdV1,
+        observed: Box<AgentParticipationSnapshotV1>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -209,6 +220,8 @@ pub enum TaskAgentJourneyApplyV1 {
     TaskAttempt(TaskAgentJourneyReceiptV1),
     Room(TaskAgentJourneyReceiptV1),
     ParticipationPrepared(TaskAgentParticipationBlueprintReceiptV1),
+    ParticipationAttributed(TaskAgentParticipationDispatchAttributionReceiptV1),
+    ParticipationAdmitted(TaskAgentJourneyReceiptV1),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -241,6 +254,13 @@ pub trait TaskAgentJourneyStore {
         &self,
         journey: TaskAgentJourneyIdV1,
     ) -> Option<TaskAgentParticipationBlueprintV1> {
+        let _ = journey;
+        None
+    }
+    fn participation_attribution(
+        &self,
+        journey: TaskAgentJourneyIdV1,
+    ) -> Option<TaskAgentParticipationDispatchAttributionV1> {
         let _ = journey;
         None
     }
