@@ -1,13 +1,14 @@
 use agora_actor_publication_port::{
     ActorPublicationAcceptedV1, ActorPublicationObservationRefusalV1,
-    ActorPublicationObservationV1, ActorPublicationRefusalV1, ActorPublicationRequestV1,
-    ActorPublicationWireClientV1,
+    ActorPublicationObservationV1, ActorPublicationProvenanceObservationV1,
+    ActorPublicationProvenanceV1, ActorPublicationProvenanceWireClientV1,
+    ActorPublicationRefusalV1, ActorPublicationRequestV1, ActorPublicationWireClientV1,
 };
 use moira_agora::{
     PublicationIntentV1, PublicationLimitsV1,
     actor::{
-        ActorObservationReplyV1, ActorPublicationReplyV1, ActorPublisherErrorV1,
-        ActorResponsePublisher,
+        ActorObservationReplyV1, ActorProvenanceObservationReplyV1, ActorPublicationReplyV1,
+        ActorPublisherErrorV1, ActorResponsePublisher,
     },
 };
 use moira_protocol::EffectIdV1;
@@ -66,6 +67,29 @@ impl ActorPublicationWireClientV1 for Client {
     }
 }
 
+impl ActorPublicationProvenanceWireClientV1 for Client {
+    type Error = Error;
+
+    fn observe_actor_provenance_wire(
+        &mut self,
+        request: ActorPublicationRequestV1,
+    ) -> Result<
+        Result<ActorPublicationProvenanceObservationV1, ActorPublicationObservationRefusalV1>,
+        Self::Error,
+    > {
+        Ok(match self.retained.lock().unwrap().as_ref() {
+            Some((prior, accepted)) if prior == &request => Ok(
+                ActorPublicationProvenanceObservationV1::Accepted(ActorPublicationProvenanceV1 {
+                    accepted: *accepted,
+                    actor: "agent".into(),
+                }),
+            ),
+            Some(_) => Err(ActorPublicationObservationRefusalV1::Conflict),
+            None => Ok(ActorPublicationProvenanceObservationV1::Absent),
+        })
+    }
+}
+
 fn intent() -> PublicationIntentV1 {
     PublicationIntentV1 {
         effect: EffectIdV1([0x31; 16]),
@@ -105,6 +129,14 @@ fn lost_publish_reply_is_observed_after_independent_reconnect() {
     assert_eq!(observed.receipt.message.message_sequence, 7);
     assert_eq!(observed.receipt.agora_revision, 19);
     assert_eq!(observed.message_id.into_bytes(), [0x44; 16]);
+    let ActorProvenanceObservationReplyV1::Published(provenance) =
+        publisher.observe_provenance(&intent()).unwrap()
+    else {
+        panic!("retained publication provenance expected")
+    };
+    assert_eq!(provenance.published, observed);
+    assert_eq!(provenance.actor, "agent");
+    assert!(!format!("{provenance:?}").contains("agent"));
     assert!(matches!(
         publisher.publish(&intent()),
         Ok(ActorPublicationReplyV1::Published(replayed)) if replayed == observed
@@ -123,6 +155,10 @@ fn absence_and_conflict_never_fall_through_to_publication() {
     assert_eq!(
         publisher.observe(&intent()).unwrap(),
         ActorObservationReplyV1::Absent
+    );
+    assert_eq!(
+        publisher.observe_provenance(&intent()).unwrap(),
+        ActorProvenanceObservationReplyV1::Absent
     );
     assert!(matches!(
         publisher.publish(&intent()).unwrap(),

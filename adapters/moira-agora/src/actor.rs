@@ -8,8 +8,9 @@
 use crate::{PublicationIntentV1, PublicationLimitsV1, PublishedV1, valid_intent};
 use agora_actor_publication_port::{
     ActorPublicationIdV1, ActorPublicationInputRefusalV1, ActorPublicationIntentV1,
-    ActorPublicationObservationRefusalV1, ActorPublicationObservationV1, ActorPublicationRefusalV1,
-    ActorPublicationRequestV1, ActorPublicationWireClientV1,
+    ActorPublicationObservationRefusalV1, ActorPublicationObservationV1,
+    ActorPublicationProvenanceObservationV1, ActorPublicationProvenanceWireClientV1,
+    ActorPublicationRefusalV1, ActorPublicationRequestV1, ActorPublicationWireClientV1,
 };
 use agora_protocol::v2::MessageIdV1;
 use moira_protocol::{MessageRefV1, PublicationReceiptV1};
@@ -23,6 +24,29 @@ pub enum ActorPublicationReplyV1 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ActorObservationReplyV1 {
     Published(PublishedV1),
+    Absent,
+    Refused(ActorPublicationObservationRefusalV1),
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct ActorPublishedProvenanceV1 {
+    pub published: PublishedV1,
+    pub actor: String,
+}
+
+impl std::fmt::Debug for ActorPublishedProvenanceV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActorPublishedProvenanceV1")
+            .field("published", &self.published)
+            .field("actor_bytes", &self.actor.len())
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActorProvenanceObservationReplyV1 {
+    Published(ActorPublishedProvenanceV1),
     Absent,
     Refused(ActorPublicationObservationRefusalV1),
 }
@@ -92,6 +116,41 @@ impl<P: ActorPublicationWireClientV1> ActorResponsePublisher<P> {
 
     pub fn into_client(self) -> P {
         self.client
+    }
+}
+
+impl<P> ActorResponsePublisher<P>
+where
+    P: ActorPublicationWireClientV1
+        + ActorPublicationProvenanceWireClientV1<Error = <P as ActorPublicationWireClientV1>::Error>,
+{
+    /// Exact historical observation retaining Agora's Host-derived actor next
+    /// to Moira's effect/source/room projection. This proves Agora authorship,
+    /// not workflow identity, task linkage, acceptance, or completion.
+    pub fn observe_provenance(
+        &mut self,
+        intent: &PublicationIntentV1,
+    ) -> Result<
+        ActorProvenanceObservationReplyV1,
+        ActorPublisherErrorV1<<P as ActorPublicationWireClientV1>::Error>,
+    > {
+        let request = request(self.limits, intent)?;
+        match self
+            .client
+            .observe_actor_provenance_wire(request)
+            .map_err(ActorPublisherErrorV1::Transport)?
+        {
+            Ok(ActorPublicationProvenanceObservationV1::Accepted(provenance)) => Ok(
+                ActorProvenanceObservationReplyV1::Published(ActorPublishedProvenanceV1 {
+                    published: published(intent, provenance.accepted),
+                    actor: provenance.actor,
+                }),
+            ),
+            Ok(ActorPublicationProvenanceObservationV1::Absent) => {
+                Ok(ActorProvenanceObservationReplyV1::Absent)
+            }
+            Err(refusal) => Ok(ActorProvenanceObservationReplyV1::Refused(refusal)),
+        }
     }
 }
 
